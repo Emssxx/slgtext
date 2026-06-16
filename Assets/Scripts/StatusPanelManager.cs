@@ -7,6 +7,7 @@ public class StatusPanelManager : MonoBehaviour
     [Header("引用")]
     public Transform contentParent;   // 卡片生成在谁下面（StatusPanel 的 Content）
     public GameObject npcCardPrefab;  // NpcCard 预制体
+    public NpcAgent npcAgent;         // 当前对话目标（Inspector 拖入），生成卡片时塞给每张卡，点卡片才能切换聊天对象
 
     [Header("刷新设置")]
     public float refreshInterval = 0.5f; // 每隔多少秒刷新一次数值（不用每帧刷，省性能）
@@ -28,6 +29,7 @@ public class StatusPanelManager : MonoBehaviour
         {
             GameObject go = Instantiate(npcCardPrefab, contentParent);
             NpcCardUI card = go.GetComponent<NpcCardUI>();
+            card.npcAgent = npcAgent;   // 塞入当前对话目标，点卡片时才能切换聊天对象
             card.Refresh(npc);          // 初次填充
             _cards[npc.id] = card;      // 记下来
         }
