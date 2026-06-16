@@ -49,7 +49,11 @@ public class LocalizationManager : MonoBehaviour
             { "state_broken",       ("（已不成人形）", "（もはや人の形ではない）") },
 
             // —— 按钮/界面 ——
-            { "btn_language", ("日本語", "中文") }, // 按钮显示"切换到另一种语言"
+            { "btn_language", ("中", "日") }, // 按钮显示"当前是什么语言"的单字简称
+
+            // —— 聊天框 ——
+            { "chat_placeholder", ("说点什么...", "何か話してください…") }, // 输入框占位文字
+            { "chat_send",        ("发送", "送信") },                      // 发送按钮文字
 
             // —— 系统提示 / 事件 ——
             { "system_speaker", ("系统", "システム") },
