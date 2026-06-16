@@ -90,7 +90,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::NpcCardUI
   npcId: 
   npcAgent: {fileID: 0}
-  font: {fileID: 11400000, guid: 35bfc440b1f50a349bae2574a3d04ad9, type: 2}
+  font: {fileID: 11400000, guid: 8394db1a82bf0b24983f7a0acabdf010, type: 2}
   cardWidth: 280
   nameHeight: 22
   rowHeight: 22
