@@ -1,0 +1,75 @@
+using UnityEngine;
+using UnityEngine.AI; // NavMeshAgent 在这里
+
+// NPC 移动控制（NavMesh 寻路版）：给一个目标点，NPC 用导航网格自动绕开墙走过去。
+// 移动时切走路动画 + 按左右翻转朝向；停下播待机。
+[RequireComponent(typeof(NavMeshAgent))]
+public class NpcMover : MonoBehaviour
+{
+    public float arriveDistance = 0.1f; // 离目标多近算到达
+
+    private NavMeshAgent _agent;   // 导航代理，负责算路和移动
+    private Animator _animator;
+    private SpriteRenderer _sprite;
+    private bool _hasTarget = false;
+
+    void Awake()
+    {
+        _agent = GetComponent<NavMeshAgent>();
+
+        // 2D 关键设置：代码里再保险地关掉 3D 旋转/抬升，防止 Sprite 乱转。
+        _agent.updateRotation = false;
+        _agent.updateUpAxis = false;
+
+        _animator = GetComponent<Animator>();
+        if (_animator == null) _animator = GetComponentInChildren<Animator>();
+
+        _sprite = GetComponent<SpriteRenderer>();
+        if (_sprite == null) _sprite = GetComponentInChildren<SpriteRenderer>();
+    }
+
+    // 外部调用：命令 NPC 走到某个世界坐标（会自动寻路绕障碍）。
+    public void MoveTo(Vector3 targetPos)
+    {
+        targetPos.z = transform.position.z;
+        _agent.SetDestination(targetPos); // 交给导航系统算路
+        _hasTarget = true;
+    }
+
+    public bool IsMoving => _hasTarget;
+
+    void Update()
+    {
+        if (!_hasTarget)
+        {
+            SetMovingAnim(false);
+            return;
+        }
+
+        // 用代理的速度判断在不在移动。
+        Vector3 vel = _agent.velocity;
+        bool moving = vel.sqrMagnitude > 0.01f;
+        SetMovingAnim(moving);
+
+        // 按水平速度方向翻转朝向。
+        if (_sprite != null && moving)
+        {
+            if (vel.x < -0.01f) _sprite.flipX = true;       // 朝左
+            else if (vel.x > 0.01f) _sprite.flipX = false;  // 朝右
+            // 若角色原图本来朝左，把这两行 true/false 对调。
+        }
+
+        // 到达判定：路径算完 且 离目标足够近。
+        if (!_agent.pathPending && _agent.remainingDistance <= arriveDistance)
+        {
+            _hasTarget = false;
+            SetMovingAnim(false);
+        }
+    }
+
+    void SetMovingAnim(bool moving)
+    {
+        if (_animator != null)
+            _animator.SetBool("isMoving", moving);
+    }
+}

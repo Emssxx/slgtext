@@ -1,0 +1,4 @@
+repository "slgtext1.2/slgtext1.2@15669356729137@cloud"
+  path "/"
+    br "/main"
+    co "/main"

@@ -1,0 +1,115 @@
+using UnityEngine;
+using System.Collections.Generic;
+using Newtonsoft.Json; // 用 Newtonsoft 序列化（比 JsonUtility 支持更全）
+
+// 世界管理器（新架构版）：世界状态的唯一真相来源（单例）。
+// 负责：随机生成 NPC（词条池）、初始化 NPC 间关系、登记场景标记、提供查询/仓库工具。
+public class WorldManager : MonoBehaviour
+{
+    public static WorldManager Instance { get; private set; }
+
+    public WorldState world = new WorldState();
+
+    [Header("生成设置")]
+    public int npcCount = 3; // 开局生成几个 NPC
+
+    void Awake()
+    {
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
+        DontDestroyOnLoad(gameObject);
+    }
+
+    void Start()
+    {
+        CreateWorld();                                  // 1. 造世界 + 随机生成 NPC
+        RegisterAllMarkers();                            // 2. 登记场景里的地点/物品标记
+        RelationshipManager.InitAllRelationships(world); // 3. 初始化 NPC 间关系
+        Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
+    }
+
+    // 造世界：用词条池随机生成 NPC。
+    void CreateWorld()
+    {
+        world = new WorldState();
+        world.day = 1;
+        world.timeOfDay = "白天";
+        world.globalSituation = "你们刚被卷入亚空间，在一处废弃营地中醒来。";
+
+        // 随机生成 npcCount 个各不相同的 NPC。
+        for (int i = 0; i < npcCount; i++)
+        {
+            string id = "npc_" + (i + 1).ToString("00"); // npc_01, npc_02...
+            NpcData npc = NpcGenerator.Generate(id);
+            world.npcs.Add(npc);
+        }
+
+        // 公共仓库放点初始物资。
+        world.sharedStorage.Add(new ItemStack { itemName = "罐头", count = 3 });
+        world.sharedStorage.Add(new ItemStack { itemName = "饮用水", count = 5 });
+    }
+
+    // 扫描场景里所有 LocationMarker / WorldItemMarker，统一登记到世界数据。
+    // （解决各标记 Start 时序问题：由 WorldManager 统一在生成世界后登记。）
+    void RegisterAllMarkers()
+    {
+        foreach (LocationMarker m in FindObjectsOfType<LocationMarker>())
+            m.Register();
+        foreach (WorldItemMarker m in FindObjectsOfType<WorldItemMarker>())
+            m.Register();
+
+        Debug.Log($"已登记 {world.locations.Count} 个地点、{world.worldItems.Count} 个物品");
+    }
+
+    // 把世界状态转成 JSON（喂 AI 用）。
+    public string ExportWorldAsJson()
+    {
+        return JsonConvert.SerializeObject(world, Formatting.Indented);
+    }
+
+    // —— 查询/工具方法 ——
+
+    // 按 id 找 NPC。
+    public NpcData GetNpcById(string id)
+    {
+        foreach (NpcData npc in world.npcs)
+            if (npc.id == id) return npc;
+        return null;
+    }
+
+    // 推进一个回合（天数+1）。具体数值影响由 WorldRules 处理。
+    public void AdvanceTurn()
+    {
+        world.day += 1;
+    }
+
+    // —— 仓库操作 ——
+
+    // 从公共仓库消耗指定物品，成功返回 true。
+    public bool ConsumeFromStorage(string itemName, int amount)
+    {
+        foreach (ItemStack stack in world.sharedStorage)
+        {
+            if (stack.itemName == itemName && stack.count >= amount)
+            {
+                stack.count -= amount;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 往公共仓库添加物品（没有则新建一条）。
+    public void AddToStorage(string itemName, int amount)
+    {
+        foreach (ItemStack stack in world.sharedStorage)
+        {
+            if (stack.itemName == itemName)
+            {
+                stack.count += amount;
+                return;
+            }
+        }
+        world.sharedStorage.Add(new ItemStack { itemName = itemName, count = amount });
+    }
+}

@@ -1,0 +1,42 @@
+# Unity 标准 .gitignore
+
+# 自动生成的缓存/临时目录
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Mm]emoryCaptures/
+/[Uu]serSettings/
+
+# Visual Studio / Rider 相关
+.vs/
+.idea/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity3D 生成的元数据
+*.tmp
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# 崩溃报告
+sysinfo.txt
+
+# 构建产物
+*.exe
+*.app
