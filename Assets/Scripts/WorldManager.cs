@@ -53,9 +53,9 @@ public class WorldManager : MonoBehaviour
     // （解决各标记 Start 时序问题：由 WorldManager 统一在生成世界后登记。）
     void RegisterAllMarkers()
     {
-        foreach (LocationMarker m in FindObjectsOfType<LocationMarker>())
+        foreach (LocationMarker m in FindObjectsByType<LocationMarker>()) // 新 API 替代过时的 FindObjectsOfType（默认不排序，更快）
             m.Register();
-        foreach (WorldItemMarker m in FindObjectsOfType<WorldItemMarker>())
+        foreach (WorldItemMarker m in FindObjectsByType<WorldItemMarker>())
             m.Register();
 
         Debug.Log($"已登记 {world.locations.Count} 个地点、{world.worldItems.Count} 个物品");

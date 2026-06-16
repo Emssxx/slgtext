@@ -178,7 +178,7 @@ public class NpcCardUI : MonoBehaviour
         go.transform.SetParent(parent, false);
         TMP_Text t = go.AddComponent<TextMeshProUGUI>();
         t.text = content; t.fontSize = 16; t.alignment = align;
-        t.color = Color.white; t.enableWordWrapping = false;
+        t.color = Color.white; t.textWrappingMode = TextWrappingModes.NoWrap; // 用新 API 代替过时的 enableWordWrapping
         if (font != null) t.font = font; // 用你指定的中日文字体
         return t;
     }

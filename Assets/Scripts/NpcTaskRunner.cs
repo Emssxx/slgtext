@@ -142,7 +142,7 @@ public class NpcTaskRunner : MonoBehaviour
     // 按物品 id 找场景物体。
     Transform FindItemTransform(string itemId)
     {
-        foreach (WorldItemMarker m in FindObjectsOfType<WorldItemMarker>())
+        foreach (WorldItemMarker m in FindObjectsByType<WorldItemMarker>()) // 新 API 替代过时的 FindObjectsOfType（默认不排序，更快）
             if (m.id == itemId) return m.transform;
         return null;
     }
