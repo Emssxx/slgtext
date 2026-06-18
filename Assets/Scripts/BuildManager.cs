@@ -4,6 +4,7 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using System.Collections;
 using System.Collections.Generic;
+using NavMeshPlus.Components;
 
 // 建造管理器：完整流程版（阶段A-E）。
 // 流程：B键进入 → 绿红覆盖层 → 菜单选类型 → 连点格子生成半透明预览 → NPC逐个走过去把预览变实体。
@@ -14,6 +15,7 @@ public class BuildManager : MonoBehaviour
 
     [Header("引用")]
     public Camera mainCamera; // 主相机，用于屏幕坐标转世界坐标
+    public NavMeshSurface navMeshSurface; // 场景里的 NavMeshSurface，施工完毕后重新烘焙
 
     [Header("建造类型预制体（拖入 Inspector）")]
     public GameObject wallPrefab; // 墙的预制体
@@ -306,6 +308,18 @@ public class BuildManager : MonoBehaviour
         }
 
         _isProcessingQueue = false;
+
+        // 所有蓝图施工完毕 → 重新烘焙 NavMesh，让寻路系统认识新墙
+        if (navMeshSurface != null)
+        {
+            Physics2D.SyncTransforms(); // 确保新碰撞体已注册到物理系统，烘焙结果才准确
+            navMeshSurface.BuildNavMeshAsync();
+            Debug.Log("[BuildManager] 施工完成，已触发 NavMesh 重新烘焙。");
+        }
+        else
+        {
+            Debug.LogWarning("[BuildManager] navMeshSurface 未赋值，跳过 NavMesh 烘焙。");
+        }
     }
 
     // ——阶段E：点击格子短暂高亮—————————————————————————————
