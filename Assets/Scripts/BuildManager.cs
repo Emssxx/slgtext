@@ -75,9 +75,10 @@ public class BuildManager : MonoBehaviour
     public void EnterBuildMode()
     {
         _buildMode = true;
-        _selectedType = null;    // 进入时清空选择，强制玩家重新选类型
+        _selectedType = null;
         _selectedPrefab = null;
-        AutoWirePrefabs();       // Inspector没拖时，从场景BuildButton里自动读取预制体
+        Time.timeScale = 0f;     // 暂停游戏时间，世界静止
+        AutoWirePrefabs();
         ShowGridOverlay();
         ShowBuildMenu();
     }
@@ -109,7 +110,10 @@ public class BuildManager : MonoBehaviour
         _selectedPrefab = null;
         HideGridOverlay();
         HideBuildMenu();
-        // 已排队的任务不清除，让NPC把剩余的建完
+        Time.timeScale = 1f;     // 恢复游戏时间
+        // 时间恢复后启动施工，NPC 开始逐个去建蓝图
+        if (_buildQueue.Count > 0 && !_isProcessingQueue)
+            StartCoroutine(ProcessBuildQueue());
     }
 
     public bool IsBuildMode => _buildMode;
@@ -260,10 +264,7 @@ public class BuildManager : MonoBehaviour
         });
 
         Debug.Log($"[BuildManager] 排队：{_selectedType} @ {grid.CellToLabel(cell.x, cell.y)}（队列共 {_buildQueue.Count} 个）");
-
-        // 如果队列处理协程还没在跑，启动它
-        if (!_isProcessingQueue)
-            StartCoroutine(ProcessBuildQueue());
+        // 点格子只入队，不派NPC——退出建造模式后才施工
     }
 
     // ——阶段D：NPC逐个施工协程——————————————————————————————
@@ -319,7 +320,7 @@ public class BuildManager : MonoBehaviour
     {
         if (sr == null) yield break;
         sr.color = new Color(1f, 1f, 1f, 0.8f); // 短暂变白
-        yield return new WaitForSeconds(0.15f);
+        yield return new WaitForSecondsRealtime(0.15f); // 用真实时间，时间暂停时也能正常闪烁
         if (sr != null) sr.color = new Color(1f, 0f, 0f, 0.4f); // 恢复红（已排队）
     }
 
