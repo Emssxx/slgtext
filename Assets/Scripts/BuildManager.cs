@@ -251,9 +251,9 @@ public class BuildManager : MonoBehaviour
         if (_selectedPrefab != null)
         {
             previewGO = Instantiate(_selectedPrefab, grid.CellToWorld(cell), Quaternion.identity);
-            // SortingOrder 设为 5，保证在 Tilemap（通常为0）上方可见
+            // SortingOrder 设为 0，与地图同层；NPC 用 1，保证 NPC 始终显示在建筑上方
             SpriteRenderer psr = previewGO.GetComponent<SpriteRenderer>();
-            if (psr != null) psr.sortingOrder = 5;
+            if (psr != null) psr.sortingOrder = 0;
             SetSpriteAlpha(previewGO, 0.5f);
         }
 
