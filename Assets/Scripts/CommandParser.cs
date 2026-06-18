@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 // 指令解析器：把玩家的自然语言，解析成"动作 + 目标地点"。
 // 策略：关键词匹配为主（快、准），匹配不到再交给 AI 兜底。
@@ -55,6 +56,7 @@ public static class CommandParser
     // 查某地点的坐标。找不到返回 false。
     public static bool TryGetLocationPos(string locName, WorldState world, out float x, out float y)
     {
+        // 第一优先：按地点名匹配 world.locations（原有逻辑保留）
         foreach (LocationData loc in world.locations)
         {
             if (loc.locName == locName)
@@ -63,6 +65,24 @@ public static class CommandParser
                 return true;
             }
         }
+
+        // 第二优先：尝试把 locName 当网格编号（如 G7）解析
+        // 先检查 GridManager 是否存在，避免没有网格的场景报空引用
+        if (GridManager.Instance != null)
+        {
+            Vector2Int cell;
+            // LabelToCell 把 "G7" 转成格子坐标 (6,7)
+            if (GridManager.Instance.LabelToCell(locName, out cell))
+            {
+                // CellToWorld 把格子坐标转成世界坐标（取格子中心）
+                Vector3 worldPos = GridManager.Instance.CellToWorld(cell);
+                x = worldPos.x;
+                y = worldPos.y;
+                return true;
+            }
+        }
+
+        // 两者都不匹配，返回失败
         x = 0; y = 0;
         return false;
     }
