@@ -48,6 +48,7 @@ public class StatusPanelManager : MonoBehaviour
     // 刷新所有卡片的数值（从最新的世界数据读）。
     void RefreshAll()
     {
+        if (WorldManager.Instance == null || WorldManager.Instance.world == null) return;
         WorldState world = WorldManager.Instance.world;
         foreach (NpcData npc in world.npcs)
         {

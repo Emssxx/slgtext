@@ -32,10 +32,8 @@ public class BuildModeToggle : MonoBehaviour
 
     void Enter()
     {
-        // 用 BuildManager 现在设定的建筑类型进入（默认是 Wall，由 Inspector 设好）
-        BuildManager.Instance.EnterBuildMode(
-            BuildManager.Instance.currentBuildingPrefab,
-            BuildManager.Instance.currentBuildingName);
+        // 进入建造模式（类型在模式内的菜单里选）
+        BuildManager.Instance.EnterBuildMode();
 
         if (buildPanel   != null) buildPanel.SetActive(true);
         if (gridOverlay  != null) gridOverlay.enabled = true;

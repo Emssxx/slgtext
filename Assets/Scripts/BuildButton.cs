@@ -25,8 +25,7 @@ public class BuildButton : MonoBehaviour
         if (BuildManager.Instance == null) return;
 
         // 更新 BuildManager 里的当前建筑类型
-        BuildManager.Instance.currentBuildingPrefab = buildingPrefab;
-        BuildManager.Instance.currentBuildingName   = buildingName;
+        BuildManager.Instance.SelectBuildType(buildingName, buildingPrefab);
 
         // 如果已在建造模式，重新调用 EnterBuildMode 让预览也刷新
         if (BuildManager.Instance.IsBuildMode)
