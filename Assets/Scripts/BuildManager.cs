@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using System.Collections;
 using System.Collections.Generic;
 
@@ -55,6 +56,8 @@ public class BuildManager : MonoBehaviour
         // 左键点击：选格子加入队列（需要先选好类型）
         if (Mouse.current.leftButton.wasPressedThisFrame)
         {
+            // 鼠标在 UI 上时不处理地图点击，避免点菜单按钮穿透到网格
+            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()) return;
             Vector2 mouseScreen = Mouse.current.position.ReadValue();
             Vector3 mouseWorld = mainCamera.ScreenToWorldPoint(
                 new Vector3(mouseScreen.x, mouseScreen.y, 0));

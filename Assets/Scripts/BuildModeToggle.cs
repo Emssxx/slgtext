@@ -14,6 +14,9 @@ public class BuildModeToggle : MonoBehaviour
 
     void Update()
     {
+        // 输入栏聚焦时不响应快捷键（直接查 inputField.isFocused，比 EventSystem 选中状态更可靠）
+        if (ChatManager.InputFocused) return;
+
         // 新 Input System 写法：检测 B 键按下
         if (Keyboard.current != null && Keyboard.current.bKey.wasPressedThisFrame)
             Toggle();

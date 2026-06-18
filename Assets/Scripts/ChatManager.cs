@@ -1,10 +1,17 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
+using UnityEngine.EventSystems;
 using TMPro;
 
 // 聊天框管理器（简单稳定版）：直接生成消息条 + 限制最多条数 + 自动滚到底。
 public class ChatManager : MonoBehaviour
 {
+    public static ChatManager Instance { get; private set; }
+
+    // 供外部（如 BuildModeToggle）查询输入栏是否聚焦，用 isFocused 而不是 EventSystem 选中状态
+    public static bool InputFocused => Instance != null && Instance.inputField != null && Instance.inputField.isFocused;
+
     [Header("界面引用（Inspector 拖进来）")]
     public TMP_InputField inputField;      // 输入框
     public Button sendButton;              // 发送按钮
@@ -21,6 +28,15 @@ public class ChatManager : MonoBehaviour
 
     // 玩家发消息事件，NPC 控制器订阅它来响应。
     public event System.Action<string> OnPlayerMessage;
+
+    void Awake()
+    {
+        Instance = this;
+        // 清除上次 Play 模式残留的消息子物体
+        if (contentParent != null)
+            foreach (Transform child in contentParent)
+                Destroy(child.gameObject);
+    }
 
     void Start()
     {
@@ -49,6 +65,27 @@ public class ChatManager : MonoBehaviour
 
         TMP_Text sendLabel = sendButton.GetComponentInChildren<TMP_Text>();
         if (sendLabel != null) sendLabel.text = LocalizationManager.Instance.Get("chat_send");
+    }
+
+    void Update()
+    {
+        if (Keyboard.current == null || inputField == null) return;
+
+        // 输入栏聚焦中，按 Esc → 释放聚焦（退出对话模式）
+        if (inputField.isFocused && Keyboard.current.escapeKey.wasPressedThisFrame)
+        {
+            inputField.DeactivateInputField();
+            // 同时清除 EventSystem 选中，否则 currentSelectedGameObject 仍指向输入框
+            // 导致 BuildModeToggle 误判为"输入栏仍聚焦"而屏蔽 B 键
+            if (EventSystem.current != null) EventSystem.current.SetSelectedGameObject(null);
+            return;
+        }
+
+        // 没聚焦时，按 Y → 激活输入栏（进入对话模式）
+        if (!inputField.isFocused && Keyboard.current.yKey.wasPressedThisFrame)
+        {
+            inputField.ActivateInputField();
+        }
     }
 
     void OnInputSubmit(string text) { OnSend(); }

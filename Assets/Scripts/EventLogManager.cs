@@ -20,6 +20,10 @@ public class EventLogManager : MonoBehaviour
         // 简单单例：保证全局只有一个，方便 AIDirector 直接 EventLogManager.Instance.AddEvent(...)
         if (Instance != null && Instance != this) { Destroy(this); return; }
         Instance = this;
+        // 清除上次 Play 模式残留的事件条目
+        if (contentParent != null)
+            foreach (Transform child in contentParent)
+                Destroy(child.gameObject);
     }
 
     // 往日志里加一条事件。day=第几天，content=事件描述。
