@@ -17,14 +17,12 @@ public class BuildManager : MonoBehaviour
     public Camera mainCamera; // 主相机，用于屏幕坐标转世界坐标
     public NavMeshSurface navMeshSurface; // 场景里的 NavMeshSurface，施工完毕后重新烘焙
 
-    [Header("建造类型预制体（拖入 Inspector）")]
-    public GameObject wallPrefab; // 墙的预制体
-    public GameObject boxPrefab;  // 箱子的预制体
+    [Header("建造物数据（拖入 BuildableData 资产，如 Wall.asset / Box.asset）")]
+    public BuildableData[] buildables; // 所有可建造物，顺序决定菜单按钮顺序
 
     // ——状态——
-    private bool _buildMode = false;       // 是否在建造模式
-    private string _selectedType = null;   // 当前选择的类型（null=未选；"墙"/"箱子"）
-    private GameObject _selectedPrefab = null; // 当前类型对应的预制体
+    private bool _buildMode = false;           // 是否在建造模式
+    private BuildableData _selectedData = null; // 当前选中的建造物数据（null=未选）
 
     // ——阶段A：网格覆盖层——
     private GameObject _gridOverlay; // 覆盖层父物体
@@ -77,39 +75,17 @@ public class BuildManager : MonoBehaviour
     public void EnterBuildMode()
     {
         _buildMode = true;
-        _selectedType = null;
-        _selectedPrefab = null;
+        _selectedData = null;
         Time.timeScale = 0f;     // 暂停游戏时间，世界静止
-        AutoWirePrefabs();
         ShowGridOverlay();
         ShowBuildMenu();
-    }
-
-    // 从场景里已有的 BuildButton 组件读取 wall/box 预制体引用（避免手动拖Inspector）
-    void AutoWirePrefabs()
-    {
-        if (wallPrefab != null && boxPrefab != null) return; // 已手动赋值，跳过
-        foreach (BuildButton btn in FindObjectsOfType<BuildButton>())
-        {
-            if (wallPrefab == null && btn.buildingName == "墙")   wallPrefab = btn.buildingPrefab;
-            if (boxPrefab  == null && btn.buildingName == "箱子") boxPrefab  = btn.buildingPrefab;
-        }
-        if (wallPrefab == null) Debug.LogWarning("[BuildManager] 找不到墙预制体，请在Inspector或BuildButton上赋值。");
-        if (boxPrefab  == null) Debug.LogWarning("[BuildManager] 找不到箱子预制体，请在Inspector或BuildButton上赋值。");
-    }
-
-    // 旧接口兼容（外部代码如果还在用旧版参数签名）
-    public void EnterBuildMode(GameObject buildingPrefab, string buildingName)
-    {
-        EnterBuildMode();
     }
 
     // ——退出建造模式——
     public void ExitBuildMode()
     {
         _buildMode = false;
-        _selectedType = null;
-        _selectedPrefab = null;
+        _selectedData = null;
         HideGridOverlay();
         HideBuildMenu();
         Time.timeScale = 1f;     // 恢复游戏时间
@@ -134,6 +110,10 @@ public class BuildManager : MonoBehaviour
         _buildMenuUI.AddComponent<CanvasScaler>();
         _buildMenuUI.AddComponent<GraphicRaycaster>();
 
+        // 面板高度根据按钮数量动态计算：标题40 + 每个按钮40
+        int count = buildables != null ? buildables.Length : 0;
+        float panelHeight = 40f + count * 40f;
+
         // 半透明黑色面板，固定在左上角
         GameObject panel = new GameObject("Panel");
         panel.transform.SetParent(_buildMenuUI.transform, false);
@@ -142,18 +122,21 @@ public class BuildManager : MonoBehaviour
         RectTransform pr = panel.GetComponent<RectTransform>();
         pr.anchorMin = pr.anchorMax = pr.pivot = new Vector2(0f, 1f);
         pr.anchoredPosition = new Vector2(20f, -20f);
-        pr.sizeDelta = new Vector2(160f, 130f);
+        pr.sizeDelta = new Vector2(160f, panelHeight);
 
         // 标题
         MakeLabel(panel.transform, "建造模式", new Vector2(80f, -18f));
 
-        // 墙按钮
-        MakeButton(panel.transform, "墙", new Vector2(80f, -55f),
-            () => SelectBuildType("墙", wallPrefab));
-
-        // 箱子按钮
-        MakeButton(panel.transform, "箱子", new Vector2(80f, -95f),
-            () => SelectBuildType("箱子", boxPrefab));
+        // 从 buildables 数组循环生成按钮，每个按钮对应一个 BuildableData 资产
+        for (int i = 0; i < count; i++)
+        {
+            BuildableData bd = buildables[i];
+            if (bd == null) continue;
+            float yPos = -40f - i * 40f; // 第一个按钮在 -40，往下每隔40
+            BuildableData captured = bd;  // 闭包捕获，避免 lambda 引用错误
+            MakeButton(panel.transform, bd.displayName, new Vector2(80f, yPos),
+                () => SelectBuildType(captured));
+        }
     }
 
     void HideBuildMenu()
@@ -161,12 +144,11 @@ public class BuildManager : MonoBehaviour
         if (_buildMenuUI != null) { Destroy(_buildMenuUI); _buildMenuUI = null; }
     }
 
-    // 菜单按钮回调：记录当前选择的类型和预制体
-    public void SelectBuildType(string typeName, GameObject prefab)
+    // 菜单按钮回调：记录当前选中的建造物数据
+    public void SelectBuildType(BuildableData data)
     {
-        _selectedType = typeName;
-        _selectedPrefab = prefab;
-        Debug.Log($"[BuildManager] 已选择：{typeName}，点格子开始建造。");
+        _selectedData = data;
+        Debug.Log($"[BuildManager] 已选择：{data.displayName}，点格子开始建造。");
     }
 
     // ——阶段A：网格覆盖层——————————————————————————————————
@@ -221,7 +203,7 @@ public class BuildManager : MonoBehaviour
     void HandleCellClick(Vector2Int cell)
     {
         // 还没选类型，提示玩家先选
-        if (_selectedType == null)
+        if (_selectedData == null)
         {
             Debug.Log("[BuildManager] 请先在左上角菜单选择建造类型。");
             return;
@@ -240,32 +222,36 @@ public class BuildManager : MonoBehaviour
         FlashCell(cell);
 
         // 先标记占用，防止连点同一格
-        grid.SetOccupied(cell.x, cell.y, _selectedType);
+        grid.SetOccupied(cell.x, cell.y, _selectedData.displayName);
 
         // 覆盖层格子变红（已占用）
         if (_overlayCells.TryGetValue(cell, out SpriteRenderer overlaySR))
             overlaySR.color = new Color(1f, 0f, 0f, 0.4f);
 
-        // 生成半透明预览（用预制体实例化，alpha调到0.5）
+        // 生成半透明预览（用 BuildableData.prefab 实例化，alpha调到0.5）
         GameObject previewGO = null;
-        if (_selectedPrefab != null)
+        if (_selectedData.prefab != null)
         {
-            previewGO = Instantiate(_selectedPrefab, grid.CellToWorld(cell), Quaternion.identity);
+            previewGO = Instantiate(_selectedData.prefab, grid.CellToWorld(cell), Quaternion.identity);
             // SortingOrder 设为 0，与地图同层；NPC 用 1，保证 NPC 始终显示在建筑上方
             SpriteRenderer psr = previewGO.GetComponent<SpriteRenderer>();
             if (psr != null) psr.sortingOrder = 0;
             SetSpriteAlpha(previewGO, 0.5f);
         }
+        else
+        {
+            Debug.LogWarning($"[BuildManager] {_selectedData.displayName} 的 prefab 未赋值，跳过预览实例化。");
+        }
 
         // 加入待建队列
         _buildQueue.Add(new BuildTask
         {
-            cell          = cell,
-            buildingName  = _selectedType,
-            previewGO     = previewGO
+            cell         = cell,
+            buildingName = _selectedData.displayName,
+            previewGO    = previewGO
         });
 
-        Debug.Log($"[BuildManager] 排队：{_selectedType} @ {grid.CellToLabel(cell.x, cell.y)}（队列共 {_buildQueue.Count} 个）");
+        Debug.Log($"[BuildManager] 排队：{_selectedData.displayName} @ {grid.CellToLabel(cell.x, cell.y)}（队列共 {_buildQueue.Count} 个）");
         // 点格子只入队，不派NPC——退出建造模式后才施工
     }
 

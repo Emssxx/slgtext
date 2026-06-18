@@ -5,8 +5,7 @@ using UnityEngine;
 public class BuildButton : MonoBehaviour
 {
     [Header("建造目标")]
-    public GameObject buildingPrefab; // 拖入 Wall.prefab / Box.prefab
-    public string buildingName = "墙"; // 占用记录用的名字
+    public BuildableData data; // 拖入 Wall.asset / Box.asset
 
     [Header("选中状态颜色")]
     public Color selectedColor   = new Color(0.25f, 0.55f, 0.25f, 0.95f); // 绿色 = 已选
@@ -22,14 +21,10 @@ public class BuildButton : MonoBehaviour
     // UI Button 的 OnClick 事件调这个。
     public void OnClick()
     {
-        if (BuildManager.Instance == null) return;
+        if (BuildManager.Instance == null || data == null) return;
 
-        // 更新 BuildManager 里的当前建筑类型
-        BuildManager.Instance.SelectBuildType(buildingName, buildingPrefab);
-
-        // 如果已在建造模式，重新调用 EnterBuildMode 让预览也刷新
-        if (BuildManager.Instance.IsBuildMode)
-            BuildManager.Instance.EnterBuildMode(buildingPrefab, buildingName);
+        // 把选中的建造物数据传给 BuildManager
+        BuildManager.Instance.SelectBuildType(data);
 
         // 高亮自己，取消同级其他建造按钮的高亮
         UpdateHighlight();
