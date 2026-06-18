@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using System.Collections.Generic;
 
 // 建造管理器：建造模式的核心（阶段1）。
@@ -30,8 +31,9 @@ public class BuildManager : MonoBehaviour
     {
         if (!_buildMode) return;
 
-        // 鼠标当前指向的格子
-        Vector3 mouseWorld = mainCamera.ScreenToWorldPoint(Input.mousePosition);
+        // 鼠标当前指向的格子（新 Input System：Mouse.current.position）
+        Vector2 mouseScreen = Mouse.current.position.ReadValue();
+        Vector3 mouseWorld  = mainCamera.ScreenToWorldPoint(new Vector3(mouseScreen.x, mouseScreen.y, 0));
         mouseWorld.z = 0;
         Vector2Int cell = GridManager.Instance.WorldToCell(mouseWorld);
 
@@ -39,13 +41,14 @@ public class BuildManager : MonoBehaviour
         UpdatePreview(cell);
 
         // 左键点击 → 在该格建造
-        if (Input.GetMouseButtonDown(0))
+        if (Mouse.current.leftButton.wasPressedThisFrame)
         {
             TryBuildAt(cell);
         }
 
         // 右键 / Esc → 退出建造模式
-        if (Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.Escape))
+        if (Mouse.current.rightButton.wasPressedThisFrame ||
+            Keyboard.current.escapeKey.wasPressedThisFrame)
         {
             ExitBuildMode();
         }
