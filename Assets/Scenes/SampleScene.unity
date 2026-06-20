@@ -5774,6 +5774,7 @@ GameObject:
   - component: {fileID: 684264365}
   - component: {fileID: 684264370}
   - component: {fileID: 684264371}
+  - component: {fileID: 684264372}
   m_Layer: 0
   m_Name: DialogPanel
   m_TagString: Untagged
@@ -5934,6 +5935,23 @@ MonoBehaviour:
   eventItemPrefab: {fileID: 1871204576735935542, guid: 39d1e477574087148989f9951a7ddda7, type: 3}
   scrollRect: {fileID: 2029988083}
   eventColor: {r: 1, g: 0.6, b: 0.3, a: 1}
+--- !u!114 &684264372
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 684264363}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b7d29e5f0d6a17749bc8f650bb58a50c, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::LogManager
+  contentParent: {fileID: 510037502}
+  logItemPrefab: {fileID: 1871204576735935542, guid: 39d1e477574087148989f9951a7ddda7, type: 3}
+  scrollRect: {fileID: 2111037037}
+  logColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+  nameColor: {r: 0.4, g: 0.85, b: 1, a: 1}
 --- !u!1 &697379098
 GameObject:
   m_ObjectHideFlags: 0
@@ -6525,7 +6543,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GridClickInput
   mainCamera: {fileID: 519420031}
-  chatManager: {fileID: 0}
+  chatManager: {fileID: 684264370}
 --- !u!4 &908406531
 Transform:
   m_ObjectHideFlags: 0
