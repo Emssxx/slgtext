@@ -60,6 +60,17 @@ public class LocalizationManager : MonoBehaviour
             { "danger_approach", ("【危险】有什么东西靠近了！", "【危険】何かが近づいてくる！") },
             { "now_talking_with", ("你现在正在和", "今話している相手は") },
 
+            // —— 面板标题 ——
+            { "chat_panel_title", ("信息", "情報") },   // 对话框顶部标题
+
+            // —— 三栏区块标题 ——
+            { "section_chat",  ("对话", "会話") },      // 对话区标题
+            { "section_event", ("事件", "イベント") },  // 事件区标题
+            { "section_log",   ("日志", "ログ") },      // 日志区标题
+
+            // —— 建造按钮 ——
+            { "btn_build", ("建造  [B]", "建設  [B]") }, // 建造模式切换按钮
+
             // 以后要加文本，继续往这里加：{ "key", ("中文", "日文") },
         };
     }

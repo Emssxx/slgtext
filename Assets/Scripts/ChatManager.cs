@@ -18,6 +18,7 @@ public class ChatManager : MonoBehaviour
     public Transform contentParent;        // Scroll View 里的 Content
     public GameObject messageItemPrefab;   // MessageItem 预制体
     public ScrollRect scrollRect;          // 滚动视图
+    public TMP_Text panelTitleText;        // 对话框顶部标题（TitleText 节点）
 
     [Header("颜色")]
     public Color playerColor = new Color(0.4f, 0.8f, 1f); // 玩家文字：浅蓝
@@ -55,7 +56,7 @@ public class ChatManager : MonoBehaviour
         LocalizationManager.OnLanguageChanged -= RefreshLocalizedTexts;
     }
 
-    // 刷新输入框占位文字、发送按钮文字（按当前语言）。
+    // 刷新输入框占位文字、发送按钮文字、面板标题（按当前语言）。
     void RefreshLocalizedTexts()
     {
         if (LocalizationManager.Instance == null) return;
@@ -65,6 +66,8 @@ public class ChatManager : MonoBehaviour
 
         TMP_Text sendLabel = sendButton.GetComponentInChildren<TMP_Text>();
         if (sendLabel != null) sendLabel.text = LocalizationManager.Instance.Get("chat_send");
+
+        if (panelTitleText != null) panelTitleText.text = LocalizationManager.Instance.Get("chat_panel_title");
     }
 
     void Update()
