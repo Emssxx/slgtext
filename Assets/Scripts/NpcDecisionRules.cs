@@ -104,6 +104,6 @@ public static class NpcDecisionRules
         npc.memories.Add(new MemoryEntry { day = world.day, content = log });
         // 把 NPC 行为送进日志栏（LogManager 不存在时安全跳过）
         if (LogManager.Instance != null)
-            LogManager.Instance.AddLog(npc.npcName, log);
+            LogManager.Instance.AddLog(npc.npcName, log, npc.id);
     }
 }

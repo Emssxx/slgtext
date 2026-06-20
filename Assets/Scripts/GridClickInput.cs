@@ -48,6 +48,10 @@ public class GridClickInput : MonoBehaviour
             new Vector3(mouseScreen.x, mouseScreen.y, depth));
         worldPos.z = 0f;
 
+        // 点到 NPC 身上时不处理格子（NpcClickHandler 的 OnMouseDown 已负责弹卡）
+        Collider2D hit = Physics2D.OverlapPoint(worldPos);
+        if (hit != null && hit.GetComponent<NpcClickHandler>() != null) return;
+
         // 世界坐标 → 格子坐标
         Vector2Int cell = GridManager.Instance.WorldToCell(worldPos);
 
