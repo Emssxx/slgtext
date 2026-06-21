@@ -1,34 +1,40 @@
 using UnityEngine;
 using TMPro;
 
-// 通用本地化文字组件：挂在任意 TMP Text 节点上，填好 key，
-// 启动时和每次切换语言时自动从 LocalizationManager 取对应文字。
+// 通用本地化文本组件：挂在任何需要跟随语言切换的 UI 文本上。
+// 用法：把这个脚本挂到带 TMP_Text 的 UI 物体上，在 Inspector 填一个 key（如 "tab_chat"），
+// 它会自动在游戏开始时、以及每次语言切换时，把文本设成对应语言的翻译。
+// 省去给每个 UI 手写监听的麻烦。
+[RequireComponent(typeof(TMP_Text))]
 public class LocalizedText : MonoBehaviour
 {
-    public string key; // 对应 LocalizationManager 翻译表里的 key
+    [Tooltip("翻译表里的 key，如 tab_chat / tab_event / btn_close")]
+    public string key;
 
-    TMP_Text _text;
+    private TMP_Text _text;
 
     void Awake()
     {
-        _text = GetComponent<TMP_Text>(); // 取同节点的 TMP_Text 组件
+        _text = GetComponent<TMP_Text>();
     }
 
-    void Start()
+    void OnEnable()
     {
-        LocalizationManager.OnLanguageChanged += Refresh; // 订阅语言切换事件
-        Refresh(); // 启动时先刷一次，确保初始语言正确
+        // 订阅语言切换事件，切换时自动刷新。
+        LocalizationManager.OnLanguageChanged += Refresh;
+        Refresh(); // 启用时先刷一次（保证初始语言正确）
     }
 
-    void OnDestroy()
+    void OnDisable()
     {
-        LocalizationManager.OnLanguageChanged -= Refresh; // 销毁时取消订阅，防止内存泄漏
+        LocalizationManager.OnLanguageChanged -= Refresh;
     }
 
-    // 从 LocalizationManager 取对应 key 的文字并写入 TMP_Text。
-    void Refresh()
+    // 按当前语言刷新文本。外部代码动态挂载时可手动调用一次。
+    public void Refresh()
     {
-        if (_text != null && LocalizationManager.Instance != null)
-            _text.text = LocalizationManager.Instance.Get(key);
+        if (_text == null || string.IsNullOrEmpty(key)) return;
+        if (LocalizationManager.Instance == null) return;
+        _text.text = LocalizationManager.Instance.Get(key);
     }
 }
