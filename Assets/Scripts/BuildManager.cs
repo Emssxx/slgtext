@@ -5,6 +5,7 @@ using UnityEngine.EventSystems;
 using System.Collections;
 using System.Collections.Generic;
 using NavMeshPlus.Components;
+using UnityEngine.AI;
 
 // 建造管理器：完整流程版（阶段A-E）。
 // 流程：B键进入 → 绿红覆盖层 → 菜单选类型 → 连点格子生成半透明预览 → NPC逐个走过去把预览变实体。
@@ -38,6 +39,8 @@ public class BuildManager : MonoBehaviour
         public Vector2Int cell;        // 目标格子坐标
         public string buildingName;    // 建筑名（用于 GridManager 占用记录）
         public GameObject previewGO;   // 半透明预览实例（NPC到达后alpha改为1）
+        public float buildTime;        // NPC到达后需等待的建造耗时（秒）
+        public bool blocksMovement;    // 是否阻挡移动（决定挂NavMeshModifier + 是否重新烘焙）
     }
     private List<BuildTask> _buildQueue = new List<BuildTask>(); // 待施工队列
     private bool _isProcessingQueue = false; // 是否有协程在处理队列
@@ -243,12 +246,14 @@ public class BuildManager : MonoBehaviour
             Debug.LogWarning($"[BuildManager] {_selectedData.displayName} 的 prefab 未赋值，跳过预览实例化。");
         }
 
-        // 加入待建队列
+        // 加入待建队列（把数据驱动的字段一并存入，施工时直接读 task）
         _buildQueue.Add(new BuildTask
         {
-            cell         = cell,
-            buildingName = _selectedData.displayName,
-            previewGO    = previewGO
+            cell            = cell,
+            buildingName    = _selectedData.displayName,
+            previewGO       = previewGO,
+            buildTime       = _selectedData.buildTime,
+            blocksMovement  = _selectedData.blocksMovement
         });
 
         Debug.Log($"[BuildManager] 排队：{_selectedData.displayName} @ {grid.CellToLabel(cell.x, cell.y)}（队列共 {_buildQueue.Count} 个）");
@@ -260,6 +265,7 @@ public class BuildManager : MonoBehaviour
     IEnumerator ProcessBuildQueue()
     {
         _isProcessingQueue = true;
+        bool needsNavBake = false; // 本批次是否有阻挡移动的建筑，决定完成后是否重新烘焙
 
         while (_buildQueue.Count > 0)
         {
@@ -285,9 +291,22 @@ public class BuildManager : MonoBehaviour
                 while (mover.IsMoving) yield return null; // 等它到达
             }
 
-            // NPC到达：把半透明预览变成实体（alpha → 1）
+            // NPC到达后等待建造耗时（模拟施工过程，时间来自 BuildableData.buildTime）
+            if (task.buildTime > 0f)
+                yield return new WaitForSeconds(task.buildTime);
+
+            // 把半透明预览变成实体（alpha → 1）
             if (task.previewGO != null)
                 SetSpriteAlpha(task.previewGO, 1f);
+
+            // 阻挡移动的建筑（如墙）：挂 NavMeshModifier 标记为 Not Walkable，烘焙后 NPC 绕开
+            if (task.blocksMovement && task.previewGO != null)
+            {
+                NavMeshModifier mod = task.previewGO.AddComponent<NavMeshModifier>();
+                mod.overrideArea = true;
+                mod.area = 1; // 1 = Not Walkable
+                needsNavBake = true; // 本批次有阻挡建筑，需要重新烘焙
+            }
 
             Debug.Log($"[BuildManager] {builder.npcName} 完成：{task.buildingName} @ "
                 + GridManager.Instance.CellToLabel(task.cell.x, task.cell.y));
@@ -295,16 +314,19 @@ public class BuildManager : MonoBehaviour
 
         _isProcessingQueue = false;
 
-        // 所有蓝图施工完毕 → 重新烘焙 NavMesh，让寻路系统认识新墙
-        if (navMeshSurface != null)
+        // 只有 blocksMovement=true 的建筑才需要重新烘焙（箱子等可穿过的跳过，省性能）
+        if (needsNavBake)
         {
-            Physics2D.SyncTransforms(); // 确保新碰撞体已注册到物理系统，烘焙结果才准确
-            navMeshSurface.BuildNavMeshAsync();
-            Debug.Log("[BuildManager] 施工完成，已触发 NavMesh 重新烘焙。");
-        }
-        else
-        {
-            Debug.LogWarning("[BuildManager] navMeshSurface 未赋值，跳过 NavMesh 烘焙。");
+            if (navMeshSurface != null)
+            {
+                Physics2D.SyncTransforms(); // 确保新碰撞体已注册到物理系统，烘焙结果才准确
+                navMeshSurface.BuildNavMeshAsync();
+                Debug.Log("[BuildManager] 有阻挡建筑施工完成，已触发 NavMesh 重新烘焙。");
+            }
+            else
+            {
+                Debug.LogWarning("[BuildManager] navMeshSurface 未赋值，跳过 NavMesh 烘焙。");
+            }
         }
     }
 
