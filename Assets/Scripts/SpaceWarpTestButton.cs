@@ -13,5 +13,21 @@ public class SpaceWarpTestButton : MonoBehaviour
             else
                 Debug.LogWarning("[Test] EventExecutor.Instance 为空，请确认场景里有 EventExecutor 物体。");
         }
+
+        if (GUI.Button(new Rect(10, 60, 160, 40), "测试：时间失序"))
+        {
+            if (EventExecutor.Instance != null)
+                EventExecutor.Instance.ExecuteEvent("time_disorder");
+            else
+                Debug.LogWarning("[Test] EventExecutor.Instance 为空，请确认场景里有 EventExecutor 物体。");
+        }
+
+        if (GUI.Button(new Rect(10, 110, 160, 40), "测试：低语与幻象"))
+        {
+            if (EventExecutor.Instance != null)
+                EventExecutor.Instance.ExecuteEvent("whisper_vision");
+            else
+                Debug.LogWarning("[Test] EventExecutor.Instance 为空，请确认场景里有 EventExecutor 物体。");
+        }
     }
 }

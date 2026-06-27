@@ -83,6 +83,16 @@ public class WorldManager : MonoBehaviour
         world.day += 1;
     }
 
+    // 跑完整的一回合结算（推进+规则+崩解+生命），供外部系统调用。
+    // AIDirector 正常回合用这个，EventExecutor 时间失序快进也用这个，逻辑只有一份。
+    public void RunOneTurnResolve()
+    {
+        AdvanceTurn();
+        WorldRules.ApplyTurnEffects(world);
+        WorldRules.ApplyBreakdown(world);
+        WorldRules.ApplyHealth(world);
+    }
+
     // —— 仓库操作 ——
 
     // 从公共仓库消耗指定物品，成功返回 true。

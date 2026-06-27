@@ -27,12 +27,9 @@ public class AIDirector : MonoBehaviour
 
     void DoTurn()
     {
-        // 1. 推进世界 + 规则结算（顺序：推进→回合影响→崩解→生命）。
-        WorldManager.Instance.AdvanceTurn();
+        // 1. 推进世界 + 规则结算（封装在 RunOneTurnResolve，顺序不变）。
+        WorldManager.Instance.RunOneTurnResolve();
         WorldState world = WorldManager.Instance.world;
-        WorldRules.ApplyTurnEffects(world);
-        WorldRules.ApplyBreakdown(world);
-        WorldRules.ApplyHealth(world);
 
         EventLogManager.Instance.AddEvent(world.day,
             LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("day_start") : "新的一天开始了。");
