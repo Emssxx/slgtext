@@ -28,6 +28,14 @@ public class NpcMover : MonoBehaviour
         if (_sprite == null) _sprite = GetComponentInChildren<SpriteRenderer>();
     }
 
+    // 外部调用：立刻停止移动（清除路径、重置标志、停走路动画）。
+    public void Stop()
+    {
+        _agent.ResetPath();   // 清除导航路径，agent 速度变0
+        _hasTarget = false;   // 标志位置false，Update不再轮询
+        SetMovingAnim(false); // 立刻切回待机动画
+    }
+
     // 外部调用：命令 NPC 走到某个世界坐标（会自动寻路绕障碍）。
     public void MoveTo(Vector3 targetPos)
     {

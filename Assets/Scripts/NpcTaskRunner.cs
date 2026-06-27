@@ -24,6 +24,15 @@ public class NpcTaskRunner : MonoBehaviour
         if (_animator == null) _animator = GetComponentInChildren<Animator>();
     }
 
+    // 取消所有任务并立刻停止移动（被事件打断时调用）。
+    public void CancelAll()
+    {
+        _queue.Clear();          // 清空待执行队列
+        _running = false;        // 重置运行标志
+        StopAllCoroutines();     // 停止正在跑的任务协程（DoGo/DoAct/DoPush）
+        _mover.Stop();           // 通知 NpcMover 停下，清路径、停动画
+    }
+
     // 下达一串任务（清掉旧的，执行新的）。
     public void RunTasks(List<NpcTask> tasks)
     {

@@ -55,11 +55,17 @@ public class AIDirector : MonoBehaviour
             WorldLore.EventThemes + "\n\n" +
             "你是一名末世亚空间生存的导演，负责制造让局势更紧张或更诡异的突发事件。\n" +
             "当前世界状态（JSON）：\n" + worldJson + "\n\n" +
-            "请基于当前状态，生成一个简短、有氛围感的亚空间突发事件（1~2 句话），" +
-            "要符合当前异常度（越高越危险）。\n\n" +
+            "请基于当前状态，从以下事件类型里选一个（禁止自创）：\n" +
+            "  storm（亚空间风暴）\n" +
+            "  space_warp（空间扭曲：有人莫名出现在别的地方）\n" +
+            "  time_disorder（时间失序）\n" +
+            "  causal_reversal（因果倒置）\n" +
+            "  whisper_vision（低语与幻象）\n" +
+            "异常度越高越倾向危险/超现实的类型。\n\n" +
             "【输出要求】只输出一个 JSON 对象，不要多余文字：\n" +
             "{\n" +
-            "  \"event\": \"事件的描述文字\"\n" +
+            "  \"type\": \"上面五个之一\",\n" +
+            "  \"event\": \"符合该类型的诡异描述，1~2句\"\n" +
             "}" +
             "\n\n" + (LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "");
 
@@ -69,7 +75,10 @@ public class AIDirector : MonoBehaviour
     void OnEventGenerated(string rawJson)
     {
         _busy = false;
-        string eventText = ParseEvent(rawJson);
+        EventData data = ParseEvent(rawJson);
+        // eventDesc 优先，解析失败时用原文兜底
+        string eventText = string.IsNullOrEmpty(data.eventDesc) ? rawJson : data.eventDesc;
+        string eventType = data.type; // 事件类型，第二步传给 EventExecutor
 
         EventLogManager.Instance.AddEvent(WorldManager.Instance.world.day, eventText);
 
@@ -89,6 +98,10 @@ public class AIDirector : MonoBehaviour
             EventLogManager.Instance.AddEvent(world.day,
                 LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("danger_approach") : "【危险】有什么东西靠近了！");
         }
+
+        // 把事件类型交给执行器，触发对应的客观后果。
+        if (EventExecutor.Instance != null && !string.IsNullOrEmpty(eventType))
+            EventExecutor.Instance.ExecuteEvent(eventType);
     }
 
     // 点名一个清醒 NPC 针对事件反应。
@@ -109,8 +122,9 @@ public class AIDirector : MonoBehaviour
         }
     }
 
-    // 解析 {"event":"..."}。
-    string ParseEvent(string raw)
+    // 解析 {"type":"...","event":"..."}，返回 EventData。
+    // 解析失败时把原文塞进 eventDesc 兜底，type 为 null。
+    EventData ParseEvent(string raw)
     {
         try
         {
@@ -120,18 +134,21 @@ public class AIDirector : MonoBehaviour
             {
                 string jsonPart = raw.Substring(start, end - start + 1);
                 EventData d = JsonConvert.DeserializeObject<EventData>(jsonPart);
-                if (d != null && !string.IsNullOrEmpty(d.eventDesc)) return d.eventDesc;
+                if (d != null) return d;
             }
         }
         catch (Exception e) { Debug.LogWarning("解析事件 JSON 失败：" + e.Message); }
-        return raw;
+        return new EventData { eventDesc = raw };
     }
 }
 
-// 事件输出契约：JSON 字段名是 "event"，映射到合法字段名 eventDesc。
+// 事件输出契约：导演输出带 type 和 event 两个字段的 JSON。
 [Serializable]
 public class EventData
 {
     [JsonProperty("event")]
-    public string eventDesc;
+    public string eventDesc; // 事件描述文字，显示在日志里
+
+    [JsonProperty("type")]
+    public string type;      // 事件类型ID，传给 EventExecutor 执行后果
 }
