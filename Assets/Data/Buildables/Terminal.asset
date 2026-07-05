@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a0e4f0368cfac06448b1f9795ab13676, type: 3}
+  m_Name: Terminal
+  m_EditorClassIdentifier: Assembly-CSharp::BuildableData
+  id: terminal
+  displayName: "AI\u7EC8\u7AEF\u673A"
+  sprite: {fileID: 21300000, guid: 319baeb576f2d754aabc5dbd3ddc9168, type: 3}
+  prefab: {fileID: 20760329514622748, guid: 1371a408a00f0724e9f2dd66b5bb2006, type: 3}
+  width: 1
+  height: 1
+  blocksMovement: 1
+  buildTime: 3
+  requiredMaterials: []
+  category: 4
