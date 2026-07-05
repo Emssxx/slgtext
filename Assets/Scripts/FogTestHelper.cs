@@ -33,4 +33,22 @@ public class FogTestHelper : MonoBehaviour
         if (FogManager.Instance == null) { Debug.LogError("[FogTestHelper] FogManager 未初始化"); return; }
         FogManager.Instance.DebugPrintFog();
     }
+
+    // 终端机调试开关：激活终端机（isActive=true），触发NPC揭雾解锁。
+    [ContextMenu("Terminal: 激活")]
+    void ActivateTerminal()
+    {
+        if (TerminalController.Instance == null) { Debug.LogError("[FogTestHelper] 场景里没有终端机，先建造一个。"); return; }
+        TerminalController.Instance.isActive = true;
+        Debug.Log("[FogTestHelper] 终端机已激活，NPC揭雾解锁。");
+    }
+
+    // 终端机调试开关：关闭终端机（isActive=false），视野退回营地周围。
+    [ContextMenu("Terminal: 关闭")]
+    void DeactivateTerminal()
+    {
+        if (TerminalController.Instance == null) { Debug.LogError("[FogTestHelper] 场景里没有终端机。"); return; }
+        TerminalController.Instance.isActive = false;
+        Debug.Log("[FogTestHelper] 终端机已关闭，视野限制回营地周围。");
+    }
 }
