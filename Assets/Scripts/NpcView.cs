@@ -29,4 +29,10 @@ public class NpcView : MonoBehaviour
             return view.GetComponent<NpcMover>();
         return null;
     }
+
+    // 返回所有已登记的 NpcView（FogVisionUpdater 遍历NPC揭雾用）。
+    public static List<NpcView> GetAllViews()
+    {
+        return new List<NpcView>(_registry.Values);
+    }
 }
