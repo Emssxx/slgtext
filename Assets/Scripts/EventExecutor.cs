@@ -26,6 +26,10 @@ public class EventExecutor : MonoBehaviour
     {
         if (string.IsNullOrEmpty(type)) return;
 
+        // 先播放该事件的屏幕视觉效果（闪色+震动+横幅），让玩家直观感知事件发生。
+        if (ScreenEffectManager.Instance != null)
+            ScreenEffectManager.Instance.PlayEventEffect(type);
+
         switch (type)
         {
             case "space_warp":      // 空间扭曲：把一个NPC瞬移到随机可站立点

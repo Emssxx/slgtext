@@ -76,6 +76,11 @@ public class LocalizationManager : MonoBehaviour
             { "build_wall", ("墙", "壁") },
             { "build_box", ("箱子", "箱") },
 
+            // —— 临时调试面板（EventDebugPanel，测试完记得连这几行一起删）——
+            { "debug_space_warp",     ("空间扭曲", "空間の歪み") },
+            { "debug_time_disorder",  ("时间失序", "時間の乱れ") },
+            { "debug_whisper_vision", ("低语与幻象", "囁きと幻影") },
+
             // 以后要加文本，继续往这里加：{ "key", ("中文", "日文") },
         };
     }
