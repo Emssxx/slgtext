@@ -22,6 +22,23 @@ public class NpcView : MonoBehaviour
             _registry.Remove(npcId);
     }
 
+    // 运行时设置id（给 NpcSpawner 用：Instantiate 出NPC后，用数据里的id覆盖预制体上的默认id）。
+    // 和 OnEnable 的自动登记不冲突：这里会先清掉旧id的登记，再登记新id，保证注册表里不会留脏数据。
+    public void SetId(string id)
+    {
+        // 如果之前已经登记过一个旧id，先把那个旧登记删掉，
+        // 不然注册表里会一直留着一条指向"这个物体"但id已经不对的记录。
+        if (!string.IsNullOrEmpty(npcId) && _registry.ContainsKey(npcId))
+            _registry.Remove(npcId);
+
+        // 换成新id
+        npcId = id;
+
+        // 用新id登记自己，之后 NpcView.GetMover(新id) 才能找到这个物体
+        if (!string.IsNullOrEmpty(npcId))
+            _registry[npcId] = this;
+    }
+
     // 按 id 找到 NPC 的 NpcMover（找不到返回 null）。
     public static NpcMover GetMover(string id)
     {

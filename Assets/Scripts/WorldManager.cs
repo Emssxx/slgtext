@@ -23,6 +23,9 @@ public class WorldManager : MonoBehaviour
     void Start()
     {
         CreateWorld();                                  // 1. 造世界 + 随机生成 NPC
+        // NavMesh 是编辑器里预烘焙好的（随场景加载就绪，不是运行时烘焙），
+        // 所以 world.npcs 数据一生成好，马上就能按数据在场景里生成 NPC 物体。
+        FindFirstObjectByType<NpcSpawner>()?.SpawnAll(); // 1.5 按 world.npcs 数据自动生成场景 NPC
         RegisterAllMarkers();                            // 2. 登记场景里的地点/物品标记
         RelationshipManager.InitAllRelationships(world); // 3. 初始化 NPC 间关系
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
@@ -37,6 +40,7 @@ public class WorldManager : MonoBehaviour
         world.globalSituation = "你们刚被卷入亚空间，在一处废弃营地中醒来。";
 
         // 随机生成 npcCount 个各不相同的 NPC。
+        NpcGenerator.ResetUsedNames();   // 重置已用名字，避免跨局累积导致名字重复
         for (int i = 0; i < npcCount; i++)
         {
             string id = "npc_" + (i + 1).ToString("00"); // npc_01, npc_02...

@@ -11,6 +11,33 @@ public static class NpcGenerator
     private static readonly string[] NamesFemale =
         { "李静", "王芳", "张敏", "陈洁", "刘霞", "周琳", "孙怡" };
 
+    // 记录本局已经用过的名字，避免重复。
+    private static readonly HashSet<string> _usedNames = new HashSet<string>();
+
+    // 每局开始生成 NPC 前，先调用这个重置已用名字（否则跨局会累积）。
+    public static void ResetUsedNames()
+    {
+        _usedNames.Clear();
+    }
+
+    // 从名字池里挑一个还没用过的名字。如果都用完了，允许重复（兜底）。
+    private static string PickUnusedName(string[] pool)
+    {
+        // 先收集还没用过的名字。
+        List<string> available = new List<string>();
+        foreach (string n in pool)
+            if (!_usedNames.Contains(n)) available.Add(n);
+
+        string chosen;
+        if (available.Count > 0)
+            chosen = available[Random.Range(0, available.Count)]; // 从没用过的里挑
+        else
+            chosen = pool[Random.Range(0, pool.Length)];          // 都用完了，只能重复
+
+        _usedNames.Add(chosen);
+        return chosen;
+    }
+
     // 生成一个 NPC。id 由外部传入（保证唯一，如 "npc_01"）。
     public static NpcData Generate(string id)
     {
@@ -20,10 +47,10 @@ public static class NpcGenerator
         // —— 性别 ——
         npc.gender = TraitPool.PickOne(TraitPool.Genders);
 
-        // —— 名字（按性别挑）——
+        // —— 名字（按性别挑，且排除本局已用过的名字，避免重复）——
         npc.npcName = npc.gender == "男"
-            ? NamesMale[Random.Range(0, NamesMale.Length)]
-            : NamesFemale[Random.Range(0, NamesFemale.Length)];
+            ? PickUnusedName(NamesMale)
+            : PickUnusedName(NamesFemale);
 
         // —— 职业 ——
         npc.profession = TraitPool.PickOne(TraitPool.Professions);
