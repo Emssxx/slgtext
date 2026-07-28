@@ -32,9 +32,17 @@ public class NpcAgent : MonoBehaviour
     // 切换当前对话的 NPC（UI 点卡片/点场景NPC时调用）。
     public void SwitchTarget(string newNpcId)
     {
+        NpcData target = WorldManager.Instance.GetNpcById(newNpcId);
+
+        // 死亡拦截：不能切换到已死亡的 NPC 对话。
+        if (target != null && target.IsDead)
+        {
+            chatManager.AddMessage("系统", $"{target.npcName} 已经死亡，无法与其对话。", Color.gray);
+            return;
+        }
+
         npcId = newNpcId;
-        NpcData npc = WorldManager.Instance.GetNpcById(newNpcId);
-        string name = npc != null ? npc.npcName : newNpcId;
+        string name = target != null ? target.npcName : newNpcId;
         chatManager.AddMessage(
             LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("system_speaker") : "系统",
             "你现在正在和【" + name + "】对话。", Color.gray);
@@ -46,6 +54,13 @@ public class NpcAgent : MonoBehaviour
         NpcData npc = WorldManager.Instance.GetNpcById(npcId);
         if (npc == null) { Debug.LogError("找不到 NPC，id = " + npcId); return; }
 
+        // 死亡拦截：死了的 NPC 不回应（优先级比崩解拦截高）。
+        if (npc.IsDead)
+        {
+            chatManager.AddMessage("系统", $"{npc.npcName} 已经死亡，无法回应。", Color.gray);
+            return;
+        }
+
         // 崩解拦截：崩解的 NPC 不调 LLM，直接说代码生成的疯话。
         if (npc.isBroken)
         {
@@ -56,7 +71,7 @@ public class NpcAgent : MonoBehaviour
 
         // 先用 AI 把玩家的话解析成任务（看是不是行动指令）。
         string parsePrompt = TaskPlanner.BuildParsePrompt(WorldManager.Instance.world);
-        OllamaAIClient.Instance.SendChatRequest(
+        AIClientHub.Instance.Send(
             parsePrompt, playerText,
             (rawJson) => OnTaskPlanReply(rawJson, npc, playerText),
             true);
@@ -90,7 +105,7 @@ public class NpcAgent : MonoBehaviour
 
         // 没有任务（纯聊天）→ 正常生成对话。
         string systemPrompt = BuildSystemPrompt(npc);
-        OllamaAIClient.Instance.SendChatRequest(systemPrompt, playerText,
+        AIClientHub.Instance.Send(systemPrompt, playerText,
             (reply) => OnNpcReply(reply, npc.id), true);
     }
 
@@ -98,6 +113,9 @@ public class NpcAgent : MonoBehaviour
     public void MakeNpcSpeak(NpcData npc, string reason)
     {
         if (npc == null) return;
+
+        // 死亡拦截：死了的 NPC 不主动说话（优先级比崩解拦截高）。
+        if (npc.IsDead) return;
 
         // 崩解拦截
         if (npc.isBroken)
@@ -112,7 +130,7 @@ public class NpcAgent : MonoBehaviour
             "（这一刻没有玩家对你说话。你出于以下原因，主动开口说点什么：" + reason + "。" +
             "请用你的口吻说一句自言自语或对同伴的话。）";
 
-        OllamaAIClient.Instance.SendChatRequest(systemPrompt, userPrompt,
+        AIClientHub.Instance.Send(systemPrompt, userPrompt,
             (reply) => OnNpcReply(reply, npc.id), true);
     }
 

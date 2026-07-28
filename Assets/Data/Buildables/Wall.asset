@@ -11,10 +11,11 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a0e4f0368cfac06448b1f9795ab13676, type: 3}
   m_Name: Wall
-  m_EditorClassIdentifier:
+  m_EditorClassIdentifier: 
   id: wall
-  displayName: "墙"
-  sprite: {fileID: 0}
+  displayName: "\u5899"
+  sprite: {fileID: 7861765509177730125, guid: d73b99138c2fdb646a1ab70bfe1572af, type: 3}
+  prefab: {fileID: 1351282755278455922, guid: 43735c7d2a349024da60980c1f82681f, type: 3}
   width: 1
   height: 1
   blocksMovement: 1

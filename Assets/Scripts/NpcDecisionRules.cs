@@ -70,34 +70,34 @@ public static class NpcDecisionRules
                 {
                     npc.hunger = Mathf.Clamp(npc.hunger - 30f, 0f, 100f);
                     npc.currentAction = "刚吃过东西";
-                    log = npc.npcName + " 吃了一个罐头。";
+                    log = Loc("log_eat_success", npc.npcName);
                 }
-                else { npc.currentAction = "在找吃的"; log = npc.npcName + " 想吃东西，但仓库空了。"; }
+                else { npc.currentAction = "在找吃的"; log = Loc("log_eat_fail", npc.npcName); }
                 break;
 
             case Behavior.Rest:
                 npc.energy = Mathf.Clamp(npc.energy + 20f, 0f, 100f);
                 npc.hunger = Mathf.Clamp(npc.hunger + 8f, 0f, 100f);
                 npc.currentAction = "休息中";
-                log = npc.npcName + " 休息了一会儿。";
+                log = Loc("log_rest", npc.npcName);
                 break;
 
             case Behavior.Gather:
                 npc.energy = Mathf.Clamp(npc.energy - 15f, 0f, 100f);
                 WorldManager.Instance.AddToStorage("罐头", 1);
                 npc.currentAction = "外出搜寻物资";
-                log = npc.npcName + " 搜寻带回了 1 个罐头。";
+                log = Loc("log_gather", npc.npcName);
                 break;
 
             case Behavior.Flee:
                 npc.currentAction = "惊慌逃避";
-                log = npc.npcName + " 因为身体危急在躲避危险。";
+                log = Loc("log_flee", npc.npcName);
                 break;
 
             case Behavior.Idle:
             default:
                 npc.currentAction = "待命中";
-                log = npc.npcName + " 在营地待命。";
+                log = Loc("log_idle", npc.npcName);
                 break;
         }
 
@@ -105,5 +105,12 @@ public static class NpcDecisionRules
         // 把 NPC 行为送进日志栏（LogManager 不存在时安全跳过）
         if (LogManager.Instance != null)
             LogManager.Instance.AddLog(npc.npcName, log, npc.id);
+    }
+
+    // 取本地化日志文案（LocalizationManager 还没就绪时兜底返回 key本身，避免规则逻辑因此崩溃）。
+    static string Loc(string key, params object[] args)
+    {
+        if (LocalizationManager.Instance == null) return key;
+        return LocalizationManager.Instance.GetFormat(key, args);
     }
 }

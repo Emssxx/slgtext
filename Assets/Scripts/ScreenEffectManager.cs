@@ -151,22 +151,28 @@ public class ScreenEffectManager : MonoBehaviour
             case "space_warp": // 空间扭曲：紫色闪 + 较强震动 + 横幅
                 Flash(new Color(0.49f, 0.36f, 1f), 0.5f, 0.45f); // 紫
                 Shake(0.25f, 0.5f);
-                Banner("空间扭曲", new Color(0.49f, 0.36f, 1f));
+                Banner(GetBannerText("event_banner_space_warp"), new Color(0.49f, 0.36f, 1f));
                 break;
 
             case "time_disorder": // 时间失序：青白闪 + 轻微震动 + 横幅
                 Flash(new Color(0.6f, 0.9f, 1f), 0.8f, 0.4f); // 青白
                 Shake(0.08f, 0.3f);
-                Banner("时间失序", new Color(0.31f, 0.66f, 1f));
+                Banner(GetBannerText("event_banner_time_disorder"), new Color(0.31f, 0.66f, 1f));
                 break;
 
             case "whisper_vision": // 低语与幻象：暗紫黑雾 + 无震动 + 横幅
                 Flash(new Color(0.15f, 0.05f, 0.2f), 1.2f, 0.55f); // 暗紫
-                Banner("低语与幻象", new Color(0.7f, 0.5f, 0.9f));
+                Banner(GetBannerText("event_banner_whisper_vision"), new Color(0.7f, 0.5f, 0.9f));
                 break;
 
             default:
                 break;
         }
+    }
+
+    // 按当前语言取横幅文字（LocalizationManager 不存在时兜底返回 key本身，避免报空）。
+    string GetBannerText(string key)
+    {
+        return LocalizationManager.Instance != null ? LocalizationManager.Instance.Get(key) : key;
     }
 }

@@ -99,7 +99,12 @@ public class EventExecutor : MonoBehaviour
 
         // 5. 在事件日志记录这个客观后果（瞬移本身可见，再补一句日志强化反馈）。
         if (LogManager.Instance != null)
-            LogManager.Instance.AddLog(chosen.npcName, $"{chosen.npcName} 被空间扭曲卷走，出现在了别处。");
+        {
+            string log = LocalizationManager.Instance != null
+                ? LocalizationManager.Instance.GetFormat("log_space_warp_victim", chosen.npcName)
+                : $"{chosen.npcName} 被空间扭曲卷走，出现在了别处。";
+            LogManager.Instance.AddLog(chosen.npcName, log);
+        }
 
         // （情绪：困惑/恐慌的数值影响 → 数值篇。这里先以"终止任务"作为行为层面的表现。）
     }

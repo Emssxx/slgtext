@@ -81,6 +81,24 @@ public class LocalizationManager : MonoBehaviour
             { "debug_time_disorder",  ("时间失序", "時間の乱れ") },
             { "debug_whisper_vision", ("低语与幻象", "囁きと幻影") },
 
+            // —— AI模型调试UI（AIModelDebugUI，右下角展示当前模型）——
+            { "ai_debug_label_local",   ("本地", "ローカル") },   // 用本地Ollama时的前缀
+            { "ai_debug_label_cloud",   ("云端", "クラウド") },   // 用云端Claude时的前缀
+
+            // —— 事件横幅（ScreenEffectManager.PlayEventEffect，屏幕正中短暂出现的大字）——
+            { "event_banner_space_warp",     ("空间扭曲", "空間の歪み") },
+            { "event_banner_time_disorder",  ("时间失序", "時間の乱れ") },
+            { "event_banner_whisper_vision", ("低语与幻象", "囁きと幻影") },
+
+            // —— NPC行为日志（NpcDecisionRules.Execute写进日志栏，{0}=NPC名字）——
+            { "log_eat_success", ("{0} 吃了一个罐头。", "{0}は缶詰を食べた。") },
+            { "log_eat_fail",    ("{0} 想吃东西，但仓库空了。", "{0}は何か食べようとしたが、倉庫は空だった。") },
+            { "log_rest",        ("{0} 休息了一会儿。", "{0}はしばらく休んだ。") },
+            { "log_gather",      ("{0} 搜寻带回了 1 个罐头。", "{0}は捜索して缶詰を1つ持ち帰った。") },
+            { "log_flee",        ("{0} 因为身体危急在躲避危险。", "{0}は身の危険を感じて避難している。") },
+            { "log_idle",        ("{0} 在营地待命。", "{0}は野営地で待機している。") },
+            { "log_space_warp_victim", ("{0} 被空间扭曲卷走，出现在了别处。", "{0}は空間の歪みに飲み込まれ、別の場所に現れた。") },
+
             // 以后要加文本，继续往这里加：{ "key", ("中文", "日文") },
         };
     }
@@ -91,6 +109,12 @@ public class LocalizationManager : MonoBehaviour
         if (_table != null && _table.TryGetValue(key, out var pair))
             return current == Language.Chinese ? pair.zh : pair.ja;
         return key; // 没找到，返回 key 本身提醒你补
+    }
+
+    // 取当前语言的文本，并用 string.Format 填入参数（模板里写 {0}{1}... 的场景，比如日志里插入NPC名字）。
+    public string GetFormat(string key, params object[] args)
+    {
+        return string.Format(Get(key), args);
     }
 
     // 切换语言（在中/日之间切）。

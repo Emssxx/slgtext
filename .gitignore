@@ -40,3 +40,7 @@ sysinfo.txt
 # 构建产物
 *.exe
 *.app
+
+# Anthropic API key（本地测试用，绝不能进git/打包，见 apikey.txt.txt 说明）
+apikey.txt
+apikey.txt.txt

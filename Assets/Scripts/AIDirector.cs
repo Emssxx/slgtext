@@ -66,7 +66,7 @@ public class AIDirector : MonoBehaviour
             "}" +
             "\n\n" + (LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "");
 
-        OllamaAIClient.Instance.SendChatRequest(systemPrompt, "生成本回合的事件。", OnEventGenerated, true);
+        AIClientHub.Instance.Send(systemPrompt, "生成本回合的事件。", OnEventGenerated, true);
     }
 
     void OnEventGenerated(string rawJson)

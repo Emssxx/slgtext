@@ -73,6 +73,9 @@ public class NpcData
     public float energy = 100f; // 精力/体力
     public float sanity = 100f; // 精神/理智（亚空间会侵蚀理智，本作特色数值）
 
+    // 是否已死亡（只读，统一用这个判断，不要各处自己写 health<=0）。
+    public bool IsDead => health <= 0f;
+
     // —— 精神状态标志（由 WorldRules / MentalState 维护）——
     public bool isHallucinating = false;          // 是否处于幻觉状态
     public bool isBroken = false;                 // 是否已人格崩解（不可逆）

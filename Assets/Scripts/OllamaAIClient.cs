@@ -6,7 +6,7 @@ using Newtonsoft.Json;
 
 // 与本地 Ollama 通信的客户端（单例）。是 LLM 调用的统一出口。
 // 以后要切换"本地/云端"，只需在这里换实现，上层（NpcAgent/AIDirector）不用动。
-public class OllamaAIClient : MonoBehaviour
+public class OllamaAIClient : MonoBehaviour, IAIClient
 {
     public static OllamaAIClient Instance;
 
