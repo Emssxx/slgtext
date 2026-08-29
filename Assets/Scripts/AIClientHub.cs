@@ -1,21 +1,19 @@
 using UnityEngine;
 using System;
 
-// LLM 调用的统一出口 + 本地/云端切换开关。
+// LLM 调用的统一出口 + プロバイダー選択。
 //
-// 上层（NpcAgent / AIDirector）改为调用：
-//     AIClientHub.Instance.Send(systemPrompt, userPrompt, callback, jsonFormat);
-// 而不再直接调 OllamaAIClient。这样切换本地/云端，上层完全不用改。
-//
-// 【切换方式】
-//   - Inspector 里勾选 useCloud：true=云端Claude，false=本地Ollama。
-//   - 或运行时调用 SetUseCloud(true/false)（比如发表时本地卡了，一键切云端）。
+// 上层（NpcAgent / AIDirector）は AIClientHub.Instance.Send(...) だけを呼ぶ。
+// どのAI（本地Ollama / Claude / OpenAI / Gemini）を使うかは、ここで一元管理する。
+// プロバイダーを増やしても、上层のコードは一切変えなくてよい。
+public enum AIProvider { LocalOllama, Claude, OpenAI, Gemini }
+
 public class AIClientHub : MonoBehaviour
 {
     public static AIClientHub Instance;
 
-    [Header("使用云端？（true=Claude云端，false=本地Ollama）")]
-    public bool useCloud = false;
+    [Header("どのAIを使うか")]
+    public AIProvider provider = AIProvider.LocalOllama;
 
     private void Awake()
     {
@@ -23,40 +21,49 @@ public class AIClientHub : MonoBehaviour
         else { Destroy(gameObject); return; }
     }
 
-    // 统一发送入口。根据 useCloud 选择本地或云端客户端。
+    // 統一送信入口。
     public void Send(string systemPrompt, string userPrompt, Action<string> callback, bool jsonFormat = false)
     {
         IAIClient client = GetActiveClient();
         if (client == null)
         {
-            Debug.LogError("[AIClientHub] 找不到可用的 AI 客户端（本地/云端都没就绪）。");
+            Debug.LogError($"[AIClientHub] プロバイダー {provider} のクライアントが見つかりません。");
             callback?.Invoke(jsonFormat ? "{\"dialogue\":\"……（AI未就绪）\"}" : "……（AI未就绪）");
             return;
         }
         client.SendChatRequest(systemPrompt, userPrompt, callback, jsonFormat);
     }
 
-    // 取当前应使用的客户端。
+    // 現在のプロバイダーに対応するクライアントを返す。
     IAIClient GetActiveClient()
     {
-        if (useCloud)
+        switch (provider)
         {
-            if (ClaudeAIClient.Instance != null) return ClaudeAIClient.Instance;
-            Debug.LogWarning("[AIClientHub] useCloud=true 但云端客户端不存在，尝试回退本地。");
-            return OllamaAIClient.Instance as IAIClient;
-        }
-        else
-        {
-            if (OllamaAIClient.Instance != null) return OllamaAIClient.Instance as IAIClient;
-            Debug.LogWarning("[AIClientHub] 本地客户端不存在，尝试使用云端。");
-            return ClaudeAIClient.Instance;
+            case AIProvider.Claude:  return ClaudeAIClient.Instance;
+            case AIProvider.OpenAI:  return OpenAIClient.Instance;
+            case AIProvider.Gemini:  return GeminiAIClient.Instance;
+            case AIProvider.LocalOllama:
+            default:
+                return OllamaAIClient.Instance as IAIClient;
         }
     }
 
-    // 运行时切换（发表时可绑到一个按钮/快捷键上，本地卡了一键切云端）。
-    public void SetUseCloud(bool cloud)
+    // 実行時にプロバイダーを切り替える（ボタン等に割り当て可能）。
+    public void SetProvider(AIProvider p)
     {
-        useCloud = cloud;
-        Debug.Log($"[AIClientHub] 已切换到：{(cloud ? "云端 Claude" : "本地 Ollama")}");
+        provider = p;
+        Debug.Log($"[AIClientHub] AIプロバイダーを切り替え：{p}");
+    }
+
+    // 現在のプロバイダー名（状態表示用）。
+    public string CurrentProviderName()
+    {
+        switch (provider)
+        {
+            case AIProvider.Claude: return "クラウド (Claude)";
+            case AIProvider.OpenAI: return "クラウド (ChatGPT)";
+            case AIProvider.Gemini: return "クラウド (Gemini)";
+            default:                return "ローカル (Ollama)";
+        }
     }
 }

@@ -21,7 +21,7 @@ public class ClaudeAIClient : MonoBehaviour, IAIClient
 
     [Header("Claude 设置")]
     public string apiUrl = "https://api.anthropic.com/v1/messages";
-    public string modelName = "claude-3-5-sonnet-20241022"; // 可按需改成其他 Claude 模型
+    public string modelName = "claude-sonnet-4-6"; // 可按需改成其他 Claude 模型
     public int maxTokens = 1024;
 
     // key 文件名（放在 persistentDataPath 下）。
@@ -29,6 +29,10 @@ public class ClaudeAIClient : MonoBehaviour, IAIClient
 
     private static readonly HttpClient _client = new HttpClient() { Timeout = TimeSpan.FromSeconds(60) };
     private string _apiKey = null;
+
+    // —— key 状态（供界面提示读取）——
+    public bool HasApiKey => !string.IsNullOrEmpty(_apiKey);   // key 是否已成功加载
+    public string KeyFilePath => System.IO.Path.Combine(Application.persistentDataPath, apiKeyFileName); // key 文件应放的路径
 
     private const string FallbackJson = "{\"dialogue\":\"……（云端没有回应）\"}";
 
