@@ -5,11 +5,26 @@ using UnityEngine;
 // 各维度随机抽词条 → 组合出性格数值 + 词条列表 + 喂AI的描述文字。
 public static class NpcGenerator
 {
-    // 随机名字池（简单起见用常见姓名；以后可扩充或按性别分）。
-    private static readonly string[] NamesMale =
-        { "老五", "张伟", "陈强", "王磊", "刘洋", "赵刚", "孙阳" };
-    private static readonly string[] NamesFemale =
-        { "李静", "王芳", "张敏", "陈洁", "刘霞", "周琳", "孙怡" };
+    // —— 名字池：中文 / 日文，各按性别分。切换语言时用对应语言的名字。——
+    // 中文名字
+    private static readonly string[] CnMale =
+        { "老五", "张伟", "陈强", "王磊", "刘洋", "赵刚", "孙阳", "李军", "周涛", "吴勇",
+          "郑浩", "王杰", "陈斌", "黄斌", "徐峰", "马超", "朱明", "胡兵", "林涛", "何军",
+          "高翔", "罗刚", "梁辉", "宋江", "唐磊" };
+    private static readonly string[] CnFemale =
+        { "李静", "王芳", "张敏", "陈洁", "刘霞", "周琳", "孙怡", "赵丽", "杨柳", "吴娟",
+          "郑燕", "王莉", "陈红", "黄丽", "徐婷", "马兰", "朱琳", "胡月", "林芳", "何静",
+          "高欣", "罗敏", "梁雪", "宋佳", "唐蕾" };
+
+    // 日文名字（かな併記なし・漢字表記の一般的な名前）
+    private static readonly string[] JpMale =
+        { "田中", "佐藤", "鈴木", "高橋", "渡辺", "伊藤", "山本", "中村", "小林", "加藤",
+          "吉田", "山田", "松本", "井上", "木村", "林", "斎藤", "清水", "山口", "森",
+          "池田", "橋本", "阿部", "石川", "前田" };
+    private static readonly string[] JpFemale =
+        { "さくら", "ゆき", "あおい", "みなみ", "ひかり", "めぐみ", "なつき", "ゆいこ", "あやか", "みさき",
+          "かおり", "りな", "まゆ", "ちひろ", "ののか", "すみれ", "あかね", "ほのか", "しずく", "みゆき",
+          "ことね", "はるな", "まりん", "ゆめ", "せな" };
 
     // 记录本局已经用过的名字，避免重复。
     private static readonly HashSet<string> _usedNames = new HashSet<string>();
@@ -48,9 +63,14 @@ public static class NpcGenerator
         npc.gender = TraitPool.PickOne(TraitPool.Genders);
 
         // —— 名字（按性别挑，且排除本局已用过的名字，避免重复）——
-        npc.npcName = npc.gender == "男"
-            ? PickUnusedName(NamesMale)
-            : PickUnusedName(NamesFemale);
+        // —— 名字：按当前界面语言 + 性别，从对应的名字池挑（排除已用过的）——
+        bool isJp = LocalizationManager.Instance != null
+                    && LocalizationManager.Instance.current == Language.Japanese;
+        bool isMale = npc.gender == "男";
+        string[] pool = isJp
+            ? (isMale ? JpMale : JpFemale)
+            : (isMale ? CnMale : CnFemale);
+        npc.npcName = PickUnusedName(pool);
 
         // —— 职业 ——
         npc.profession = TraitPool.PickOne(TraitPool.Professions);

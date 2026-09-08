@@ -99,6 +99,13 @@ public class LocalizationManager : MonoBehaviour
             { "log_idle",        ("{0} 在营地待命。", "{0}は野営地で待機している。") },
             { "log_space_warp_victim", ("{0} 被空间扭曲卷走，出现在了别处。", "{0}は空間の歪みに飲み込まれ、別の場所に現れた。") },
 
+            // —— 主界面（MainMenuController，运行时自建UI）——
+            { "btn_start",       ("开始游戏", "ゲーム開始") },
+            { "btn_quit",        ("退出", "終了") },
+            { "provider_local",  ("本地", "ローカル") },   // provider按钮里"本地Ollama"的显示名
+            { "provider_prefix", ("AI：", "AI：") },       // provider按钮前缀，如"AI：Claude"
+            { "menu_hint",       ("使用云端AI需要各自的API key。", "クラウドAIを使う場合は、各自のAPIキーが必要です。") },
+
             // 以后要加文本，继续往这里加：{ "key", ("中文", "日文") },
         };
     }
