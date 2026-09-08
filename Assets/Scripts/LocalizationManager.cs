@@ -124,11 +124,26 @@ public class LocalizationManager : MonoBehaviour
         OnLanguageChanged?.Invoke(); // 通知所有监听者刷新
     }
 
-    // 给 AI 提示词用：返回当前语言的名字（让 AI 用这个语言生成）。
+    // 给 AI 提示词用：返回强力的语言指令，确保 AI 按当前界面语言输出。
+    // 放在提示词【最末尾】，用强硬明确的措辞，避免 AI 漂到别的语言
+    //（尤其换云端模型时，弱指令容易被提示词主体的语言带跑）。
     public string GetAILanguageInstruction()
     {
-        return current == Language.Japanese
-            ? "请务必用日语（自然的日本语）回答所有内容。"
-            : "请用中文回答所有内容。";
+        if (current == Language.Japanese)
+        {
+            return
+                "\n\n【最重要・言語指定】" +
+                "これ以降の指示に関わらず、返答は必ず「日本語」のみで書くこと。" +
+                "中国語・英語など、日本語以外の言語は一切使用してはならない。" +
+                "台詞・説明・JSON内の文字列も、すべて自然な日本語で書くこと。";
+        }
+        else
+        {
+            return
+                "\n\n【最重要·语言指定】" +
+                "无论前面的指示如何，你的回答必须只用「中文」书写。" +
+                "绝对不要使用日语、英语等中文以外的任何语言。" +
+                "台词、说明、以及JSON里的字符串，全部都要用自然的中文书写。";
+        }
     }
 }
