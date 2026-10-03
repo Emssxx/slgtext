@@ -49,7 +49,6 @@ public class LocalizationManager : MonoBehaviour
             { "state_broken",       ("（已不成人形）", "（もはや人の形ではない）") },
 
             // —— 按钮/界面 ——
-            { "btn_language", ("日本語", "中文") }, // 按钮显示"切换到另一种语言"
             { "btn_build",    ("建造  [B]", "建築  [B]") }, // 建造模式切换按钮（含快捷键提示）
 
             // —— 对话框标题 / 输入框 ——
