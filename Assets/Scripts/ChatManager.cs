@@ -110,6 +110,9 @@ public class ChatManager : MonoBehaviour
     // 往聊天框加一条消息。speaker 为空时只显示内容（事件类消息可复用）。
     public void AddMessage(string speaker, string content, Color color)
     {
+        // 栏位已不存在（比如停止 Play 后 AI 回复才到）就不生成，否则消息会掉进编辑器场景的最外层
+        if (contentParent == null || messageItemPrefab == null) return;
+
         GameObject item = Instantiate(messageItemPrefab, contentParent);
         TMP_Text label = item.GetComponentInChildren<TMP_Text>();
         label.text = string.IsNullOrEmpty(speaker) ? content : speaker + "：" + content;

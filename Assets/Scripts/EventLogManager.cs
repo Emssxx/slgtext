@@ -29,6 +29,9 @@ public class EventLogManager : MonoBehaviour
     // 往日志里加一条事件。day=第几天，content=事件描述。
     public void AddEvent(int day, string content)
     {
+        // 栏位已不存在（比如停止 Play 后 AI 回复才到）就不生成，否则消息会掉进编辑器场景的最外层
+        if (contentParent == null || eventItemPrefab == null) return;
+
         GameObject item = Instantiate(eventItemPrefab, contentParent);
         TMP_Text label = item.GetComponentInChildren<TMP_Text>();
 

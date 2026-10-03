@@ -73,18 +73,26 @@ public class AIDirector : MonoBehaviour
     {
         _busy = false;
         EventData data = ParseEvent(rawJson);
-        // eventDesc 优先，解析失败时用原文兜底
-        string eventText = string.IsNullOrEmpty(data.eventDesc) ? rawJson : data.eventDesc;
+        // 只用解析出来的事件描述；拿不到（比如AI失败返回了兜底的 {"dialogue":...}）就不显示，
+        // 避免把一串原始 JSON 显示在事件栏里。
+        string eventText = data.eventDesc;
         string eventType = data.type; // 事件类型，第二步传给 EventExecutor
 
-        EventLogManager.Instance.AddEvent(WorldManager.Instance.world.day, eventText);
-
         WorldState world = WorldManager.Instance.world;
-        world.eventLog.Add(new MemoryEntry { day = world.day, content = eventText });
 
-        // 事件发生后，60% 概率点名一个 NPC 针对事件反应。
-        if (UnityEngine.Random.value < 0.6f)
-            MakeNpcReactToEvent(eventText);
+        if (!string.IsNullOrEmpty(eventText))
+        {
+            EventLogManager.Instance.AddEvent(world.day, eventText);
+            world.eventLog.Add(new MemoryEntry { day = world.day, content = eventText });
+
+            // 事件发生后，60% 概率点名一个 NPC 针对事件反应。
+            if (UnityEngine.Random.value < 0.6f)
+                MakeNpcReactToEvent(eventText);
+        }
+        else
+        {
+            Debug.LogWarning("[AIDirector] 没解析出事件描述，本回合不显示事件。原文：" + rawJson);
+        }
 
         // 异常度越高，越可能升级为"危险生物冲击"。
         float anomaly = world.anomalyLevel;
