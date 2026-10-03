@@ -12,7 +12,7 @@ using UnityEngine.UI;
 public class DemoController : MonoBehaviour
 {
     [Header("デモ設定")]
-    public int maxDays = 10;              // 何日でデモ終了とするか
+    public int maxDays = 0;               // 第几天结束 demo；填 0 或负数 = 无限（不会结束）
     public float secondsPerDay = 15f;     // 1日の長さ（秒）。AIDirectorに反映する。
 
     [Header("参照")]
@@ -40,6 +40,9 @@ public class DemoController : MonoBehaviour
     {
         if (_ended) return;
         if (WorldManager.Instance == null || WorldManager.Instance.world == null) return;
+
+        // maxDays 小于等于 0 表示无限天数，直接跳过结束判定
+        if (maxDays <= 0) return;
 
         // 現在の日数が上限に達したら、デモ終了。
         if (WorldManager.Instance.world.day >= maxDays)

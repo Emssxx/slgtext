@@ -25,14 +25,18 @@ public static class TaskPlanner
             "- push：把某个物品推到某个地点，需要 target（物品名）和 destination（地点名）\n\n" +
             "【输出要求】只输出一个 JSON，不要任何多余文字，格式：\n" +
             "{\n" +
-            "  \"tasks\": [ {\"action\":\"go\",\"destination\":\"仓库\"}, {\"action\":\"act\"}, {\"action\":\"go\",\"destination\":\"营地\"} ],\n" +
-            "  \"reply\": \"好的，这就去办。\"\n" +
+            "  \"tasks\": [ {\"action\":\"go\",\"destination\":\"（地点名）\"}, {\"action\":\"act\"}, {\"action\":\"go\",\"destination\":\"（地点名）\"} ],\n" +
+            "  \"reply\": \"<...>\"\n" +
             "}\n" +
             "地点名和物品名必须从上面给的列表里选，不要自己编。" +
             "除了上面列出的地点名，玩家也可能用网格编号作为目的地，" +
             "网格编号是一个大写字母加数字的形式（例如 G7、J10），" +
             "如果玩家提到这种编号，直接把它作为 destination 原样填入，不要改写。" +
-            "如果玩家的话根本不是行动指令（只是聊天），返回空的 tasks 列表。";
+            "如果玩家的话根本不是行动指令（只是聊天），返回空的 tasks 列表。" +
+            // reply 示例用中性的 <...> 占位，不写任何具体语言的句子，避免把 AI 带偏到某种语言
+            "\n注意：reply 是 NPC 接到命令后回应的一句简短的话，必须遵守下面的语言要求。\n" +
+            // 语言指令放在最末尾（和 NpcAgent/AIDirector 一致），由 LocalizationManager 按当前界面语言决定
+            (LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "");
     }
 
     // 解析 AI 返回的 JSON，健壮地取出 TaskPlan（失败返回 null）。

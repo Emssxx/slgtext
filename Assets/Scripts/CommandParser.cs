@@ -14,8 +14,13 @@ public static class CommandParser
         public bool valid;           // 是否成功解析出一个可执行指令
     }
 
-    // 表示"移动"意图的动词关键词。
-    static readonly string[] MoveVerbs = { "去", "到", "走到", "前往", "过去" };
+    // 表示"移动"意图的动词关键词（中日两种语言，便于两种语言的指令都能快速识别）。
+    static readonly string[] MoveVerbs = {
+        // 中文
+        "去", "到", "走到", "前往", "过去",
+        // 日语
+        "行って", "行け", "向かって", "移動", "進んで", "来て"
+    };
 
     // 第一层：纯关键词匹配。成功返回 Command，失败返回 null（交给 AI 兜底）。
     public static Command TryKeywordParse(string playerText, WorldState world)
