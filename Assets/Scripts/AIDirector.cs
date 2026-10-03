@@ -114,7 +114,12 @@ public class AIDirector : MonoBehaviour
         NpcAgent agent = FindObjectOfType<NpcAgent>();
         if (agent != null)
         {
-            string reason = "你刚刚经历了这件事：" + eventDesc + "。请针对它做出你这个角色会有的即时反应。";
+            // 按当前界面语言选 reason 的语言，减少把 AI 往中文带
+            bool isJp = LocalizationManager.Instance != null
+                        && LocalizationManager.Instance.current == Language.Japanese;
+            string reason = isJp
+                ? "あなたは今、この出来事を経験した：" + eventDesc + "。それに対して、この人物らしい即座の反応をしてください。"
+                : "你刚刚经历了这件事：" + eventDesc + "。请针对它做出你这个角色会有的即时反应。";
             agent.MakeNpcSpeak(chosen, reason);
         }
     }

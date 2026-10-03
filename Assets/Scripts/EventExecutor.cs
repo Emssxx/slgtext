@@ -15,6 +15,14 @@ public class EventExecutor : MonoBehaviour
 {
     public static EventExecutor Instance { get; private set; }
 
+    // 按当前界面语言选中文或日文（事件后果的固定日志文案用）。
+    static string L(string zh, string ja)
+    {
+        bool isJp = LocalizationManager.Instance != null
+                    && LocalizationManager.Instance.current == Language.Japanese;
+        return isJp ? ja : zh;
+    }
+
     void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
@@ -99,12 +107,9 @@ public class EventExecutor : MonoBehaviour
 
         // 5. 在事件日志记录这个客观后果（瞬移本身可见，再补一句日志强化反馈）。
         if (LogManager.Instance != null)
-        {
-            string log = LocalizationManager.Instance != null
-                ? LocalizationManager.Instance.GetFormat("log_space_warp_victim", chosen.npcName)
-                : $"{chosen.npcName} 被空间扭曲卷走，出现在了别处。";
-            LogManager.Instance.AddLog(chosen.npcName, log);
-        }
+            LogManager.Instance.AddLog(chosen.npcName, L(
+                $"{chosen.npcName} 被空间扭曲卷走，出现在了别处。",
+                $"{chosen.npcName} は空間のゆがみに巻き込まれ、別の場所に現れた。"));
 
         // （情绪：困惑/恐慌的数值影响 → 数值篇。这里先以"终止任务"作为行为层面的表现。）
     }
@@ -129,8 +134,9 @@ public class EventExecutor : MonoBehaviour
 
         // 记录这个事件的客观后果到日志。
         if (EventLogManager.Instance != null)
-            EventLogManager.Instance.AddEvent(world.day,
-                $"时间失序：时间向前跳跃了，一切都已不同。（第 {world.day} 天）");
+            EventLogManager.Instance.AddEvent(world.day, L(
+                $"时间失序：时间向前跳跃了，一切都已不同。（第 {world.day} 天）",
+                $"時間のみだれ：時が前へ飛び、何もかもが変わってしまった。（{world.day} 日目）"));
 
         // （快进的具体回合数、是否伴随UI时钟故障动画 → 数值篇 / UI 时钟做好后补。）
     }
@@ -174,7 +180,9 @@ public class EventExecutor : MonoBehaviour
 
         // 4. 记录事件日志。
         if (EventLogManager.Instance != null)
-            EventLogManager.Instance.AddEvent(world.day, "营地里，有人开始听见不存在的低语……");
+            EventLogManager.Instance.AddEvent(world.day, L(
+                "营地里，有人开始听见不存在的低语……",
+                "拠点で、誰かが「あるはずのない囁き」を聞きはじめた……"));
     }
 
     // 找一个随机的可站立格子，输出其世界坐标。找到返回true。
