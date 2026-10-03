@@ -18,7 +18,9 @@ public class OllamaAIClient : MonoBehaviour, IAIClient
     private static readonly HttpClient _client = new HttpClient() { Timeout = TimeSpan.FromSeconds(60) };
 
     // 请求失败时的安全默认值（只含 dialogue，匹配新架构）。
-    private const string FallbackJson = "{\"dialogue\":\"……（没有回应）\"}";
+    // 从常量改成属性：每次用到时按当前界面语言取文字（常量没法跟着语言变）
+    private static string FallbackJson => "{\"dialogue\":\"" +
+        (LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("ai_no_response") : "……（没有回应）") + "\"}";
 
     private void Awake()
     {

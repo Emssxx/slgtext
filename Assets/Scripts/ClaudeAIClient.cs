@@ -34,7 +34,9 @@ public class ClaudeAIClient : MonoBehaviour, IAIClient
     public bool HasApiKey => !string.IsNullOrEmpty(_apiKey);   // key 是否已成功加载
     public string KeyFilePath => System.IO.Path.Combine(Application.persistentDataPath, apiKeyFileName); // key 文件应放的路径
 
-    private const string FallbackJson = "{\"dialogue\":\"……（云端没有回应）\"}";
+    // 从常量改成属性：每次用到时按当前界面语言取文字（常量没法跟着语言变）
+    private static string FallbackJson => "{\"dialogue\":\"" +
+        (LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("ai_cloud_no_response") : "……（云端没有回应）") + "\"}";
 
     private void Awake()
     {

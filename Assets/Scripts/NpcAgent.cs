@@ -37,7 +37,12 @@ public class NpcAgent : MonoBehaviour
         // 死亡拦截：不能切换到已死亡的 NPC 对话。
         if (target != null && target.IsDead)
         {
-            chatManager.AddMessage("系统", $"{target.npcName} 已经死亡，无法与其对话。", Color.gray);
+            // 说话人和提示语都走翻译表（GetFormat 把 NPC 名字填进 {0}）
+            LocalizationManager loc = LocalizationManager.Instance;
+            chatManager.AddMessage(
+                loc != null ? loc.Get("system_speaker") : "系统",
+                loc != null ? loc.GetFormat("npc_dead_cannot_talk", target.npcName) : $"{target.npcName} 已经死亡，无法与其对话。",
+                Color.gray);
             return;
         }
 
@@ -45,7 +50,11 @@ public class NpcAgent : MonoBehaviour
         string name = target != null ? target.npcName : newNpcId;
         chatManager.AddMessage(
             LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("system_speaker") : "系统",
-            "你现在正在和【" + name + "】对话。", Color.gray);
+            // 提示语走翻译表，按界面语言显示（GetFormat 把 NPC 名字填进 {0}）
+            LocalizationManager.Instance != null
+                ? LocalizationManager.Instance.GetFormat("now_talking_with", name)
+                : "你现在正在和【" + name + "】对话。",
+            Color.gray);
     }
 
     // ============ 玩家说话入口 ============

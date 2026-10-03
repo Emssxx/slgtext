@@ -33,7 +33,11 @@ public class EventLogManager : MonoBehaviour
         TMP_Text label = item.GetComponentInChildren<TMP_Text>();
 
         // 前面带上天数，像“[第3天] 墙壁渗出黑雾……”
-        label.text = "[第" + day + "天] " + content;
+        // 前缀走翻译表（中文"[第3天] "，日语"[3日目] "）
+        string prefix = LocalizationManager.Instance != null
+            ? LocalizationManager.Instance.GetFormat("event_day_prefix", day)
+            : "[第" + day + "天] ";
+        label.text = prefix + content;
         label.color = eventColor;
 
         // 立刻重建布局，修正新条目位置（和聊天框同一个坑的同一个解法）。

@@ -98,7 +98,9 @@ public class ChatManager : MonoBehaviour
         string content = inputField.text.Trim();
         if (string.IsNullOrEmpty(content)) return;
 
-        AddMessage("你", content, playerColor);
+        // 玩家的名字走翻译表（中文"你"，日语"あなた"）
+        AddMessage(LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("player_speaker") : "你",
+                   content, playerColor);
         inputField.text = "";
         inputField.ActivateInputField();
 

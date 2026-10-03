@@ -28,7 +28,9 @@ public class GeminiAIClient : MonoBehaviour, IAIClient
     public bool HasApiKey => !string.IsNullOrEmpty(_apiKey);
     public string KeyFilePath => Path.Combine(Application.persistentDataPath, apiKeyFileName);
 
-    private const string FallbackJson = "{\"dialogue\":\"……（云端没有回应）\"}";
+    // 从常量改成属性：每次用到时按当前界面语言取文字（常量没法跟着语言变）
+    private static string FallbackJson => "{\"dialogue\":\"" +
+        (LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("ai_cloud_no_response") : "……（云端没有回应）") + "\"}";
 
     private void Awake()
     {
