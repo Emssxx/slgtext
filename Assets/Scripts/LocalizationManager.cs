@@ -96,10 +96,10 @@ public class LocalizationManager : MonoBehaviour
             { "event_banner_whisper_vision", ("低语与幻象", "囁きと幻影") },
 
             // —— NPC行为日志（NpcDecisionRules.Execute写进日志栏，{0}=NPC名字）——
-            { "log_eat_success", ("{0} 吃了一个罐头。", "{0}は缶詰を食べた。") },
+            { "log_eat_success", ("{0} 吃了{1}。", "{0}は{1}を口にした。") },
             { "log_eat_fail",    ("{0} 想吃东西，但仓库空了。", "{0}は何か食べようとしたが、倉庫は空だった。") },
             { "log_rest",        ("{0} 休息了一会儿。", "{0}はしばらく休んだ。") },
-            { "log_gather",      ("{0} 搜寻带回了 1 个罐头。", "{0}は捜索して缶詰を1つ持ち帰った。") },
+            { "log_gather",      ("{0} 外出搜寻，带回了一些物资。", "{0}は捜索に出て、物資を持ち帰った。") },
             { "log_flee",        ("{0} 因为身体危急在躲避危险。", "{0}は身の危険を感じて避難している。") },
             { "log_idle",        ("{0} 在营地待命。", "{0}は野営地で待機している。") },
             { "log_space_warp_victim", ("{0} 被空间扭曲卷走，出现在了别处。", "{0}は空間の歪みに飲み込まれ、別の場所に現れた。") },
@@ -110,6 +110,24 @@ public class LocalizationManager : MonoBehaviour
             { "provider_local", ("本地", "ローカル") },
             { "provider_prefix", ("AI：", "AI：") },
             { "menu_hint", ("使用云端AI需要各自的API key。", "クラウドAIを使う場合は、各自のAPIキーが必要です。") },
+
+            // —— 物品 / 仓库面板（StoragePanelUI、ItemUseRules）——
+            { "storage_title",       ("营地仓库", "拠点の倉庫") },
+            { "storage_target",      ("使用对象：", "使用対象：") },
+            { "storage_no_target",   ("（未选择）", "（未選択）") },
+            { "storage_empty",       ("仓库是空的。", "倉庫は空っぽだ。") },
+            { "storage_pick_hint",   ("点击左侧物品查看详情。", "左の物品をクリックすると詳細が見られる。") },
+            { "storage_use_on",      ("对 {0} 使用", "{0}に使う") },
+            { "btn_use",             ("使用", "使う") },
+            { "log_use_item",        ("{0} 使用了{1}。", "{0}は{1}を使った。") },
+            { "item_fail_no_target", ("没有使用对象。先选择一个 NPC 对话。", "使用対象がいない。先にNPCを選んで会話しよう。") },
+            { "item_fail_dead",      ("对方已经死亡。", "相手はもう死んでいる。") },
+            { "item_fail_unknown",   ("未知的物品。", "不明な物品。") },
+            { "item_fail_not_usable",("这个物品不能直接使用。", "この物品は直接使えない。") },
+            { "item_fail_empty",     ("仓库里已经没有了。", "倉庫にもう残っていない。") },
+            { "item_fail_broken",    ("已经崩解的人，药物也救不回来了。", "崩壊した者には、もう薬も効かない。") },
+            { "item_cat_material",   ("建造材料（不能直接使用）", "建築素材（直接は使えない）") },
+            { "item_cat_special",    ("亚空间特产（用途未明）", "亜空間の産物（用途不明）") },
 
             // 以后要加文本，继续往这里加：{ "key", ("中文", "日文") },
         };

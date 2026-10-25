@@ -49,13 +49,11 @@ public static class NpcDecisionRules
         return Behavior.Idle;
     }
 
-    // 仓库是否物资不足（简单判断：罐头少于 2）。
+    // 仓库是否物资不足：所有"食物类"物品加起来少于 2 份。
     static bool IsStorageLow(WorldState world)
     {
-        foreach (ItemStack stack in world.sharedStorage)
-            if (stack.itemName == "罐头" && stack.count >= 2)
-                return false;
-        return true;
+        if (ItemDatabase.Instance == null) return true;
+        return ItemDatabase.Instance.CountInStorage(ItemCategory.Food, world) < 2;
     }
 
     // 把决策真正落到世界上：修改数值/物资，写进记忆。
@@ -66,14 +64,18 @@ public static class NpcDecisionRules
         switch (behavior)
         {
             case Behavior.Eat:
-                if (WorldManager.Instance.ConsumeFromStorage("罐头", 1))
+            {
+                // 在仓库里找任意一种食物（不再写死"罐头"），用统一的物品规则吃掉它。
+                string food = ItemDatabase.Instance != null
+                    ? ItemDatabase.Instance.FindFirstInStorage(ItemCategory.Food, world) : null;
+                if (food != null && ItemUseRules.Use(npc, food, world, false)) // false：日志由这里自己写
                 {
-                    npc.hunger = Mathf.Clamp(npc.hunger - 30f, 0f, 100f);
                     npc.currentAction = "刚吃过东西";
-                    log = Loc("log_eat_success", npc.npcName);
+                    log = Loc("log_eat_success", npc.npcName, ItemDatabase.Instance.GetName(food));
                 }
                 else { npc.currentAction = "在找吃的"; log = Loc("log_eat_fail", npc.npcName); }
                 break;
+            }
 
             case Behavior.Rest:
                 npc.energy = Mathf.Clamp(npc.energy + 20f, 0f, 100f);
@@ -84,7 +86,7 @@ public static class NpcDecisionRules
 
             case Behavior.Gather:
                 npc.energy = Mathf.Clamp(npc.energy - 15f, 0f, 100f);
-                WorldManager.Instance.AddToStorage("罐头", 1);
+                WorldManager.Instance.AddToStorage("ration", 1); // 搜寻带回 1 份蛋白营养块
                 npc.currentAction = "外出搜寻物资";
                 log = Loc("log_gather", npc.npcName);
                 break;

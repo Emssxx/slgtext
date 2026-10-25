@@ -49,8 +49,14 @@ public class WorldManager : MonoBehaviour
         }
 
         // 公共仓库放点初始物资。
-        world.sharedStorage.Add(new ItemStack { itemName = "罐头", count = 3 });
-        world.sharedStorage.Add(new ItemStack { itemName = "饮用水", count = 5 });
+        // 仓库存物品 id（定义见 ItemDatabase）。用英文 id，喂给 AI 的世界 JSON 里不会混入中文。
+        world.sharedStorage.Add(new ItemStack { itemName = "ration",    count = 3 });  // 蛋白营养块
+        world.sharedStorage.Add(new ItemStack { itemName = "water",     count = 4 });  // 净化水
+        world.sharedStorage.Add(new ItemStack { itemName = "sedative",  count = 1 });  // 镇静剂
+        world.sharedStorage.Add(new ItemStack { itemName = "medkit",    count = 1 });  // 急救包
+        world.sharedStorage.Add(new ItemStack { itemName = "stimulant", count = 1 });  // 兴奋剂
+        world.sharedStorage.Add(new ItemStack { itemName = "nano",      count = 10 }); // 纳米物质（建造材料）
+        world.sharedStorage.Add(new ItemStack { itemName = "crystal",   count = 1 });  // 异变结晶
     }
 
     // 扫描场景里所有 LocationMarker / WorldItemMarker，统一登记到世界数据。
