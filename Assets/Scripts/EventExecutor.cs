@@ -104,6 +104,7 @@ public class EventExecutor : MonoBehaviour
         // 4. 终止该NPC当前任务（被瞬移后陷入困惑，停下手上的事）。
         NpcTaskRunner runner = mover.GetComponent<NpcTaskRunner>();
         if (runner != null) runner.CancelAll();   // 需要 NpcTaskRunner 提供 CancelAll（见下方说明）
+        NpcIdleBrain.InterruptFor(chosen.id, 5f); // 被卷走后愣在原地几秒（暂停闲逛/闲聊）
 
         // 5. 在事件日志记录这个客观后果（瞬移本身可见，再补一句日志强化反馈）。
         if (LogManager.Instance != null)

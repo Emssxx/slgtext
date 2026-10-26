@@ -11,6 +11,13 @@ public class NpcBehaviorDriver : MonoBehaviour
 
     private float _timer;
 
+    void Start()
+    {
+        // 闲置行为系统（发呆 / 闲逛 / NPC 之间闲聊）：场景里没手动放 NpcIdleManager 的话，自动挂一个到本物体上。
+        if (FindFirstObjectByType<NpcIdleManager>() == null)
+            gameObject.AddComponent<NpcIdleManager>();
+    }
+
     void Update()
     {
         _timer += Time.deltaTime;

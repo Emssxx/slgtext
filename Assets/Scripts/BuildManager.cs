@@ -324,6 +324,9 @@ public class BuildManager : MonoBehaviour
                 continue;
             }
 
+            // 登记占用：施工期间闲置行为（闲逛/闲聊）不会来抢这个 NPC 的移动
+            NpcBusy.Claim(builder.id, "build");
+
             // 让NPC走到目标格子
             NpcMover mover = NpcView.GetMover(builder.id);
             if (mover != null)
@@ -353,6 +356,7 @@ public class BuildManager : MonoBehaviour
                 needsNavBake = true; // 本批次有阻挡建筑，需要重新烘焙
             }
 
+            NpcBusy.Release(builder.id, "build"); // 施工完成，交还给闲置行为
             Debug.Log($"[BuildManager] {builder.npcName} 完成：{task.buildingName} @ "
                 + GridManager.Instance.CellToLabel(task.cell.x, task.cell.y));
         }
@@ -403,14 +407,22 @@ public class BuildManager : MonoBehaviour
         sr.color = c;
     }
 
-    // 找第一个健康、没崩解的NPC作为建造者
+    // 找一个健康、没崩解的NPC作为建造者：优先找手上没事的（没在执行玩家指令、没被别的系统占用），
+    // 大家都在忙时沿用原来的做法，找第一个能动的。
     NpcData FindAvailableBuilder()
     {
         WorldState world = WorldManager.Instance.world;
+        NpcData fallback = null;
         foreach (NpcData npc in world.npcs)
-            if (npc.health > 0f && !npc.isBroken)
+        {
+            if (npc.health <= 0f || npc.isBroken) continue;
+            if (fallback == null) fallback = npc;
+            NpcMover m = NpcView.GetMover(npc.id);
+            NpcTaskRunner runner = m != null ? m.GetComponent<NpcTaskRunner>() : null;
+            if ((runner == null || !runner.IsBusy) && !NpcBusy.IsBusy(npc.id))
                 return npc;
-        return null;
+        }
+        return fallback;
     }
 
     // 运行时生成Text标签（供ShowBuildMenu用）

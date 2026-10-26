@@ -72,6 +72,9 @@ public class NpcAgent : MonoBehaviour
             return;
         }
 
+        // 玩家在和这个 NPC 说话：让它停下闲逛/闲聊，站着听一会儿（正在执行指令时不受影响）。
+        NpcIdleBrain.InterruptFor(npc.id, 8f);
+
         // 崩解拦截：崩解的 NPC 不调 LLM，直接说代码生成的疯话。
         if (npc.isBroken)
         {

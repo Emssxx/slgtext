@@ -177,6 +177,27 @@ public class LocalizationManager : MonoBehaviour
             { "btn_research",         ("研究", "研究する") },
             { "btn_upgrade",          ("升级", "アップグレード") },
 
+            // —— 闲置行为（NpcIdleBrain / IdleChat）——
+            { "idle_act_stand",       ("在发呆", "ぼんやりしている") },
+            { "idle_act_daze",        ("在出神", "放心している") },
+            { "idle_act_rest",        ("在原地歇息", "その場で休んでいる") },
+            { "idle_act_wander",      ("在营地里闲逛", "拠点をぶらついている") },
+            { "idle_act_chat",        ("在和{0}聊天", "{0}と話している") },
+            { "idle_log_chat",        ("{0} 和 {1} 聊了聊{2}。", "{0}と{1}は、{2}について言葉を交わした。") },
+            { "idle_log_chat_tense",  ("{0} 和 {1} 起了点争执。", "{0}と{1}の間で、ちょっとした言い争いがあった。") },
+            { "idle_mem_chat",        ("和{0}聊了聊{1}。", "{0}と{1}について話した。") },
+            { "idle_mem_chat_tense",  ("和{0}起了点争执。", "{0}と少し言い争った。") },
+            { "idle_topic_smalltalk", ("家常", "他愛もないこと") },
+            { "idle_topic_past",      ("以前的生活", "昔の暮らし") },
+            { "idle_topic_food",      ("食物", "食料") },
+            { "idle_topic_tired",     ("疲惫", "疲れ") },
+            { "idle_topic_fear",      ("营地周围的异状", "拠点の周りの異変") },
+            { "idle_topic_camp",      ("营地的事", "拠点のこと") },
+            { "idle_topic_terminal",  ("终端机", "端末") },
+            { "idle_topic_friendly",  ("彼此的心事", "互いの気持ち") },
+            { "idle_topic_tense",     ("彼此的不满", "お互いへの不満") },
+            { "idle_topic_hallucination", ("看见的怪东西", "見えたという奇妙なもの") },
+
             // 以后要加文本，继续往这里加：{ "key", ("中文", "日文") },
         };
     }

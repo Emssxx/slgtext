@@ -12,10 +12,12 @@ public class NpcMover : MonoBehaviour
     private Animator _animator;
     private SpriteRenderer _sprite;
     private bool _hasTarget = false;
+    private float _baseSpeed = 3f; // NavMeshAgent 上原本设置的速度（闲逛调慢后用它恢复）
 
     void Awake()
     {
         _agent = GetComponent<NavMeshAgent>();
+        _baseSpeed = _agent.speed;
 
         // 2D 关键设置：代码里再保险地关掉 3D 旋转/抬升，防止 Sprite 乱转。
         _agent.updateRotation = false;
@@ -45,6 +47,26 @@ public class NpcMover : MonoBehaviour
     }
 
     public bool IsMoving => _hasTarget;
+
+    // 原本的走路速度。
+    public float BaseSpeed => _baseSpeed;
+
+    // 外部调用：按倍率调整走路速度（闲逛时慢悠悠地走；用完调回 1）。
+    public void SetSpeedMultiplier(float multiplier)
+    {
+        if (_agent == null) return;
+        _agent.speed = _baseSpeed * Mathf.Max(0.05f, multiplier);
+    }
+
+    // 外部调用：原地转身面朝某个点（闲聊时面对面用）。左右翻转规则和走路时一致。
+    public void FaceTowards(Vector3 worldPos)
+    {
+        if (_sprite == null) return;
+        float dx = worldPos.x - transform.position.x;
+        if (dx < -0.01f) _sprite.flipX = true;       // 朝左
+        else if (dx > 0.01f) _sprite.flipX = false;  // 朝右
+        // 若角色原图本来朝左，和 Update 里一样把这两行 true/false 对调。
+    }
 
     void Update()
     {

@@ -17,6 +17,9 @@ public class NpcTaskRunner : MonoBehaviour
     private Queue<NpcTask> _queue = new Queue<NpcTask>();
     private bool _running = false;
 
+    // 是否正在执行玩家指令的任务（闲置行为系统读它：有任务时不去干扰移动）。
+    public bool IsBusy => _running;
+
     void Awake()
     {
         _mover = GetComponent<NpcMover>();

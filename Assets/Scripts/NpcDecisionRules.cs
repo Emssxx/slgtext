@@ -98,9 +98,9 @@ public static class NpcDecisionRules
 
             case Behavior.Idle:
             default:
-                npc.currentAction = "待命中";
-                log = Loc("log_idle", npc.npcName);
-                break;
+                // 待命：具体做什么（发呆 / 闲逛 / 找人聊天）交给闲置行为系统 NpcIdleBrain。
+                // 这里不再每 5 秒写一条"待命中"日志和记忆——会刷屏，还会把有用的记忆挤出 AI 上下文。
+                return;
         }
 
         npc.memories.Add(new MemoryEntry { day = world.day, content = log });
