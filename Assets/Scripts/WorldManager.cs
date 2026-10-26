@@ -29,6 +29,7 @@ public class WorldManager : MonoBehaviour
         RegisterAllMarkers();                            // 2. 登记场景里的地点/物品标记
         RelationshipManager.InitAllRelationships(world); // 3. 初始化 NPC 间关系
         NpcMemory.BeginSession(world);                   // 4. 建本局的 NPC 档案文件夹（名册、AI 词库、每人的档案和聊天记录）
+        HudLayout.Ensure();                              // 5. 整理主界面布局（左上事件/日志抽屉、右下建造、顶部天数）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
     }
 

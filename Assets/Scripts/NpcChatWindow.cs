@@ -9,7 +9,8 @@ using TMPro;
 // NPC 专属对话窗口（运行时自建 UI，不用在场景里摆）。
 // 点场景里的 NPC / 点状态卡 → 弹出和这个 NPC 的对话窗口，显示的是"他自己的"聊天记录（来自 NpcMemory），
 // 换一个 NPC 就换成那个人的记录——所有 NPC 不再共用一个聊天栏。
-// 操作：Enter 发送、Esc 先退出输入再关窗口、Y 重新打开上次的窗口、拖动标题栏可以挪窗口。
+// 操作：Enter 发送、Esc 先退出输入再关窗口、Y 重新打开上次的窗口。
+// 窗口是扁平的小窗，默认在屏幕左下角；拖标题栏或窗口边缘可以挪到任何地方（拖不出屏幕）。
 // 窗口只负责显示和输入；玩家发出的话交给 NpcAgent 处理（OnPlayerMessage）。
 public class NpcChatWindow : MonoBehaviour
 {
@@ -23,7 +24,7 @@ public class NpcChatWindow : MonoBehaviour
 
     [Header("外观")]
     public TMP_FontAsset font;                         // 不拖会自动借用 NPC 列表等面板的中日文字体
-    public Vector2 windowSize = new Vector2(520f, 600f);
+    public Vector2 windowSize = new Vector2(460f, 290f);  // 扁平小窗
     public int maxShown = 60;                          // 窗口里最多显示多少条（完整记录在档案文件里）
 
     public bool IsOpen => _window != null && _window.gameObject.activeSelf;
@@ -194,7 +195,7 @@ public class NpcChatWindow : MonoBehaviour
 
     void AddLine(ChatEntry e, bool scroll = true)
     {
-        TextMeshProUGUI t = NewText(_content, "Msg", 17f, TextAlignmentOptions.TopLeft);
+        TextMeshProUGUI t = NewText(_content, "Msg", 15f, TextAlignmentOptions.TopLeft);
         t.richText = true;
         string body = "<noparse>" + e.text + "</noparse>";
         switch (e.Role)
@@ -207,7 +208,7 @@ public class NpcChatWindow : MonoBehaviour
                 break;
             default:
                 t.text = "<color=#8C8C8C><i>" + body + "</i></color>";
-                t.fontSize = 15f;
+                t.fontSize = 13f;
                 break;
         }
         if (_thinking != null) _thinking.transform.SetAsLastSibling();
@@ -306,41 +307,40 @@ public class NpcChatWindow : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        // 窗口本体（右侧居中，可拖动）
+        // 窗口本体（左下角的扁平小窗，可拖动）
         _window = NewRect("Window", canvasGo.transform);
-        _window.anchorMin = _window.anchorMax = new Vector2(1f, 0.5f);
-        _window.pivot = new Vector2(1f, 0.5f);
+        _window.anchorMin = _window.anchorMax = _window.pivot = Vector2.zero;
         _window.sizeDelta = windowSize;
-        _window.anchoredPosition = new Vector2(-24f, 20f);
+        _window.anchoredPosition = new Vector2(16f, 24f);
         _window.gameObject.AddComponent<Image>().color = PanelColor;
+        AddDragger(_window.gameObject);   // 拖窗口边缘（消息区、输入框以外的地方）也能挪
 
-        // 标题栏：名字 + 状态 + 关闭按钮（拖它可以挪窗口）
+        // 标题栏：名字 + 状态（同一行）+ 关闭按钮（拖它可以挪窗口）
         RectTransform bar = NewRect("TitleBar", _window);
-        Stretch(bar, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -56f), Vector2.zero);
+        Stretch(bar, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -40f), Vector2.zero);
         bar.gameObject.AddComponent<Image>().color = BarColor;
-        UiWindowDragger drag = bar.gameObject.AddComponent<UiWindowDragger>();
-        drag.target = _window;
-        drag.canvas = _canvas;
+        AddDragger(bar.gameObject);
 
-        _title = NewText(bar, "Title", 21f, TextAlignmentOptions.Left);
+        _title = NewText(bar, "Title", 17f, TextAlignmentOptions.Left);
         _title.fontStyle = FontStyles.Bold;
         _title.textWrappingMode = TextWrappingModes.NoWrap;
-        Stretch(_title.rectTransform, new Vector2(0f, 0.45f), new Vector2(1f, 1f), new Vector2(14f, 0f), new Vector2(-56f, -4f));
-        _status = NewText(bar, "Status", 14f, TextAlignmentOptions.Left);
+        _title.overflowMode = TextOverflowModes.Ellipsis;
+        Stretch(_title.rectTransform, new Vector2(0f, 0f), new Vector2(0.55f, 1f), new Vector2(12f, 0f), Vector2.zero);
+        _status = NewText(bar, "Status", 13f, TextAlignmentOptions.Right);
         _status.color = new Color(0.7f, 0.74f, 0.82f);
         _status.textWrappingMode = TextWrappingModes.NoWrap;
-        Stretch(_status.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0.45f), new Vector2(14f, 4f), new Vector2(-56f, 0f));
+        Stretch(_status.rectTransform, new Vector2(0.55f, 0f), new Vector2(1f, 1f), new Vector2(4f, 0f), new Vector2(-40f, 0f));
 
-        Button close = NewButton(bar, "Close", "×", 26f, new Color(0f, 0f, 0f, 0f), out _);
+        Button close = NewButton(bar, "Close", "×", 22f, new Color(0f, 0f, 0f, 0f), out _);
         RectTransform cr = (RectTransform)close.transform;
         cr.anchorMin = cr.anchorMax = cr.pivot = new Vector2(1f, 0.5f);
-        cr.sizeDelta = new Vector2(48f, 48f);
-        cr.anchoredPosition = new Vector2(-4f, 0f);
+        cr.sizeDelta = new Vector2(36f, 36f);
+        cr.anchoredPosition = new Vector2(-2f, 0f);
         close.onClick.AddListener(Close);
 
         // 消息区（可滚动）
         RectTransform scrollRt = NewRect("Scroll", _window);
-        Stretch(scrollRt, Vector2.zero, Vector2.one, new Vector2(8f, 64f), new Vector2(-8f, -62f));
+        Stretch(scrollRt, Vector2.zero, Vector2.one, new Vector2(6f, 46f), new Vector2(-6f, -44f));
         scrollRt.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.18f);
         _scroll = scrollRt.gameObject.AddComponent<ScrollRect>();
         _scroll.horizontal = false;
@@ -359,8 +359,8 @@ public class NpcChatWindow : MonoBehaviour
         _content.pivot = new Vector2(0.5f, 1f);
         _content.sizeDelta = Vector2.zero;
         VerticalLayoutGroup vlg = _content.gameObject.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(12, 12, 10, 10);
-        vlg.spacing = 8f;
+        vlg.padding = new RectOffset(10, 10, 6, 6);
+        vlg.spacing = 4f;
         vlg.childControlWidth = true;
         vlg.childControlHeight = true;
         vlg.childForceExpandWidth = true;
@@ -369,29 +369,29 @@ public class NpcChatWindow : MonoBehaviour
         fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         _scroll.content = _content;
 
-        _thinking = NewText(_content, "Thinking", 15f, TextAlignmentOptions.TopLeft);
+        _thinking = NewText(_content, "Thinking", 13f, TextAlignmentOptions.TopLeft);
         _thinking.color = new Color(0.65f, 0.65f, 0.7f);
         _thinking.fontStyle = FontStyles.Italic;
         _thinking.gameObject.SetActive(false);
 
         // 输入行：输入框 + 发送按钮
         RectTransform row = NewRect("InputRow", _window);
-        Stretch(row, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(8f, 8f), new Vector2(-8f, 56f));
+        Stretch(row, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(6f, 6f), new Vector2(-6f, 40f));
 
         RectTransform inputRt = NewRect("Input", row);
-        Stretch(inputRt, Vector2.zero, Vector2.one, Vector2.zero, new Vector2(-92f, 0f));
+        Stretch(inputRt, Vector2.zero, Vector2.one, Vector2.zero, new Vector2(-68f, 0f));
         inputRt.gameObject.AddComponent<Image>().color = FieldColor;
         RectTransform area = NewRect("Text Area", inputRt);
-        Stretch(area, Vector2.zero, Vector2.one, new Vector2(12f, 6f), new Vector2(-12f, -6f));
+        Stretch(area, Vector2.zero, Vector2.one, new Vector2(10f, 4f), new Vector2(-10f, -4f));
         area.gameObject.AddComponent<RectMask2D>();
-        TextMeshProUGUI ph = NewText(area, "Placeholder", 16f, TextAlignmentOptions.Left);
+        TextMeshProUGUI ph = NewText(area, "Placeholder", 14f, TextAlignmentOptions.Left);
         ph.fontStyle = FontStyles.Italic;
         ph.color = new Color(0.6f, 0.62f, 0.68f, 0.8f);
         ph.textWrappingMode = TextWrappingModes.NoWrap;
         ph.text = L("chatwin_placeholder");
         Stretch(ph.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
         _placeholder = ph;
-        TextMeshProUGUI tx = NewText(area, "Text", 17f, TextAlignmentOptions.Left);
+        TextMeshProUGUI tx = NewText(area, "Text", 15f, TextAlignmentOptions.Left);
         tx.textWrappingMode = TextWrappingModes.NoWrap;
         tx.richText = false;
         Stretch(tx.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
@@ -403,7 +403,7 @@ public class NpcChatWindow : MonoBehaviour
         _input.textComponent = tx;
         _input.placeholder = ph;
         if (font != null) _input.fontAsset = font;
-        _input.pointSize = 17f;
+        _input.pointSize = 15f;
         _input.lineType = TMP_InputField.LineType.SingleLine;
         _input.characterLimit = 200;
         _input.richText = false;
@@ -411,12 +411,12 @@ public class NpcChatWindow : MonoBehaviour
         _input.onSubmit.AddListener(_ => Submit());
         inputRt.gameObject.SetActive(true);
 
-        Button send = NewButton(row, "Send", L("chat_send"), 17f, ButtonColor, out _sendLabel);
+        Button send = NewButton(row, "Send", L("chat_send"), 15f, ButtonColor, out _sendLabel);
         RectTransform sr = (RectTransform)send.transform;
         sr.anchorMin = new Vector2(1f, 0f);
         sr.anchorMax = new Vector2(1f, 1f);
         sr.pivot = new Vector2(1f, 0.5f);
-        sr.sizeDelta = new Vector2(84f, 0f);
+        sr.sizeDelta = new Vector2(62f, 0f);
         sr.anchoredPosition = Vector2.zero;
         send.onClick.AddListener(Submit);
     }
@@ -434,6 +434,13 @@ public class NpcChatWindow : MonoBehaviour
         rt.anchorMax = anchorMax;
         rt.offsetMin = offsetMin;
         rt.offsetMax = offsetMax;
+    }
+
+    void AddDragger(GameObject go)
+    {
+        UiWindowDragger d = go.AddComponent<UiWindowDragger>();
+        d.target = _window;
+        d.canvas = _canvas;
     }
 
     TextMeshProUGUI NewText(Transform parent, string name, float size, TextAlignmentOptions align)
@@ -473,7 +480,7 @@ public class NpcChatWindow : MonoBehaviour
     static string LF(string key, params object[] args) => LocalizationManager.Instance != null ? LocalizationManager.Instance.GetFormat(key, args) : key;
 }
 
-// 拖动标题栏移动窗口。
+// 拖动移动窗口（挂在标题栏 / 窗口底板上）。窗口不会被拖出屏幕。
 public class UiWindowDragger : MonoBehaviour, IDragHandler
 {
     public RectTransform target;
@@ -484,6 +491,23 @@ public class UiWindowDragger : MonoBehaviour, IDragHandler
         if (target == null) return;
         float scale = canvas != null ? canvas.scaleFactor : 1f;
         target.anchoredPosition += eventData.delta / Mathf.Max(0.01f, scale);
+        ClampInside(target);
+    }
+
+    // 把窗口整个限制在父物体（这里是全屏的 Canvas）范围内。
+    public static void ClampInside(RectTransform rt)
+    {
+        RectTransform parent = rt.parent as RectTransform;
+        if (parent == null) return;
+        Rect pr = parent.rect;
+        Rect r = rt.rect;
+        Vector2 lp = rt.localPosition;
+        float dx = 0f, dy = 0f;
+        if (lp.x + r.xMin < pr.xMin) dx = pr.xMin - (lp.x + r.xMin);
+        else if (lp.x + r.xMax > pr.xMax) dx = pr.xMax - (lp.x + r.xMax);
+        if (lp.y + r.yMin < pr.yMin) dy = pr.yMin - (lp.y + r.yMin);
+        else if (lp.y + r.yMax > pr.yMax) dy = pr.yMax - (lp.y + r.yMax);
+        if (dx != 0f || dy != 0f) rt.anchoredPosition += new Vector2(dx, dy);
     }
 }
 

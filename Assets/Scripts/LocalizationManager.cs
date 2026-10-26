@@ -210,12 +210,15 @@ public class LocalizationManager : MonoBehaviour
             { "chatwin_thinking",     ("{0} 在想……", "{0}が考えている……") },
             { "chatwin_rerouted",     ("（转而对 {0} 说）", "（{0}に話しかけた）") },
             { "chatwin_order_started",("（{0} 开始行动：{1}）", "（{0}が行動を開始：{1}）") },
-            { "chatwin_placeholder",  ("说点什么，或下达指令……（Enter 发送 / Esc 关闭）", "話しかけるか、指示を出す……（Enterで送信／Escで閉じる）") },
+            { "chatwin_placeholder",  ("说点什么，或下指令…（Enter 发送）", "話しかける／指示を出す…（Enterで送信）") },
             { "chatwin_dead",         ("已死亡", "死亡") },
             { "mental_lucid",         ("清醒", "正常") },
             { "mental_dazed",         ("恍惚", "放心") },
             { "mental_halluc",        ("幻觉", "幻覚") },
             { "mental_broken",        ("崩解", "崩壊") },
+
+            // —— 主界面布局（HudLayout）——
+            { "hud_drawer_tab",       ("记\n录", "記\n録") },
 
             // —— 指令系统（NpcCommands / NpcTaskRunner，AI 词库）——
             { "order_go",             ("去{0}", "{0}へ向かう") },

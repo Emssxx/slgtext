@@ -110,7 +110,11 @@ public class BuildManager : MonoBehaviour
         Canvas canvas = _buildMenuUI.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 50;
-        _buildMenuUI.AddComponent<CanvasScaler>();
+        // 和主界面同一套缩放（1920×1080），菜单才能刚好停在右下角建造按钮的上方
+        CanvasScaler scaler = _buildMenuUI.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0f;
         _buildMenuUI.AddComponent<GraphicRaycaster>();
 
         // 1. 按五大类分组（基础→防御→生产→电力→生活），没有建筑的分类不显示。
@@ -136,9 +140,11 @@ public class BuildManager : MonoBehaviour
         Image panelImg = panel.AddComponent<Image>();
         panelImg.color = new Color(0f, 0f, 0f, 0.75f);
         RectTransform pr = panel.GetComponent<RectTransform>();
-        pr.anchorMin = pr.anchorMax = pr.pivot = new Vector2(0f, 1f);
-        pr.anchoredPosition = new Vector2(20f, -20f);
+        // 右下角，停在建造按钮上方（位置见 HudLayout.BuildMenuPos）；先放在屏幕右边外面，最后滑进来
+        pr.anchorMin = pr.anchorMax = pr.pivot = new Vector2(1f, 0f);
         pr.sizeDelta = new Vector2(160f, panelHeight);
+        Vector2 shownPos = HudLayout.BuildMenuPos;
+        pr.anchoredPosition = shownPos + new Vector2(pr.sizeDelta.x + 40f, 0f);
 
         MakeLabel(panel.transform, ProgressionRules.L("build_menu_title"), new Vector2(80f, -18f));
 
@@ -162,6 +168,8 @@ public class BuildManager : MonoBehaviour
                 y -= 40f;
             }
         }
+
+        panel.AddComponent<UiSlider>().SlideTo(shownPos); // 从右边滑出来
     }
 
     // 点了未解锁的建筑：在事件栏告诉玩家为什么还不能建。
@@ -176,7 +184,17 @@ public class BuildManager : MonoBehaviour
 
     void HideBuildMenu()
     {
-        if (_buildMenuUI != null) { Destroy(_buildMenuUI); _buildMenuUI = null; }
+        if (_buildMenuUI == null) return;
+        GameObject old = _buildMenuUI;
+        _buildMenuUI = null; // 先断开引用：滑出途中又进建造模式的话，会新建一个菜单
+        Transform p = old.transform.Find("Panel");
+        UiSlider slider = p != null ? p.GetComponent<UiSlider>() : null;
+        if (slider != null && slider.isActiveAndEnabled)
+        {
+            RectTransform pr = (RectTransform)p;
+            slider.SlideTo(pr.anchoredPosition + new Vector2(pr.sizeDelta.x + 40f, 0f), () => { if (old != null) Destroy(old); });
+        }
+        else Destroy(old);
     }
 
     // 菜单按钮回调：记录当前选中的建造物数据
@@ -437,7 +455,9 @@ public class BuildManager : MonoBehaviour
         t.color = Color.white;
         t.alignment = TextAnchor.MiddleCenter;
         RectTransform rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        // pos 是相对菜单面板左上角的坐标（x=80 即 160 宽面板的正中），所以锚点放在左上角
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = pos;
         rt.sizeDelta = new Vector2(140f, 24f);
     }
@@ -457,7 +477,8 @@ public class BuildManager : MonoBehaviour
         btn.onClick.AddListener(onClick);
 
         RectTransform rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f); // 同上：pos 相对面板左上角
+        rt.pivot = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = pos;
         rt.sizeDelta = new Vector2(120f, 32f);
 

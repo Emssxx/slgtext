@@ -9,6 +9,9 @@ public class BuildModeToggle : MonoBehaviour
     public GameObject buildPanel;   // 建造选项面板（平时隐藏）
     public GridOverlay gridOverlay; // 网格线渲染器
 
+    [Tooltip("旧版场景里的建造选项面板（墙 / 箱子两个按钮）。现在建造菜单由 BuildManager 在右下角生成并滑出，默认不再显示旧面板。")]
+    public bool showLegacyPanel = false;
+
     // UI Button 的 OnClick 事件调这个。
     public void OnClick() => Toggle();
 
@@ -38,7 +41,7 @@ public class BuildModeToggle : MonoBehaviour
         // 进入建造模式（类型在模式内的菜单里选）
         BuildManager.Instance.EnterBuildMode();
 
-        if (buildPanel   != null) buildPanel.SetActive(true);
+        if (buildPanel   != null && showLegacyPanel) buildPanel.SetActive(true);
         if (gridOverlay  != null) gridOverlay.enabled = true;
     }
 
