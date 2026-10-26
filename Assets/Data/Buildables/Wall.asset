@@ -21,4 +21,9 @@ MonoBehaviour:
   blocksMovement: 1
   buildTime: 1.5
   requiredMaterials: []
+  displayNameJa: "\u58C1"
+  buildCategory: 1
+  requiredTier: 1
+  requiredTechId: 
+  uniqueBuild: 0
   category: 3

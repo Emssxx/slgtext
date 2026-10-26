@@ -21,4 +21,9 @@ MonoBehaviour:
   blocksMovement: 0
   buildTime: 1.5
   requiredMaterials: []
+  displayNameJa: "\u7BB1"
+  buildCategory: 0
+  requiredTier: 1
+  requiredTechId: 
+  uniqueBuild: 0
   category: 1

@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 8593310992358197522}
   - component: {fileID: 3035523302103368974}
   - component: {fileID: 1088059162017711335}
+  - component: {fileID: 8987036844057431027}
   m_Layer: 0
   m_Name: Terminal
   m_TagString: Untagged
@@ -171,6 +172,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::TerminalController
   terminalName: "AI\u7EC8\u7AEF\u673A"
   isActive: 0
+  isBuilt: 1
 --- !u!114 &1088059162017711335
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -183,3 +185,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6df3aba242b0928429699fbdd0720ce3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TerminalClickHandler
+--- !u!114 &8987036844057431027
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 20760329514622748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 30a08a0c1fb442f43ae6d3d99c7d8cc0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TerminalWorkshop
+  maxWaiting: 5
+  running: []
+  waiting: []
