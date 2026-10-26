@@ -71,8 +71,10 @@ public static class WorldRules
                 world.eventLog.Add(new MemoryEntry
                 {
                     day = world.day,
-                    content = npc.npcName + " 的精神彻底崩溃了，身体开始发生可怕的异变……"
+                    content = LanguageGuard.Pick(npc.npcName + " 的精神彻底崩溃了，身体开始发生可怕的异变……",
+                                                 npc.npcName + "の精神が完全に崩壊し、体がおぞましく変異しはじめた……")
                 });
+                EventChronicle.Record("breakdown", null, npc.id); // 其他人会记得这件事，并有自己的看法
             }
 
             // 已崩解：有概率继续长新异变（掉血移交 ApplyHealth 统一处理）。
@@ -113,14 +115,17 @@ public static class WorldRules
                 {
                     npc.currentAction = "已死亡";
                     world.eventLog.Add(new MemoryEntry { day = world.day,
-                        content = npc.npcName + " 在彻底异变后死去，化作了亚空间的一部分。" });
+                        content = LanguageGuard.Pick(npc.npcName + " 在彻底异变后死去，化作了亚空间的一部分。",
+                                                     npc.npcName + "は完全に変異したあと息絶え、亜空間の一部になった。") });
                 }
                 else
                 {
                     npc.currentAction = "已死亡";
                     world.eventLog.Add(new MemoryEntry { day = world.day,
-                        content = npc.npcName + " 没能撑下去，倒下了。" });
+                        content = LanguageGuard.Pick(npc.npcName + " 没能撑下去，倒下了。",
+                                                     npc.npcName + "は力尽きて倒れた。") });
                 }
+                EventChronicle.Record("death", null, npc.id); // 朋友死了 / 陌生人死了，各人按演员提示词的态度记住
             }
         }
     }

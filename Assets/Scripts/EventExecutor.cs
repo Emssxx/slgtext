@@ -29,10 +29,17 @@ public class EventExecutor : MonoBehaviour
         Instance = this;
     }
 
+    // 最近一次事件落在了谁身上（空间扭曲 / 低语与幻象挑中的 NPC；没有就是 null）。
+    public string LastSubjectId { get; private set; }
+
     // 导演解析出 type 后调用这里。type 是事件类型ID（见事件篇）。
-    public void ExecuteEvent(string type)
+    public void ExecuteEvent(string type) { ExecuteEvent(type, null); }
+
+    // description：导演写的那句描述（调试按钮触发时为空，事件记录会用默认描述）。
+    public void ExecuteEvent(string type, string description)
     {
         if (string.IsNullOrEmpty(type)) return;
+        LastSubjectId = null;
 
         // 先播放该事件的屏幕视觉效果（闪色+震动+横幅），让玩家直观感知事件发生。
         if (ScreenEffectManager.Instance != null)
@@ -61,6 +68,9 @@ public class EventExecutor : MonoBehaviour
                 Debug.Log($"[EventExecutor] 事件类型 '{type}' 暂未实现后果，仅显示描述。");
                 break;
         }
+
+        // 记进事件编年史：第几天、什么事、落在谁身上，以及每个 NPC 的经历和看法（之后被问起时能回答）。
+        EventChronicle.Record(type, description, LastSubjectId);
     }
 
     // ============ 空间扭曲（已实现）============
@@ -77,6 +87,7 @@ public class EventExecutor : MonoBehaviour
         if (candidates.Count == 0) return; // 没有合适对象，跳过
 
         NpcData chosen = candidates[Random.Range(0, candidates.Count)];
+        LastSubjectId = chosen.id;
 
         // 2. 找一个随机的可站立格子（可建造/合法格 = 可站立）。
         if (!TryGetRandomStandableCell(out Vector3 targetPos))
@@ -165,6 +176,7 @@ public class EventExecutor : MonoBehaviour
         if (pool.Count == 0) return;
 
         NpcData chosen = pool[Random.Range(0, pool.Count)];
+        LastSubjectId = chosen.id;
 
         // 2. （可选）播放低语音效：目前没有音效系统，留接口。
         //    以后有 SoundManager 时，在这里播放低语 AudioClip。

@@ -81,6 +81,8 @@ public class RelationSnapshot
 //   roster.json   —— NPC 名册（id ↔ 名字 / 称呼），玩家点名时用
 //   lexicon.json  —— AI 词库（物品、地点的名字和说明）
 //   npc_xx.json   —— 每个 NPC 一份：人物卡快照 + 最近 200 条聊天（和玩家的对话 + 和同伴的闲聊）
+//   actor_npc_xx.txt / .json —— 每个 NPC 的演员提示词（见 NpcActors）
+//   events.txt / events.json —— 本局发生过的事件，以及每个 NPC 的经历和看法（见 EventChronicle）
 // 和 NPC 对话时，代码从这 200 条里挑出"最近几句"和"跟这次话题相关的旧记忆"喂给 LLM，
 // 7B 小模型不用记住一切，只要演好眼前这一句——这就是扬长避短。
 public static class NpcMemory
@@ -117,6 +119,8 @@ public static class NpcMemory
         GameLexicon.Rebuild(w);
         WriteJson("roster.json", NpcRoster.Export());
         WriteJson("lexicon.json", GameLexicon.Export());
+        NpcActors.BeginSession(w);      // 演员提示词：代码先写好固定事实 + 模板（并按性格设定初始信任），再排队让 LLM 补写
+        EventChronicle.BeginSession();  // 事件记录（events.txt / events.json）
 
         if (w != null)
             foreach (NpcData n in w.npcs)
@@ -294,7 +298,21 @@ public static class NpcMemory
         return list;
     }
 
-    static void WriteJson(string fileName, object data)
+    // 写一个纯文本文件到本局档案文件夹（UTF-8，无 BOM）。
+    public static void WriteText(string fileName, string text)
+    {
+        try
+        {
+            if (!Directory.Exists(Folder)) Directory.CreateDirectory(Folder);
+            File.WriteAllText(Path.Combine(Folder, fileName), text ?? "", new UTF8Encoding(false));
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[NpcMemory] 写文件失败 " + fileName + "：" + e.Message);
+        }
+    }
+
+    public static void WriteJson(string fileName, object data)
     {
         try
         {

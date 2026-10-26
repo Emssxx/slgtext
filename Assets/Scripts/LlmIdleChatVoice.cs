@@ -104,13 +104,16 @@ public class LlmIdleChatVoice : IIdleChatVoice
         string job = string.IsNullOrEmpty(n.profession) ? "不明" : n.profession;
         string style = string.IsNullOrEmpty(n.speakingStyle) ? "普通" : n.speakingStyle;
         bool male = n.gender != null && n.gender.Contains("男");
+        string brief = NpcActors.Brief(n, jp); // 演员提示词里的固定事实（年龄、家庭、宠物、爱好）：闲聊聊到过去时不会乱编
         if (jp)
             return "【人物" + tag + "】" + n.npcName + "（" + (male ? "男性" : "女性") + "、以前は" + job + "）\n" +
+                   (brief.Length > 0 ? "・経歴：" + brief + "\n" : "") +
                    "・性格：" + traits + "\n" +
                    "・話し方：" + style + "\n" +
                    "・精神状態：" + Mental(n, true) + "\n" +
                    "・" + other.npcName + "への気持ち：" + Relation(n, other, true);
         return "【人物" + tag + "】" + n.npcName + "（" + (male ? "男" : "女") + "，以前是" + job + "）\n" +
+               (brief.Length > 0 ? "・背景：" + brief + "\n" : "") +
                "・性格：" + traits + "\n" +
                "・说话风格：" + style + "\n" +
                "・精神状态：" + Mental(n, false) + "\n" +

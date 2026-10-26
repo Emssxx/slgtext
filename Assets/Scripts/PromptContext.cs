@@ -14,7 +14,8 @@ public static class PromptContext
     const int MaxMemories = 4;  // 这个 NPC 最近几条记忆
 
     // self：给某个 NPC 用时传入（会附上他自己的记忆）；导演用时传 null。
-    public static string WorldSummary(WorldState w, NpcData self = null)
+    // includeEvents：是否附上全局的"最近发生的事"。NPC 对话改用 EventChronicle（带他自己的经历和看法），传 false。
+    public static string WorldSummary(WorldState w, NpcData self = null, bool includeEvents = true)
     {
         if (w == null) return "";
         bool jp = LanguageGuard.IsJp;
@@ -48,7 +49,7 @@ public static class PromptContext
         sb.AppendLine((jp ? "【拠点の倉庫】" : "【营地仓库】") + (items.Count > 0 ? string.Join("、", items) : (jp ? "空っぽ" : "空的")));
 
         // —— 最近大事（只取符合当前语言的条目）——
-        AppendRecent(sb, w.eventLog, MaxEvents, jp ? "【最近の出来事】" : "【最近发生的事】");
+        if (includeEvents) AppendRecent(sb, w.eventLog, MaxEvents, jp ? "【最近の出来事】" : "【最近发生的事】");
 
         // —— 这个 NPC 自己的记忆 ——
         if (self != null) AppendRecent(sb, self.memories, MaxMemories, jp ? "【あなたの最近の記憶】" : "【你最近的记忆】");

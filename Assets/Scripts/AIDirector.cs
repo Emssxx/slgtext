@@ -124,11 +124,14 @@ public class AIDirector : MonoBehaviour
             WorldRules.ApplyCreatureShock(world, severity);
             EventLogManager.Instance.AddEvent(world.day,
                 LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("danger_approach") : "【危险】有什么东西靠近了！");
+            EventChronicle.Record("creature", null, null); // 记进事件编年史（每个 NPC 按自己面对亚空间生物的态度）
         }
 
-        // 把事件类型交给执行器，触发对应的客观后果。
+        // 把事件类型交给执行器，触发对应的客观后果（执行器会把事件连同导演的描述记进事件编年史）。
         if (EventExecutor.Instance != null && !string.IsNullOrEmpty(eventType))
-            EventExecutor.Instance.ExecuteEvent(eventType);
+            EventExecutor.Instance.ExecuteEvent(eventType, eventText);
+        else if (!string.IsNullOrEmpty(eventText))
+            EventChronicle.Record("other", eventText, null); // 没给出类型也记下来，这样 NPC 也会记得
     }
 
     // 解析 {"type":"...","event":"..."}，返回 EventData。

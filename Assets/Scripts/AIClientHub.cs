@@ -116,7 +116,8 @@ public class AIClientHub : MonoBehaviour
     // 不发（忙 / 关闭 / 云端）返回 false，调用方应立刻用本地兜底。
     // 结果回调：成功 = 模型原文（语言由调用方自己检查）；失败/超时/被取消 = null。
     // 不做重试和翻译修复（省显卡，反正有本地兜底）。
-    public bool SendBackground(string systemPrompt, string userPrompt, Action<string> callback, bool jsonFormat = true)
+    // maxTokens：这次最多生成多少 token（0 = 用 backgroundMaxTokens）。写演员提示词这类长输出要给大一点。
+    public bool SendBackground(string systemPrompt, string userPrompt, Action<string> callback, bool jsonFormat = true, int maxTokens = 0)
     {
         if (!backgroundEnabled || ForegroundBusy || BackgroundBusy) return false;
         if (Time.realtimeSinceStartup < _nextBackgroundTime) return false;
@@ -144,7 +145,7 @@ public class AIClientHub : MonoBehaviour
                 if (_backgroundCts == cts) _backgroundCts = null;
                 cts.Dispose();
                 callback?.Invoke(raw);
-            }, jsonFormat, backgroundMaxTokens, cts.Token);
+            }, jsonFormat, maxTokens > 0 ? maxTokens : backgroundMaxTokens, cts.Token);
         }
         else
         {

@@ -10,6 +10,7 @@ public class LexEntry
     public const string KindItem = "item";   // 仓库物品（id = 物品 id，如 "medkit"）
     public const string KindPlace = "place"; // 地点（id = 地点记号，如 "@camp"，或场景里的地点名）
     public const string KindBox = "box";     // 地图上可推的物体（id = 物体名，如 "木箱"）
+    public const string KindLore = "lore";   // 世界观名词（ABA、亚空间、生存支援AI…）：只用于提示 AI，不参与指令解析
 
     public string id;
     public string kind;
@@ -78,6 +79,40 @@ public static class GameLexicon
             descZh = "调查局投放的 AI 终端，「那个声音」就是从这里传出来的。", descJa = "調査局が送り込んだAI端末。「あの声」はここから聞こえてくる。"
         });
 
+        // 1.5 世界观名词（玩家提到时，把"普通市民所知道的"解释附进提示词）
+        AddLore("@aba", "特异现象调查局", "特異現象調査局",
+                new[] { "特异现象调查局", "调查局", "ABA", "特異現象調査局", "調査局" },
+                "各国联合成立的机构，负责研究和应对空间漩涡；生存支援AI就是它投放进来的。普通市民只知道新闻里公开的部分。",
+                "各国が共同で設立した機関で、空間の渦の研究と対応を担う。生存支援AIを送り込んだのもここ。一般市民はニュースで公表された部分しか知らない。");
+        AddLore("@subspace", "亚空间", "亜空間",
+                new[] { "亚空间", "亜空間" },
+                "漩涡内部的异常领域：时间、空间、因果都不可靠，待得越久精神越会被侵蚀。",
+                "渦の内側の異常な領域。時間・空間・因果が信用できず、長くいるほど精神がむしばまれる。");
+        AddLore("@vortex", "空间漩涡", "空間の渦",
+                new[] { "异次元漩涡", "空间漩涡", "漩涡", "異次元の渦", "空間の渦", "渦" },
+                "突然出现在现代地球上的空间漩涡，会把附近的人卷进亚空间。",
+                "現代の地球に突然現れる空間の渦。近くにいる人を亜空間へ呑み込む。");
+        AddLore("@support_ai", "生存支援AI", "生存支援AI",
+                new[] { "生存支援AI", "生存指导AI", "支援AI", "生存指導AI", "AI" },
+                "ABA投放进亚空间的AI。没有身体，只能通过信号和幸存者说话，引导大家活下去、离开亚空间。就是正在和你说话的那个AI。",
+                "ABAが亜空間へ送り込んだAI。体はなく、信号を通じてしか生存者と話せない。皆を生き延びさせ、亜空間から脱出させようとしている。今あなたと話しているAIのこと。");
+        AddLore("@expedition", "先遣队", "先遣隊",
+                new[] { "先遣队", "先遣隊" },
+                "最早进入漩涡的ABA调查队。新闻只说他们失联了，真相没人知道。",
+                "最初に渦へ入ったABAの調査隊。ニュースでは消息を絶ったとしか言われておらず、真相は誰も知らない。");
+        AddLore("@creature", "造物", "造物",
+                new[] { "造物", "怪物", "化け物" },
+                "亚空间里无法名状的东西，光是看见就会让人精神受创；没人确定它们是真是幻。",
+                "亜空間にいる名状しがたいもの。見るだけで精神に傷を負う。本物か幻か、確かめた者はいない。");
+        AddLore("@storm", "负能量风暴", "負のエネルギーの嵐",
+                new[] { "负能量风暴", "风暴", "負のエネルギーの嵐", "嵐" },
+                "亚空间里弥漫的能量风暴，所过之处让人理智流失。",
+                "亜空間に漂うエネルギーの嵐。通り過ぎた場所では正気が失われる。");
+        AddLore("@whisper", "低语", "囁き",
+                new[] { "低语", "幻听", "囁き", "幻聴" },
+                "亚空间里会听见不存在的声音，往往和听的人自己的过去有关，模糊、听不真切。",
+                "亜空間では存在しない声が聞こえることがある。たいてい聞く人自身の過去にまつわるもので、ぼんやりして聞き取れない。");
+
         // 2. 场景里摆的命名地点（LocationMarker）
         if (w != null && w.locations != null)
             foreach (LocationData loc in w.locations)
@@ -123,6 +158,13 @@ public static class GameLexicon
                 if (!string.IsNullOrEmpty(a) && seen.Add(a)) _aliases.Add(new KeyValuePair<string, LexEntry>(a, e));
         _aliases.Sort((x, y) => y.Key.Length.CompareTo(x.Key.Length));
         _built = true;
+    }
+
+    static void AddLore(string id, string zh, string ja, string[] aliases, string descZh, string descJa)
+    {
+        LexEntry e = new LexEntry { id = id, kind = LexEntry.KindLore, nameZh = zh, nameJa = ja, descZh = descZh, descJa = descJa };
+        e.aliases.AddRange(aliases);
+        Add(e);
     }
 
     static void Add(LexEntry e)

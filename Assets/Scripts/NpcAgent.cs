@@ -10,7 +10,8 @@ using Newtonsoft.Json;
 //   代码：点名（NpcRoster）→ 认指令（NpcCommands + GameLexicon 词库）→ 信任判定 → 排任务执行；
 //         从这个 NPC 的档案（NpcMemory，最近 200 条）里挑"最近几句"和"跟这次话题相关的旧记忆"；
 //         从词库里挑出玩家提到的东西的说明。
-//   LLM ：只扮演这一个 NPC，按他的人物卡、记忆和此刻的处境说一两句话（也负责给"接受/做不到"的指令配音）。
+//   LLM ：只扮演这一个 NPC——最先读他的演员提示词（NpcActors），再读他经历过的事（EventChronicle）、
+//         记忆和此刻的处境，说一两句话（也负责给"接受/做不到"的指令配音）。
 //
 // 每个 NPC 有自己的对话窗口（NpcChatWindow）和自己的聊天记录，不再共用一个聊天栏、也不会串台。
 public class NpcAgent : MonoBehaviour
@@ -143,20 +144,19 @@ public class NpcAgent : MonoBehaviour
     }
 
     // ============ 提示词：一个 NPC 的完整"剧本" ============
-    // 整段按当前界面语言写；人物卡 + 处境 + 词条说明 + 相关回忆 + 最近对话 + 此刻情况 + 精神状态。
+    // 整段按当前界面语言写，顺序固定：
+    //   ① 演员提示词（最先读，NpcActors）→ ② 此刻对 AI 的态度（按当前信任度）→ ③ 世界观（NPC 视角）+ AI 是谁
+    //   → ④ 当前状况 → ⑤ 你经历过的事（EventChronicle，按这句话挑）→ ⑥ 话里提到的东西（词库）
+    //   → ⑦ 你想起来的事 → ⑧ 最近的对话 → ⑨ 此刻 / 精神状态 → ⑩ 演出规则 + 输出格式（放最后，小模型最听得进去）
     string BuildSystemPrompt(NpcData npc, string playerText, string situation)
     {
         WorldState world = WorldManager.Instance.world;
         bool jp = LanguageGuard.IsJp;
 
-        Personality p = npc.personality;
-        string personalityDesc = jp
-            ? $"勇敢{p.bravery}／利他{p.altruism}／慎重{p.caution}／社交{p.sociability}／楽観{p.optimism}（0〜100、高いほど強い）"
-            : $"勇敢{p.bravery}/利他{p.altruism}/谨慎{p.caution}/外向{p.sociability}/乐观{p.optimism}（0~100，越高越强）";
-        string traitDesc = npc.traits != null ? string.Join("、", npc.traits) : "";
-        string gender = jp ? (npc.gender == "男" ? "男性" : "女性") : npc.gender;
-
-        string context = PromptContext.WorldSummary(world, npc);
+        string actor = NpcActors.Render(npc);
+        string trustNow = ActorFacts.TrustNow(npc, jp);
+        string context = PromptContext.WorldSummary(world, npc, false);
+        string events = EventChronicle.ForPrompt(npc, playerText, jp);
         string hints = GameLexicon.Hints(playerText + " " + situation);
         string recent = FormatRecent(npc, jp);
         string recalled = FormatRecalled(npc, playerText, jp);
@@ -164,67 +164,54 @@ public class NpcAgent : MonoBehaviour
         string langRule = LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "";
 
         StringBuilder sb = new StringBuilder();
+        sb.AppendLine(actor);
         if (jp)
         {
-            sb.AppendLine("あなたは以下の人物そのものであり、本当に亜空間の中にいる。この人物として考え、話すこと。");
-            sb.AppendLine("【人物カード】");
-            sb.AppendLine("- 名前：" + npc.npcName + "（" + gender + "）");
-            sb.AppendLine("- 職業：" + npc.profession);
-            sb.AppendLine("- 性格：" + traitDesc);
-            sb.AppendLine("- 性格の数値：" + personalityDesc);
-            sb.AppendLine("- 価値観：" + npc.values);
-            sb.AppendLine("- 話し方：" + npc.speakingStyle + "（台詞は必ずこの話し方に合わせること）");
-            sb.AppendLine("- 経歴：" + npc.background);
-            sb.AppendLine("- 今の目標：" + npc.currentGoal);
-            sb.AppendLine("- 「あの声」への信頼度：" + Mathf.RoundToInt(npc.playerTrust) + "/100");
+            sb.AppendLine("【今のAIへの態度】" + trustNow);
             sb.AppendLine();
-            sb.AppendLine(WorldLore.Background);
+            sb.AppendLine(WorldLore.NpcWorld);
             sb.AppendLine();
             sb.AppendLine(WorldLore.PlayerIdentity);
             sb.AppendLine();
-            sb.AppendLine(WorldLore.SpeakingRules);
+            sb.AppendLine(WorldLore.NpcMood);
             sb.AppendLine();
             sb.Append(context);
-            if (hints.Length > 0) { sb.AppendLine("【話に出てきた物の説明】"); sb.Append(hints); }
+            if (events.Length > 0) sb.Append(events);
+            if (hints.Length > 0) { sb.AppendLine("【話に出てきたものの説明】"); sb.Append(hints); }
             if (recalled.Length > 0) { sb.AppendLine("【あなたが思い出したこと】"); sb.Append(recalled); }
             if (recent.Length > 0) { sb.AppendLine("【最近の会話】"); sb.Append(recent); }
             if (!string.IsNullOrEmpty(situation)) { sb.AppendLine("【今この瞬間】"); sb.AppendLine(situation); }
             sb.AppendLine(mental);
             sb.AppendLine();
+            sb.AppendLine(WorldLore.SpeakingRules);
+            sb.AppendLine();
             sb.AppendLine("【出力形式】JSONオブジェクトを1つだけ出力し、それ以外は何も書かないこと：");
-            sb.AppendLine("{\"dialogue\": \"あなたの話し方で、実際に口に出す台詞\"}");
-            sb.AppendLine("台詞は1〜2文、短く口語的に。「あの声」が今言ったことにそのまま答えること。前に言ったことを繰り返さない。不安は日常の言葉に自然ににじませ、毎回「怖い」と叫ばない。");
+            sb.AppendLine("{\"dialogue\": \"この人物として、実際に口に出す台詞\"}");
+            sb.AppendLine("台詞は1〜2文、短く口語的に。AIが今言ったことにそのまま答えること。前に言ったことを繰り返さない。");
         }
         else
         {
-            sb.AppendLine("你就是下面这个人，你真实地身处亚空间中。请完全以这个人的身份思考和说话。");
-            sb.AppendLine("【人物卡】");
-            sb.AppendLine("- 名字：" + npc.npcName + "（" + gender + "）");
-            sb.AppendLine("- 职业：" + npc.profession);
-            sb.AppendLine("- 性格词条：" + traitDesc);
-            sb.AppendLine("- 性格维度：" + personalityDesc);
-            sb.AppendLine("- 价值观：" + npc.values);
-            sb.AppendLine("- 说话风格：" + npc.speakingStyle + "（你的对话必须符合这个风格）");
-            sb.AppendLine("- 背景：" + npc.background);
-            sb.AppendLine("- 当前目标：" + npc.currentGoal);
-            sb.AppendLine("- 对「那个声音」的信任度：" + Mathf.RoundToInt(npc.playerTrust) + "/100");
+            sb.AppendLine("【你此刻对AI的态度】" + trustNow);
             sb.AppendLine();
-            sb.AppendLine(WorldLore.Background);
+            sb.AppendLine(WorldLore.NpcWorld);
             sb.AppendLine();
             sb.AppendLine(WorldLore.PlayerIdentity);
             sb.AppendLine();
-            sb.AppendLine(WorldLore.SpeakingRules);
+            sb.AppendLine(WorldLore.NpcMood);
             sb.AppendLine();
             sb.Append(context);
+            if (events.Length > 0) sb.Append(events);
             if (hints.Length > 0) { sb.AppendLine("【话里提到的东西】"); sb.Append(hints); }
             if (recalled.Length > 0) { sb.AppendLine("【你想起来的事】"); sb.Append(recalled); }
             if (recent.Length > 0) { sb.AppendLine("【最近的对话】"); sb.Append(recent); }
             if (!string.IsNullOrEmpty(situation)) { sb.AppendLine("【此刻】"); sb.AppendLine(situation); }
             sb.AppendLine(mental);
             sb.AppendLine();
+            sb.AppendLine(WorldLore.SpeakingRules);
+            sb.AppendLine();
             sb.AppendLine("【输出要求】只输出一个 JSON 对象，不要任何多余文字：");
-            sb.AppendLine("{\"dialogue\": \"符合你说话风格、真正说出口的话\"}");
-            sb.AppendLine("只说一到两句，口语、简短。直接回应「那个声音」刚才的话，不要重复你之前说过的话。处境的不安自然地渗进话里，不要每句都喊害怕。");
+            sb.AppendLine("{\"dialogue\": \"以这个人的身份，真正说出口的话\"}");
+            sb.AppendLine("只说一到两句，口语、简短。直接回应AI刚才的话，不要重复你之前说过的话。");
         }
         sb.AppendLine();
         sb.Append(langRule);
@@ -251,13 +238,13 @@ public class NpcAgent : MonoBehaviour
         return sb.ToString();
     }
 
-    // 一条记录 → 提示词里的一行（"那个声音：…" / "你：…" / "王芳（对你）：…"）。
+    // 一条记录 → 提示词里的一行（"AI：…" / "你：…" / "王芳（对你）：…"）。
     static string Line(ChatEntry e, bool jp)
     {
         switch (e.Role)
         {
             case ChatRole.Player:
-                return (jp ? "あの声：" : "那个声音：") + e.text;
+                return "AI：" + e.text;
             case ChatRole.Npc:
                 if (string.IsNullOrEmpty(e.with) || e.with == "player") return (jp ? "あなた：" : "你：") + e.text;
                 return (jp ? "あなた（" + e.with + "に）：" : "你（对" + e.with + "）：") + e.text;
