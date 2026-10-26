@@ -6,11 +6,12 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using TMPro;
 
-// NPC 专属对话窗口（运行时自建 UI，不用在场景里摆）。
-// 点场景里的 NPC / 点状态卡 → 弹出和这个 NPC 的对话窗口，显示的是"他自己的"聊天记录（来自 NpcMemory），
-// 换一个 NPC 就换成那个人的记录——所有 NPC 不再共用一个聊天栏。
-// 操作：Enter 发送、Esc 先退出输入再关窗口、Y 重新打开上次的窗口。
-// 窗口是扁平的小窗，默认在屏幕左下角；拖标题栏或窗口边缘可以挪到任何地方（拖不出屏幕）。
+// NPC 专属对话窗口（运行时自建 UI，不用在场景里摆）。旧的 NPC 状态卡已经并进来了。
+// 点场景里的 NPC / 幸存者列表 / 日志里的名字 → 弹出这个 NPC 的竖长窗口：
+//   上方：左边是 NPC 的实时动画头像（同步他在地图上的动画帧和朝向），右边是名字、性别·精神状态、生命/饥饿/体力/理智/信任状态条；
+//   中间：词条（职业、性格词条、由性格数值推出的"勇敢""谨慎"之类，崩解后的异变）；
+//   下方：他自己的聊天记录（来自 NpcMemory）+ 输入框——所有 NPC 不再共用一个聊天栏。
+// 操作：Enter 发送、Esc 先退出输入再关窗口、Y 重新打开上次的窗口；拖窗口上半部分或边缘可以挪动（拖不出屏幕）。
 // 窗口只负责显示和输入；玩家发出的话交给 NpcAgent 处理（OnPlayerMessage）。
 public class NpcChatWindow : MonoBehaviour
 {
@@ -22,10 +23,14 @@ public class NpcChatWindow : MonoBehaviour
     // 玩家在窗口里发了一句话：(npcId, 内容)。
     public event Action<string, string> OnPlayerMessage;
 
+    // 某个 NPC 的窗口被关掉 / 换成了别人（日志里点过变灰的名字据此恢复颜色）。
+    public static event Action<string> OnNpcClosed;
+
     [Header("外观")]
-    public TMP_FontAsset font;                         // 不拖会自动借用 NPC 列表等面板的中日文字体
-    public Vector2 windowSize = new Vector2(460f, 290f);  // 扁平小窗
-    public int maxShown = 60;                          // 窗口里最多显示多少条（完整记录在档案文件里）
+    public TMP_FontAsset font;                              // 不拖会自动借用 NPC 列表等面板的中日文字体
+    public Vector2 windowSize = new Vector2(400f, 680f);    // 竖长窗口
+    public Vector2 defaultPosition = new Vector2(350f, 16f); // 离屏幕左下角的位置（左上角抽屉的右边）
+    public int maxShown = 60;                               // 窗口里最多显示多少条（完整记录在档案文件里）
 
     public bool IsOpen => _window != null && _window.gameObject.activeSelf;
     public string CurrentNpcId { get; private set; }
@@ -33,18 +38,50 @@ public class NpcChatWindow : MonoBehaviour
 
     Canvas _canvas;
     RectTransform _window;
-    TMP_Text _title, _status, _thinking, _sendLabel, _placeholder;
+    TMP_Text _thinking, _sendLabel, _placeholder;
     ScrollRect _scroll;
-    RectTransform _content;
+    RectTransform _scrollRt, _content;
     TMP_InputField _input;
     readonly HashSet<string> _thinkingIds = new HashSet<string>();
     int _scrollFrames;
     float _statusTimer;
 
+    // —— 上方：头像 + 名字 + 状态条 ——
+    Image _portrait;
+    RectTransform _portraitRt;
+    SpriteRenderer _portraitSource;   // 地图上这个 NPC 的 SpriteRenderer（头像每帧跟着它换帧）
+    string _portraitSourceId;
+    TMP_Text _name, _sub;
+
+    class Bar
+    {
+        public string key;
+        public TMP_Text label, value;
+        public RectTransform fill;
+        public Image fillImage;
+    }
+    Bar _hp, _hunger, _energy, _sanity, _trust;
+
+    // —— 中间：词条 ——
+    RectTransform _chips;
+    string _chipSignature;
+
+    const float Pad = 12f;
+    const float PortraitSize = 116f;
+    const float HeaderH = 160f;
+    const float ChipH = 24f;
+
     static readonly Color PanelColor = new Color(0.08f, 0.09f, 0.12f, 0.95f);
-    static readonly Color BarColor = new Color(0.14f, 0.16f, 0.22f, 1f);
+    static readonly Color HeaderColor = new Color(0.14f, 0.16f, 0.22f, 1f);
     static readonly Color FieldColor = new Color(0.16f, 0.18f, 0.23f, 1f);
     static readonly Color ButtonColor = new Color(0.2f, 0.42f, 0.7f, 1f);
+    static readonly Color GoodColor = new Color(0.35f, 0.8f, 0.4f, 1f);
+    static readonly Color BadColor = new Color(0.9f, 0.3f, 0.25f, 1f);
+    static readonly Color TrustColor = new Color(0.35f, 0.6f, 1f, 1f);
+    static readonly Color ChipProfession = new Color(0.18f, 0.32f, 0.5f, 1f);
+    static readonly Color ChipTrait = new Color(0.32f, 0.24f, 0.5f, 1f);
+    static readonly Color ChipPersonality = new Color(0.2f, 0.38f, 0.26f, 1f);
+    static readonly Color ChipMutation = new Color(0.55f, 0.16f, 0.16f, 1f);
 
     // 确保场景里有一个窗口（没有就创建）。
     public static NpcChatWindow Ensure()
@@ -73,15 +110,22 @@ public class NpcChatWindow : MonoBehaviour
 
     // ============ 打开 / 关闭 ============
 
-    // 打开和某个 NPC 的对话窗口（已经开着别人的，就换成这个人的记录）。
+    // 打开和某个 NPC 的对话窗口（已经开着别人的，就换成这个人的头像、状态、词条和记录）。
     public void Open(string npcId)
     {
         if (string.IsNullOrEmpty(npcId)) return;
+        string previous = IsOpen ? CurrentNpcId : null;
+        if (previous != null && previous != npcId && OnNpcClosed != null) OnNpcClosed(previous);
+
         CurrentNpcId = npcId;
         LastNpcId = npcId;
         _window.gameObject.SetActive(true);
-        RebuildMessages();
+        UiWindowDragger.ClampInside(_window);
+        _portraitSource = null;
+        _portraitSourceId = null;
+        _chipSignature = null;
         RefreshHeader();
+        RebuildMessages();
         RefreshThinking();
         FocusInput();
     }
@@ -101,7 +145,9 @@ public class NpcChatWindow : MonoBehaviour
         if (_input != null) _input.DeactivateInputField();
         if (EventSystem.current != null) EventSystem.current.SetSelectedGameObject(null);
         _window.gameObject.SetActive(false);
+        string closed = CurrentNpcId;
         CurrentNpcId = null;
+        if (!string.IsNullOrEmpty(closed) && OnNpcClosed != null) OnNpcClosed(closed);
     }
 
     // 在输入栏末尾插入一段文字（点地图格子时插入格子编号用）。窗口没开返回 false。
@@ -144,7 +190,7 @@ public class NpcChatWindow : MonoBehaviour
         if (IsOpen)
         {
             _statusTimer -= Time.unscaledDeltaTime;
-            if (_statusTimer <= 0f) { _statusTimer = 1f; RefreshHeader(); }
+            if (_statusTimer <= 0f) { _statusTimer = 0.25f; RefreshHeader(); }
         }
     }
 
@@ -157,6 +203,7 @@ public class NpcChatWindow : MonoBehaviour
             Canvas.ForceUpdateCanvases();
             _scroll.verticalNormalizedPosition = 0f;
         }
+        if (IsOpen) UpdatePortrait();
     }
 
     // 别的输入框（如果有）正被选中时，不抢 Y 键。
@@ -164,6 +211,175 @@ public class NpcChatWindow : MonoBehaviour
     {
         if (EventSystem.current == null || EventSystem.current.currentSelectedGameObject == null) return false;
         return EventSystem.current.currentSelectedGameObject.GetComponent<TMP_InputField>() != null;
+    }
+
+    // ============ 上方：头像 / 状态 / 词条 ============
+
+    // 头像：每帧把地图上这个 NPC 当前的动画帧、朝向、颜色抄过来（所以是"活的"）。
+    void UpdatePortrait()
+    {
+        if (_portrait == null) return;
+        if (_portraitSource == null && _portraitSourceId != CurrentNpcId)
+        {
+            _portraitSourceId = CurrentNpcId; // 每次打开只找一次，找不到（比如已死亡被移除）就保留最后一帧
+            NpcMover mover = NpcView.GetMover(CurrentNpcId);
+            if (mover != null)
+            {
+                _portraitSource = mover.GetComponent<SpriteRenderer>();
+                if (_portraitSource == null) _portraitSource = mover.GetComponentInChildren<SpriteRenderer>();
+            }
+            if (_portraitSource == null) _portrait.enabled = false;
+        }
+        NpcData npc = Npc(CurrentNpcId);
+        bool dead = npc != null && npc.IsDead;
+        if (_portraitSource == null)
+        {
+            // 地图上的 NPC 已经不在了（比如死亡后被移除）：保留最后一帧，变暗
+            if (dead) _portrait.color = new Color(0.4f, 0.4f, 0.4f, 1f);
+            return;
+        }
+
+        Sprite s = _portraitSource.sprite;
+        _portrait.sprite = s;
+        _portrait.enabled = s != null;
+        _portraitRt.localScale = new Vector3(_portraitSource.flipX ? -1f : 1f, 1f, 1f);
+        Color c = _portraitSource.color;
+        if (dead) c = new Color(c.r * 0.4f, c.g * 0.4f, c.b * 0.4f, c.a);
+        _portrait.color = c;
+    }
+
+    void RefreshHeader()
+    {
+        NpcData npc = Npc(CurrentNpcId);
+        if (npc == null) return;
+        _name.text = npc.npcName;
+        _sub.text = GenderName(npc.gender) + "  ·  " + MentalTag(npc);
+        SetBar(_hp, npc.health, false);
+        SetBar(_hunger, npc.hunger, true);   // 饥饿：越高越糟
+        SetBar(_energy, npc.energy, false);
+        SetBar(_sanity, npc.sanity, false);
+        SetBar(_trust, npc.playerTrust, TrustColor);
+
+        string sig = ChipSignature(npc);
+        if (sig != _chipSignature) { _chipSignature = sig; RebuildChips(npc); }
+    }
+
+    void SetBar(Bar b, float v, bool higherIsWorse)
+    {
+        float r = Mathf.Clamp01(v / 100f);
+        SetBar(b, v, Color.Lerp(BadColor, GoodColor, higherIsWorse ? 1f - r : r));
+    }
+
+    void SetBar(Bar b, float v, Color color)
+    {
+        if (b == null) return;
+        b.fill.anchorMax = new Vector2(Mathf.Clamp01(v / 100f), 1f);
+        b.fillImage.color = color;
+        b.value.text = Mathf.RoundToInt(v).ToString();
+    }
+
+    static string GenderName(string g)
+    {
+        if (g == "男") return L("gender_male");
+        if (g == "女") return L("gender_female");
+        return g ?? "";
+    }
+
+    static string MentalTag(NpcData n)
+    {
+        if (n.IsDead) return "<color=#8C8C8C>" + L("chatwin_dead") + "</color>";
+        switch (MentalState.GetLevel(n))
+        {
+            case SanityLevel.Dazed:         return "<color=#E0C060>" + L("mental_dazed") + "</color>";
+            case SanityLevel.Hallucinating: return "<color=#C080FF>" + L("mental_halluc") + "</color>";
+            case SanityLevel.Broken:        return "<color=#FF6060>" + L("mental_broken") + "</color>";
+            default:                        return "<color=#8FD18F>" + L("mental_lucid") + "</color>";
+        }
+    }
+
+    // 词条：职业 → 生成时抽到的性格词条 → 由 5 维性格数值推出的标签（≥70 / ≤30）→ 崩解后的异变。重复的只显示一次。
+    // （以后有了正式的词条库，改这里就行。）
+    List<KeyValuePair<string, Color>> CollectChips(NpcData npc)
+    {
+        List<KeyValuePair<string, Color>> list = new List<KeyValuePair<string, Color>>();
+        HashSet<string> seen = new HashSet<string>();
+        AddChip(list, seen, npc.profession, ChipProfession);
+        if (npc.traits != null) foreach (string t in npc.traits) AddChip(list, seen, t, ChipTrait);
+        Personality p = npc.personality;
+        if (p != null)
+        {
+            AddChip(list, seen, PersonalityTag(p.bravery, "pers_brave_hi", "pers_brave_lo"), ChipPersonality);
+            AddChip(list, seen, PersonalityTag(p.altruism, "pers_altruism_hi", "pers_altruism_lo"), ChipPersonality);
+            AddChip(list, seen, PersonalityTag(p.caution, "pers_caution_hi", "pers_caution_lo"), ChipPersonality);
+            AddChip(list, seen, PersonalityTag(p.sociability, "pers_social_hi", "pers_social_lo"), ChipPersonality);
+            AddChip(list, seen, PersonalityTag(p.optimism, "pers_optimism_hi", "pers_optimism_lo"), ChipPersonality);
+        }
+        if (npc.isBroken && npc.mutations != null) foreach (string m in npc.mutations) AddChip(list, seen, m, ChipMutation);
+        return list;
+    }
+
+    static void AddChip(List<KeyValuePair<string, Color>> list, HashSet<string> seen, string text, Color color)
+    {
+        if (string.IsNullOrEmpty(text) || !seen.Add(text)) return;
+        list.Add(new KeyValuePair<string, Color>(text, color));
+    }
+
+    static string PersonalityTag(int value, string highKey, string lowKey)
+    {
+        if (value >= 70) return L(highKey);
+        if (value <= 30) return L(lowKey);
+        return null;
+    }
+
+    static string ChipSignature(NpcData npc)
+    {
+        Personality p = npc.personality;
+        return npc.profession + "|" + (npc.traits != null ? string.Join(",", npc.traits) : "") + "|" +
+               (p != null ? p.bravery + "," + p.altruism + "," + p.caution + "," + p.sociability + "," + p.optimism : "") + "|" +
+               npc.isBroken + "|" + (npc.mutations != null ? string.Join(",", npc.mutations) : "") + "|" +
+               (LanguageGuard.IsJp ? "ja" : "zh");
+    }
+
+    // 词条按宽度自动换行排成一块；排完后把下面的聊天区顶到词条下方。
+    void RebuildChips(NpcData npc)
+    {
+        for (int i = _chips.childCount - 1; i >= 0; i--)
+        {
+            Transform c = _chips.GetChild(i);
+            c.SetParent(null);
+            Destroy(c.gameObject);
+        }
+
+        List<KeyValuePair<string, Color>> list = CollectChips(npc);
+        float maxW = windowSize.x - Pad * 2f;
+        const float gapX = 6f, gapY = 6f;
+        float x = 0f, y = 0f;
+        foreach (KeyValuePair<string, Color> kv in list)
+        {
+            RectTransform chip = NewRect("Chip", _chips);
+            Image img = chip.gameObject.AddComponent<Image>();
+            img.color = kv.Value;
+            img.raycastTarget = false;
+            TextMeshProUGUI t = NewText(chip, "Text", 13f, TextAlignmentOptions.Center);
+            t.textWrappingMode = TextWrappingModes.NoWrap;
+            t.richText = false;
+            t.text = kv.Key;
+            Stretch(t.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+            float w = Mathf.Min(maxW, Mathf.Ceil(t.GetPreferredValues(kv.Key).x) + 18f);
+            if (x > 0f && x + w > maxW) { x = 0f; y += ChipH + gapY; }
+            chip.anchorMin = chip.anchorMax = chip.pivot = new Vector2(0f, 1f);
+            chip.anchoredPosition = new Vector2(x, -y);
+            chip.sizeDelta = new Vector2(w, ChipH);
+            x += w + gapX;
+        }
+
+        float height = list.Count > 0 ? y + ChipH : 0f;
+        _chips.offsetMin = new Vector2(Pad, -(HeaderH + 10f + height));
+        _chips.offsetMax = new Vector2(-Pad, -(HeaderH + 10f));
+        float top = HeaderH + 10f + height + (height > 0f ? 10f : 0f);
+        _scrollRt.offsetMax = new Vector2(-6f, -top);
+        _scrollFrames = 3;
     }
 
     // ============ 消息 ============
@@ -247,31 +463,13 @@ public class NpcChatWindow : MonoBehaviour
         if (show) ScrollToBottom();
     }
 
-    void RefreshHeader()
-    {
-        NpcData npc = Npc(CurrentNpcId);
-        if (npc == null) return;
-        _title.text = LF("chatwin_title", npc.npcName);
-        string state = npc.IsDead ? L("chatwin_dead") : MentalName(npc);
-        _status.text = LF("chatwin_status", Mathf.RoundToInt(npc.playerTrust), state);
-    }
-
     void RefreshTexts()
     {
         if (_sendLabel != null) _sendLabel.text = L("chat_send");
         if (_placeholder != null) _placeholder.text = L("chatwin_placeholder");
-        if (IsOpen) { RefreshHeader(); RefreshThinking(); }
-    }
-
-    static string MentalName(NpcData n)
-    {
-        switch (MentalState.GetLevel(n))
-        {
-            case SanityLevel.Dazed:         return L("mental_dazed");
-            case SanityLevel.Hallucinating: return L("mental_halluc");
-            case SanityLevel.Broken:        return L("mental_broken");
-            default:                        return L("mental_lucid");
-        }
+        foreach (Bar b in new[] { _hp, _hunger, _energy, _sanity, _trust })
+            if (b != null) b.label.text = L(b.key);
+        if (IsOpen) { _chipSignature = null; RefreshHeader(); RefreshThinking(); }
     }
 
     void Submit()
@@ -307,48 +505,35 @@ public class NpcChatWindow : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        // 窗口本体（左下角的扁平小窗，可拖动）
+        // 窗口本体（竖长，默认在左下、抽屉右边；拖上半部分或边缘可以挪）
         _window = NewRect("Window", canvasGo.transform);
         _window.anchorMin = _window.anchorMax = _window.pivot = Vector2.zero;
         _window.sizeDelta = windowSize;
-        _window.anchoredPosition = new Vector2(16f, 24f);
+        _window.anchoredPosition = defaultPosition;
         _window.gameObject.AddComponent<Image>().color = PanelColor;
-        AddDragger(_window.gameObject);   // 拖窗口边缘（消息区、输入框以外的地方）也能挪
+        AddDragger(_window.gameObject);
 
-        // 标题栏：名字 + 状态（同一行）+ 关闭按钮（拖它可以挪窗口）
-        RectTransform bar = NewRect("TitleBar", _window);
-        Stretch(bar, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -40f), Vector2.zero);
-        bar.gameObject.AddComponent<Image>().color = BarColor;
-        AddDragger(bar.gameObject);
+        BuildHeader();
 
-        _title = NewText(bar, "Title", 17f, TextAlignmentOptions.Left);
-        _title.fontStyle = FontStyles.Bold;
-        _title.textWrappingMode = TextWrappingModes.NoWrap;
-        _title.overflowMode = TextOverflowModes.Ellipsis;
-        Stretch(_title.rectTransform, new Vector2(0f, 0f), new Vector2(0.55f, 1f), new Vector2(12f, 0f), Vector2.zero);
-        _status = NewText(bar, "Status", 13f, TextAlignmentOptions.Right);
-        _status.color = new Color(0.7f, 0.74f, 0.82f);
-        _status.textWrappingMode = TextWrappingModes.NoWrap;
-        Stretch(_status.rectTransform, new Vector2(0.55f, 0f), new Vector2(1f, 1f), new Vector2(4f, 0f), new Vector2(-40f, 0f));
+        // 词条区（内容和高度在 RebuildChips 里定）
+        _chips = NewRect("Traits", _window);
+        _chips.anchorMin = new Vector2(0f, 1f);
+        _chips.anchorMax = new Vector2(1f, 1f);
+        _chips.pivot = new Vector2(0.5f, 1f);
+        _chips.offsetMin = new Vector2(Pad, -(HeaderH + 10f));
+        _chips.offsetMax = new Vector2(-Pad, -(HeaderH + 10f));
 
-        Button close = NewButton(bar, "Close", "×", 22f, new Color(0f, 0f, 0f, 0f), out _);
-        RectTransform cr = (RectTransform)close.transform;
-        cr.anchorMin = cr.anchorMax = cr.pivot = new Vector2(1f, 0.5f);
-        cr.sizeDelta = new Vector2(36f, 36f);
-        cr.anchoredPosition = new Vector2(-2f, 0f);
-        close.onClick.AddListener(Close);
-
-        // 消息区（可滚动）
-        RectTransform scrollRt = NewRect("Scroll", _window);
-        Stretch(scrollRt, Vector2.zero, Vector2.one, new Vector2(6f, 46f), new Vector2(-6f, -44f));
-        scrollRt.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.18f);
-        _scroll = scrollRt.gameObject.AddComponent<ScrollRect>();
+        // 消息区（可滚动；上沿跟着词条区走）
+        _scrollRt = NewRect("Scroll", _window);
+        Stretch(_scrollRt, Vector2.zero, Vector2.one, new Vector2(6f, 46f), new Vector2(-6f, -(HeaderH + 10f)));
+        _scrollRt.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.18f);
+        _scroll = _scrollRt.gameObject.AddComponent<ScrollRect>();
         _scroll.horizontal = false;
         _scroll.vertical = true;
         _scroll.movementType = ScrollRect.MovementType.Clamped;
         _scroll.scrollSensitivity = 30f;
 
-        RectTransform viewport = NewRect("Viewport", scrollRt);
+        RectTransform viewport = NewRect("Viewport", _scrollRt);
         Stretch(viewport, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
         viewport.gameObject.AddComponent<RectMask2D>();
         _scroll.viewport = viewport;
@@ -419,6 +604,104 @@ public class NpcChatWindow : MonoBehaviour
         sr.sizeDelta = new Vector2(62f, 0f);
         sr.anchoredPosition = Vector2.zero;
         send.onClick.AddListener(Submit);
+    }
+
+    // 上方一整块：头像（左）+ 名字 / 性别·精神状态 / 五条状态条（右）+ 关闭按钮。
+    // 这块不挡拖动：文字、图片都不接收点击，拖它就是拖窗口。
+    void BuildHeader()
+    {
+        RectTransform header = NewRect("Header", _window);
+        Stretch(header, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -HeaderH), Vector2.zero);
+        Image hb = header.gameObject.AddComponent<Image>();
+        hb.color = HeaderColor;
+        hb.raycastTarget = false;
+
+        // 头像：橙色细框 + 深色底 + 实时帧
+        RectTransform frame = NewRect("PortraitFrame", header);
+        frame.anchorMin = frame.anchorMax = frame.pivot = new Vector2(0f, 1f);
+        frame.anchoredPosition = new Vector2(Pad, -Pad);
+        frame.sizeDelta = new Vector2(PortraitSize, PortraitSize);
+        Image fi = frame.gameObject.AddComponent<Image>();
+        fi.color = new Color(1f, 0.6f, 0.3f, 0.45f);
+        fi.raycastTarget = false;
+        RectTransform pbg = NewRect("Bg", frame);
+        Stretch(pbg, Vector2.zero, Vector2.one, new Vector2(2f, 2f), new Vector2(-2f, -2f));
+        Image pb = pbg.gameObject.AddComponent<Image>();
+        pb.color = new Color(0.03f, 0.035f, 0.05f, 1f);
+        pb.raycastTarget = false;
+        _portraitRt = NewRect("Portrait", frame);
+        Stretch(_portraitRt, Vector2.zero, Vector2.one, new Vector2(10f, 8f), new Vector2(-10f, -8f));
+        _portrait = _portraitRt.gameObject.AddComponent<Image>();
+        _portrait.preserveAspect = true;
+        _portrait.raycastTarget = false;
+        _portrait.enabled = false;
+
+        // 右侧：名字、性别·精神状态、状态条
+        float colX = Pad + PortraitSize + 12f;
+        _name = NewText(header, "Name", 21f, TextAlignmentOptions.Left);
+        _name.fontStyle = FontStyles.Bold;
+        _name.richText = false;
+        _name.textWrappingMode = TextWrappingModes.NoWrap;
+        _name.overflowMode = TextOverflowModes.Ellipsis;
+        TopRow(_name.rectTransform, colX, 10f, 26f, -44f);
+        _sub = NewText(header, "Sub", 13f, TextAlignmentOptions.Left);
+        _sub.color = new Color(0.72f, 0.75f, 0.82f);
+        _sub.textWrappingMode = TextWrappingModes.NoWrap;
+        TopRow(_sub.rectTransform, colX, 38f, 18f, -Pad);
+
+        float y = 62f;
+        _hp = NewBar(header, "stat_health", colX, y); y += 19f;
+        _hunger = NewBar(header, "stat_hunger", colX, y); y += 19f;
+        _energy = NewBar(header, "stat_energy", colX, y); y += 19f;
+        _sanity = NewBar(header, "stat_sanity", colX, y); y += 19f;
+        _trust = NewBar(header, "stat_trust", colX, y);
+
+        Button close = NewButton(header, "Close", "×", 22f, new Color(0f, 0f, 0f, 0f), out _);
+        RectTransform cr = (RectTransform)close.transform;
+        cr.anchorMin = cr.anchorMax = cr.pivot = new Vector2(1f, 1f);
+        cr.sizeDelta = new Vector2(36f, 36f);
+        cr.anchoredPosition = new Vector2(-4f, -4f);
+        close.onClick.AddListener(Close);
+    }
+
+    // 一条状态条：左标签 + 中间条 + 右数字。
+    Bar NewBar(Transform parent, string key, float left, float top)
+    {
+        RectTransform row = NewRect("Bar_" + key, parent);
+        TopRow(row, left, top, 15f, -Pad);
+        Bar b = new Bar { key = key };
+
+        b.label = NewText(row, "Label", 12f, TextAlignmentOptions.Left);
+        b.label.color = new Color(0.75f, 0.78f, 0.85f);
+        b.label.textWrappingMode = TextWrappingModes.NoWrap;
+        b.label.text = L(key);
+        Stretch(b.label.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(40f, 0f));
+
+        RectTransform bg = NewRect("Bg", row);
+        Stretch(bg, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(42f, -5f), new Vector2(-34f, 5f));
+        Image bgi = bg.gameObject.AddComponent<Image>();
+        bgi.color = new Color(1f, 1f, 1f, 0.12f);
+        bgi.raycastTarget = false;
+
+        b.fill = NewRect("Fill", bg);
+        Stretch(b.fill, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+        b.fillImage = b.fill.gameObject.AddComponent<Image>();
+        b.fillImage.raycastTarget = false;
+
+        b.value = NewText(row, "Value", 12f, TextAlignmentOptions.Right);
+        b.value.textWrappingMode = TextWrappingModes.NoWrap;
+        Stretch(b.value.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-32f, 0f), Vector2.zero);
+        return b;
+    }
+
+    // 顶部横向拉伸的一行：距左 left、距顶 top、高 height、右边偏移 right（负数 = 离右边的距离）。
+    static void TopRow(RectTransform rt, float left, float top, float height, float right)
+    {
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.offsetMin = new Vector2(left, -(top + height));
+        rt.offsetMax = new Vector2(right, -top);
     }
 
     static RectTransform NewRect(string name, Transform parent)

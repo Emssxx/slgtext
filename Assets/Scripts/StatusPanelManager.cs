@@ -4,6 +4,8 @@ using TMPro;
 using System.Collections.Generic;
 
 // 状态面板总管：按需打开指定 NPC 的状态卡，允许多张卡同时存在，每张可单独关闭。
+// 【新版】状态卡已并入 NPC 对话窗口（NpcChatWindow 上方的头像 + 状态条 + 词条）。
+//   useChatWindow 勾选时（默认）：不再生成卡片，顶部的卡片底板也隐藏；谁调 OpenCard 都改为打开对话窗口。
 public class StatusPanelManager : MonoBehaviour
 {
     public static StatusPanelManager Instance { get; private set; }
@@ -13,6 +15,10 @@ public class StatusPanelManager : MonoBehaviour
     public GameObject npcCardPrefab;  // NpcCard 预制体
     public NpcAgent npcAgent;         // 当前对话目标（Inspector 拖入）
     public TMP_FontAsset font;        // 中日文字体，传给关闭按钮的 × 文字用
+
+    [Header("新版：状态集成到对话窗口")]
+    [Tooltip("勾选：不再弹出 NPC 状态卡，改为打开该 NPC 的对话窗口（头像、状态条、词条都在窗口上方）。取消勾选恢复旧的状态卡。")]
+    public bool useChatWindow = true;
 
     [Header("刷新设置")]
     public float refreshInterval = 0.5f; // 每隔多少秒刷新一次数值
@@ -31,10 +37,22 @@ public class StatusPanelManager : MonoBehaviour
         // 不再开局自动生成所有卡，改成按需打开
     }
 
+    void Start()
+    {
+        // 新版不用卡片：把顶部那块半透明底板藏起来（物体本身保留，别的脚本还会找它）
+        if (useChatWindow)
+        {
+            Image bg = GetComponent<Image>();
+            if (bg != null) bg.enabled = false;
+        }
+    }
+
     // 打开指定 NPC 的状态卡。
     // 已开着 → 移到最前；没开 → 新建一张。
     public void OpenCard(string npcId)
     {
+        if (useChatWindow) { NpcChatWindow.Ensure().Open(npcId); return; }
+
         // 已经开着：把它移到列表末尾（视觉上最前），直接返回
         if (_cards.ContainsKey(npcId))
         {

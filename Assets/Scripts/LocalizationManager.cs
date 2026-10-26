@@ -37,6 +37,20 @@ public class LocalizationManager : MonoBehaviour
             { "stat_hunger",  ("饥饿", "空腹") },
             { "stat_energy",  ("体力", "体力") },
             { "stat_sanity",  ("理智", "正気") },
+            { "stat_trust",   ("信任", "信頼") },
+            { "gender_male",  ("男", "男性") },
+            { "gender_female",("女", "女性") },
+            // 由 5 维性格数值推出的词条（≥70 / ≤30 时显示在对话窗口的词条区）
+            { "pers_brave_hi",     ("勇敢", "勇敢") },
+            { "pers_brave_lo",     ("怯懦", "臆病") },
+            { "pers_altruism_hi",  ("热心", "世話好き") },
+            { "pers_altruism_lo",  ("自私", "利己的") },
+            { "pers_caution_hi",   ("谨慎", "慎重") },
+            { "pers_caution_lo",   ("鲁莽", "向こう見ず") },
+            { "pers_social_hi",    ("外向", "社交的") },
+            { "pers_social_lo",    ("内向", "内向的") },
+            { "pers_optimism_hi",  ("乐观", "楽観的") },
+            { "pers_optimism_lo",  ("悲观", "悲観的") },
 
             // —— 系统提示 ——
             { "day_start",    ("新的一天开始了", "新しい一日が始まった") },

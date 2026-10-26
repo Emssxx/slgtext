@@ -153,8 +153,7 @@ public class NpcListPanel : MonoBehaviour
             btn.colors = cb;
             btn.onClick.AddListener(() =>
             {
-                if (StatusPanelManager.Instance != null)
-                    StatusPanelManager.Instance.OpenCard(capturedId);
+                NpcChatWindow.Ensure().Open(capturedId); // 打开他的对话窗口（头像、状态、词条都在上面）
             });
 
             // 名字文字（左对齐，留 8px 缩进）
