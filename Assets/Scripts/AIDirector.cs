@@ -43,15 +43,39 @@ public class AIDirector : MonoBehaviour
     void RequestEvent()
     {
         _busy = true;
-        string worldJson = WorldManager.Instance.ExportWorldAsJson();
+        // 世界概况：当前语言的简短文字（代替原来整份世界 JSON，防止中文混入和上下文溢出）。
+        string context = PromptContext.WorldSummary(WorldManager.Instance.world);
+        string langRule = LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "";
 
-        string systemPrompt =
+        // 整段提示词按当前界面语言写（事件类型代码是英文，两种语言通用）。
+        string systemPrompt = LanguageGuard.IsJp
+        ?
+            WorldLore.Background + "\n\n" +
+            WorldLore.WorldLaws + "\n\n" +
+            WorldLore.DirectorGuidance + "\n\n" +
+            WorldLore.EventThemes + "\n\n" +
+            "あなたは亜空間サバイバルの「ディレクター」であり、状況をより緊迫させる、あるいはより不気味にする突発的な出来事を作る役目を持つ。\n" +
+            context + "\n" +
+            "現在の状況をもとに、次のイベントの種類から1つを選ぶこと（自分で新しく作ってはならない）：\n" +
+            "  storm（亜空間の嵐）\n" +
+            "  space_warp（空間の歪み：誰かが突然別の場所に現れる）\n" +
+            "  time_disorder（時間の乱れ）\n" +
+            "  causal_reversal（因果の逆転）\n" +
+            "  whisper_vision（囁きと幻影）\n" +
+            "異常度が高いほど、危険で非現実的な種類を選ぶこと。\n\n" +
+            "【出力形式】JSONオブジェクトを1つだけ出力し、それ以外は何も書かないこと：\n" +
+            "{\n" +
+            "  \"type\": \"上の5つのいずれか（英字のまま）\",\n" +
+            "  \"event\": \"その種類に合った不気味な描写（1〜2文）\"\n" +
+            "}" +
+            "\n\n" + langRule
+        :
             WorldLore.Background + "\n\n" +
             WorldLore.WorldLaws + "\n\n" +
             WorldLore.DirectorGuidance + "\n\n" +
             WorldLore.EventThemes + "\n\n" +
             "你是一名末世亚空间生存的导演，负责制造让局势更紧张或更诡异的突发事件。\n" +
-            "当前世界状态（JSON）：\n" + worldJson + "\n\n" +
+            context + "\n" +
             "请基于当前状态，从以下事件类型里选一个（禁止自创）：\n" +
             "  storm（亚空间风暴）\n" +
             "  space_warp（空间扭曲：有人莫名出现在别的地方）\n" +
@@ -64,9 +88,9 @@ public class AIDirector : MonoBehaviour
             "  \"type\": \"上面五个之一\",\n" +
             "  \"event\": \"符合该类型的诡异描述，1~2句\"\n" +
             "}" +
-            "\n\n" + (LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "");
+            "\n\n" + langRule;
 
-        AIClientHub.Instance.Send(systemPrompt, "生成本回合的事件。", OnEventGenerated, true);
+        AIClientHub.Instance.Send(systemPrompt, LanguageGuard.Pick("生成本回合的事件。", "今回のイベントを生成してください。"), OnEventGenerated, true);
     }
 
     void OnEventGenerated(string rawJson)

@@ -73,7 +73,9 @@ public static class NpcGenerator
         npc.npcName = PickUnusedName(pool);
 
         // —— 职业 ——
-        npc.profession = TraitPool.PickOne(TraitPool.Professions);
+        // 按界面语言取职业名（中日两个数组一一对应，用同一个下标）。
+        int profIdx = Random.Range(0, TraitPool.Professions.Length);
+        npc.profession = isJp ? TraitPool.ProfessionsJa[profIdx] : TraitPool.Professions[profIdx];
 
         // —— 抽三类词条：主性格 + 社交 + 癖好 ——
         TraitPool.Trait main = TraitPool.PickOne(TraitPool.MainTraits);
@@ -81,7 +83,7 @@ public static class NpcGenerator
         TraitPool.Trait quirk = TraitPool.PickOne(TraitPool.QuirkTraits);
 
         // 记录词条名（喂 AI 用）
-        npc.traits = new List<string> { main.name, social.name, quirk.name };
+        npc.traits = new List<string> { main.Name, social.Name, quirk.Name }; // 按界面语言取词条名
 
         // —— 用词条的倾向，叠加出 5 维性格数值（基准 50，加各词条增量，最后夹 0~100）——
         npc.personality = new Personality
@@ -94,10 +96,11 @@ public static class NpcGenerator
         };
 
         // —— 说话风格 / 价值观 / 背景（拼词条描述，喂 AI）——
-        npc.speakingStyle = main.desc + social.desc;
-        npc.values = quirk.desc;
-        npc.background = $"你曾是一名{npc.profession}。{quirk.desc}";
-        npc.currentGoal = "在亚空间里活下去。";
+        // 人设文字按界面语言生成：日语界面时整张人物卡都是日语，不会把中文混进提示词。
+        npc.speakingStyle = main.Desc + social.Desc;
+        npc.values = quirk.Desc;
+        npc.background = isJp ? $"あなたはかつて{npc.profession}だった。{quirk.Desc}" : $"你曾是一名{npc.profession}。{quirk.Desc}";
+        npc.currentGoal = isJp ? "亜空間で生き延びること。" : "在亚空间里活下去。";
 
         // —— 初始数值（可加一点随机，让每个人起点略不同）——
         npc.health = 100f;

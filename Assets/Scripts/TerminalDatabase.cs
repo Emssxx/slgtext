@@ -14,7 +14,7 @@ public class TerminalDatabase : MonoBehaviour
     [Header("科技树")]
     public List<TechData> techs = new List<TechData>();
 
-    [Header("终端机升级表（一产→二产→三产）")]
+    [Header("终端机升级表（Lv1→Lv2→Lv3）")]
     public List<TerminalUpgradeStep> upgrades = new List<TerminalUpgradeStep>();
 
     void Awake()
@@ -49,27 +49,27 @@ public class TerminalDatabase : MonoBehaviour
                 descJa = "亜空間による神経の侵食を研究する。【鎮静剤】の合成を解放。" },
             new TechData { id = "t_restructure", nameZh = "物质重构 II", nameJa = "物質再構成 II", requiredTier = 1,
                 cost = M("nano", 10, "crystal", 1), researchTime = 30f,
-                descZh = "提升终端机重构物质的精度。终端机升级到【二产】的前提。",
-                descJa = "端末の物質再構成の精度を高める。端末を【二次産業】へ上げる前提。" },
+                descZh = "提升终端机重构物质的精度。终端机升级到【Lv2】的前提。",
+                descJa = "端末の物質再構成の精度を高める。端末を【Lv2】へ上げる前提。" },
             new TechData { id = "t_power", nameZh = "风暴能量捕获", nameJa = "嵐エネルギー捕獲", requiredTier = 1,
                 cost = M("nano", 8), researchTime = 25f,
                 descZh = "捕获亚空间风暴的能量。解锁电力类建筑（发电机等，后续补充）。",
                 descJa = "亜空間の嵐のエネルギーを捕らえる。電力系の建築（発電機など、今後追加）を解放。" },
             new TechData { id = "t_quantum", nameZh = "量子算力", nameJa = "量子演算", requiredTier = 2,
                 prerequisites = new[] { "t_restructure" }, cost = M("nano", 20, "crystal", 3), researchTime = 45f,
-                descZh = "扩展终端机的核心算力。终端机升级到【三产】的前提。",
-                descJa = "端末の中核演算能力を拡張する。端末を【三次産業】へ上げる前提。" },
+                descZh = "扩展终端机的核心算力。终端机升级到【Lv3】的前提。",
+                descJa = "端末の中核演算能力を拡張する。端末を【Lv3】へ上げる前提。" },
         };
 
         // —— 终端机升级表（示例）——
         upgrades = new List<TerminalUpgradeStep>
         {
             new TerminalUpgradeStep { toLevel = 2, cost = M("nano", 20, "crystal", 2), upgradeTime = 40f, requiredTechId = "t_restructure",
-                noteZh = "算力槽 +1（可同时处理 2 项任务）。解锁二产建筑与配方（后续补充）。",
-                noteJa = "演算スロット +1（同時に2件処理可能）。二次産業の建築とレシピを解放（今後追加）。" },
+                noteZh = "算力槽 +1（可同时处理 2 项任务）。解锁 Lv2 的建筑与配方（后续补充）。",
+                noteJa = "演算スロット +1（同時に2件処理可能）。Lv2の建築とレシピを解放（今後追加）。" },
             new TerminalUpgradeStep { toLevel = 3, cost = M("nano", 40, "crystal", 4), upgradeTime = 60f, requiredTechId = "t_quantum",
-                noteZh = "算力槽 +1（可同时处理 3 项任务）。解锁三产建筑与配方（后续补充）。",
-                noteJa = "演算スロット +1（同時に3件処理可能）。三次産業の建築とレシピを解放（今後追加）。" },
+                noteZh = "算力槽 +1（可同时处理 3 项任务）。解锁 Lv3 的建筑与配方（后续补充）。",
+                noteJa = "演算スロット +1（同時に3件処理可能）。Lv3の建築とレシピを解放（今後追加）。" },
         };
     }
 

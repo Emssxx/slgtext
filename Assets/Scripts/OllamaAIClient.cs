@@ -14,6 +14,12 @@ public class OllamaAIClient : MonoBehaviour, IAIClient
     public string ollamaApiUrl = "http://localhost:11434/api/chat";
     public string modelName = "qwen2.5:7b"; // 必须和 `ollama list` 显示的名字一致
 
+    [Header("生成参数（降低随机性 + 加大上下文，减少小模型发疯）")]
+    [Range(0f, 1.5f)] public float temperature = 0.6f; // 越低越稳定（默认 0.8 偏随机，容易突然换语言）
+    [Range(0f, 1f)] public float topP = 0.9f;           // 只从概率最高的 90% 候选里选词
+    public float repeatPenalty = 1.1f;                  // 抑制重复
+    public int numCtx = 8192;                           // 上下文长度：太短会截掉提示词开头（世界观/语言指令）
+
     // 全局共用一个 HttpClient，60 秒超时（本地模型首次加载可能慢）。
     private static readonly HttpClient _client = new HttpClient() { Timeout = TimeSpan.FromSeconds(60) };
 
@@ -26,6 +32,12 @@ public class OllamaAIClient : MonoBehaviour, IAIClient
     {
         if (Instance == null) { Instance = this; DontDestroyOnLoad(gameObject); }
         else Destroy(gameObject);
+    }
+
+    // Ollama 的生成参数（每次请求都带上）。
+    object BuildOptions()
+    {
+        return new { temperature = temperature, top_p = topP, repeat_penalty = repeatPenalty, num_ctx = numCtx };
     }
 
     /// <summary>
@@ -50,7 +62,8 @@ public class OllamaAIClient : MonoBehaviour, IAIClient
                         new { role = "user",   content = userPrompt }
                     },
                     stream = false,
-                    format = "json" // 强制 JSON 输出
+                    format = "json", // 强制 JSON 输出
+                    options = BuildOptions()
                 };
             }
             else
@@ -63,7 +76,8 @@ public class OllamaAIClient : MonoBehaviour, IAIClient
                         new { role = "system", content = systemPrompt },
                         new { role = "user",   content = userPrompt }
                     },
-                    stream = false
+                    stream = false,
+                    options = BuildOptions()
                 };
             }
 

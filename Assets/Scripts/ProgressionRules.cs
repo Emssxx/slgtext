@@ -157,8 +157,8 @@ public static class ProgressionRules
 
     // ================= 显示用小工具 =================
 
-    public static string TierName(int tier) => L("tier_name_" + tier);   // 一产 / 二产 / 三产
-    public static string TierLabel(int tier) => tier <= 0 ? L("tier_none") : LF("tier_label", tier, TierName(tier)); // Lv1·一产
+    // 终端机等级的显示文字：Lv1 / Lv2 / Lv3（"一产/二产"是设计用语，不在游戏里显示）。
+    public static string TierLabel(int tier) => tier <= 0 ? L("tier_none") : LF("tier_label", tier);
     public static string TechName(string id) => TerminalDatabase.Instance != null ? TerminalDatabase.Instance.TechName(id) : id;
     public static string ItemName(string id) => ItemDatabase.Instance != null ? ItemDatabase.Instance.GetName(id) : id;
 
