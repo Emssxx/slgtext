@@ -137,4 +137,9 @@ public class WorldState
     public List<WorldItem> worldItems = new List<WorldItem>();      // 地图上的可互动物品
     public List<ItemStack> sharedStorage = new List<ItemStack>();   // 营地公共仓库物资
     public List<MemoryEntry> eventLog = new List<MemoryEntry>();    // 全局大事记
+
+    // —— 终端机进度（见 ProgressionRules）——
+    public int terminalLevel = 0;                                 // 终端机等级：0=还没建成，1~3=一产~三产
+    public List<string> unlockedTechs = new List<string>();       // 已研究完成的科技 id
+    public List<string> placedUniqueBuilds = new List<string>();  // 已放置的唯一建筑 id（如终端机，防止建第二座）
 }

@@ -113,11 +113,24 @@ public class BuildManager : MonoBehaviour
         _buildMenuUI.AddComponent<CanvasScaler>();
         _buildMenuUI.AddComponent<GraphicRaycaster>();
 
-        // 面板高度根据按钮数量动态计算：标题40 + 每个按钮40
-        int count = buildables != null ? buildables.Length : 0;
-        float panelHeight = 40f + count * 40f;
+        // 1. 按五大类分组（基础→防御→生产→电力→生活），没有建筑的分类不显示。
+        BuildCategory[] order = { BuildCategory.Basic, BuildCategory.Defense, BuildCategory.Production, BuildCategory.Power, BuildCategory.Living };
+        List<BuildCategory> cats = new List<BuildCategory>();
+        List<List<BuildableData>> groups = new List<List<BuildableData>>();
+        foreach (BuildCategory cat in order)
+        {
+            List<BuildableData> g = new List<BuildableData>();
+            if (buildables != null)
+                foreach (BuildableData bd in buildables)
+                    if (bd != null && bd.buildCategory == cat) g.Add(bd);
+            if (g.Count > 0) { cats.Add(cat); groups.Add(g); }
+        }
 
-        // 半透明黑色面板，固定在左上角
+        // 2. 面板高度：标题 + 每个分类小标题26 + 每个按钮40
+        int btnCount = 0;
+        foreach (List<BuildableData> g in groups) btnCount += g.Count;
+        float panelHeight = 44f + cats.Count * 26f + btnCount * 40f;
+
         GameObject panel = new GameObject("Panel");
         panel.transform.SetParent(_buildMenuUI.transform, false);
         Image panelImg = panel.AddComponent<Image>();
@@ -127,19 +140,38 @@ public class BuildManager : MonoBehaviour
         pr.anchoredPosition = new Vector2(20f, -20f);
         pr.sizeDelta = new Vector2(160f, panelHeight);
 
-        // 标题
-        MakeLabel(panel.transform, "建造模式", new Vector2(80f, -18f));
+        MakeLabel(panel.transform, ProgressionRules.L("build_menu_title"), new Vector2(80f, -18f));
 
-        // 从 buildables 数组循环生成按钮，每个按钮对应一个 BuildableData 资产
-        for (int i = 0; i < count; i++)
+        // 3. 逐类生成：分类小标题 + 该类建筑按钮。没解锁的按钮变灰、标出原因，点了在事件栏提示。
+        float y = -40f;
+        for (int c = 0; c < cats.Count; c++)
         {
-            BuildableData bd = buildables[i];
-            if (bd == null) continue;
-            float yPos = -40f - i * 40f; // 第一个按钮在 -40，往下每隔40
-            BuildableData captured = bd;  // 闭包捕获，避免 lambda 引用错误
-            MakeButton(panel.transform, bd.displayName, new Vector2(80f, yPos),
-                () => SelectBuildType(captured));
+            MakeLabel(panel.transform, "— " + ProgressionRules.L("build_cat_" + cats[c].ToString().ToLower()) + " —", new Vector2(80f, y - 2f));
+            y -= 26f;
+            foreach (BuildableData bd in groups[c])
+            {
+                BuildableData captured = bd; // 闭包捕获
+                bool unlocked = ProgressionRules.IsBuildableUnlocked(bd, out _);
+                string label = unlocked ? bd.LocalizedName : bd.LocalizedName + " [" + ProgressionRules.ShortLockReason(bd) + "]";
+                UnityEngine.Events.UnityAction onClick;
+                if (unlocked) onClick = () => SelectBuildType(captured);
+                else onClick = () => ShowLockedReason(captured);
+                MakeButton(panel.transform, label, new Vector2(80f, y - 8f), onClick);
+                if (!unlocked) // 刚生成的按钮是最后一个子物体，改成灰色
+                    panel.transform.GetChild(panel.transform.childCount - 1).GetComponent<Image>().color = new Color(0.25f, 0.25f, 0.25f, 1f);
+                y -= 40f;
+            }
         }
+    }
+
+    // 点了未解锁的建筑：在事件栏告诉玩家为什么还不能建。
+    void ShowLockedReason(BuildableData bd)
+    {
+        ProgressionRules.IsBuildableUnlocked(bd, out string reason);
+        string msg = ProgressionRules.LF("build_locked_msg", bd.LocalizedName, reason);
+        Debug.Log("[BuildManager] " + msg);
+        if (EventLogManager.Instance != null && WorldManager.Instance != null)
+            EventLogManager.Instance.AddEvent(WorldManager.Instance.world.day, msg);
     }
 
     void HideBuildMenu()
@@ -212,6 +244,13 @@ public class BuildManager : MonoBehaviour
             return;
         }
 
+        // 解锁检查：终端机等级/科技不够、或唯一建筑（终端机）已放置 → 不能建
+        if (!ProgressionRules.IsBuildableUnlocked(_selectedData, out _))
+        {
+            ShowLockedReason(_selectedData);
+            return;
+        }
+
         GridManager grid = GridManager.Instance;
 
         // 格子不可建（越界或已占用）
@@ -236,6 +275,7 @@ public class BuildManager : MonoBehaviour
         if (_selectedData.prefab != null)
         {
             previewGO = Instantiate(_selectedData.prefab, grid.CellToWorld(cell), Quaternion.identity);
+            previewGO.SendMessage("OnBuildPlaced", SendMessageOptions.DontRequireReceiver); // 通知：施工中（终端机用）
             // SortingOrder 设为 0，与地图同层；NPC 用 1，保证 NPC 始终显示在建筑上方
             SpriteRenderer psr = previewGO.GetComponent<SpriteRenderer>();
             if (psr != null) psr.sortingOrder = 0;
@@ -257,6 +297,8 @@ public class BuildManager : MonoBehaviour
         });
 
         Debug.Log($"[BuildManager] 排队：{_selectedData.displayName} @ {grid.CellToLabel(cell.x, cell.y)}（队列共 {_buildQueue.Count} 个）");
+        ProgressionRules.NotifyPlaced(_selectedData);           // 唯一建筑记一笔
+        if (_selectedData.uniqueBuild) _selectedData = null;    // 唯一建筑放一次就取消选中
         // 点格子只入队，不派NPC——退出建造模式后才施工
     }
 
@@ -297,7 +339,10 @@ public class BuildManager : MonoBehaviour
 
             // 把半透明预览变成实体（alpha → 1）
             if (task.previewGO != null)
+            {
                 SetSpriteAlpha(task.previewGO, 1f);
+                task.previewGO.SendMessage("OnBuildComplete", SendMessageOptions.DontRequireReceiver); // 通知：施工完成
+            }
 
             // 阻挡移动的建筑（如墙）：挂 NavMeshModifier 标记为 Not Walkable，烘焙后 NPC 绕开
             if (task.blocksMovement && task.previewGO != null)

@@ -29,6 +29,25 @@ public class BuildableData : ScriptableObject
     [Tooltip("建造需要的材料。以后接 craft 系统用，现在先留空。")]
     public MaterialCost[] requiredMaterials;  // 需要的材料（以后用，现在可空）
 
+    [Header("多语言")]
+    [Tooltip("日文显示名（可空：空则显示中文 displayName）。")]
+    public string displayNameJa = "";
+
+    // 按当前语言取显示名（只用于 UI 显示；格子占用记录等逻辑仍用 displayName）。
+    public string LocalizedName =>
+        (LocalizationManager.Instance != null && LocalizationManager.Instance.current == Language.Japanese
+         && !string.IsNullOrEmpty(displayNameJa)) ? displayNameJa : displayName;
+
+    [Header("分类与解锁（AI 终端机）")]
+    [Tooltip("建造菜单里归在哪一类：基础/防御/生产/电力/生活。")]
+    public BuildCategory buildCategory = BuildCategory.Basic;
+    [Tooltip("需要终端机几产才能建：0=不需要终端机（只有终端机本身用0），1=一产，2=二产，3=三产。")]
+    [Range(0, 3)] public int requiredTier = 0;
+    [Tooltip("需要研究的科技 id（空=不需要）。")]
+    public string requiredTechId = "";
+    [Tooltip("唯一建筑（整局只能建一座，如 AI 终端机）。")]
+    public bool uniqueBuild = false;
+
     [Header("功能分类（以后扩展）")]
     [Tooltip("建造物类型，方便以后按类型做逻辑（装饰/储物/工作台/防御…）。")]
     public BuildableCategory category = BuildableCategory.Decoration;

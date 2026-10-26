@@ -15,6 +15,8 @@ public class TerminalClickHandler : MonoBehaviour
     // 鼠标点击终端机时触发（需要 Collider2D，prefab 上已有 BoxCollider2D）
     void OnMouseDown()
     {
+        // 打开终端机面板（升级 / 合成 / 科技）
+        if (TerminalPanelUI.Instance != null) TerminalPanelUI.Instance.Open();
         if (EventLogManager.Instance == null) return;
         int day = WorldManager.Instance != null ? WorldManager.Instance.world.day : 1;
         // 把状态写入事件日志，文字来自 TerminalController.GetStatusInfo()

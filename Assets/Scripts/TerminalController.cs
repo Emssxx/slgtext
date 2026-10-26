@@ -18,6 +18,10 @@ public class TerminalController : MonoBehaviour
     public string terminalName = "AI终端机"; // 显示名
     public bool isActive = true;             // 是否激活（MVP 默认开机；以后可做"未激活→激活"的开局解锁）
 
+    [Header("建造状态")]
+    [Tooltip("场景里预先摆好的终端机保持勾选；由建造系统放下的会自动变为未建成，施工完成才算建成。")]
+    public bool isBuilt = true;
+
     // 挂在这个终端机上的所有功能模块（以后扩展用，自动收集）。
     private TerminalModule[] _modules;
 
@@ -43,7 +47,22 @@ public class TerminalController : MonoBehaviour
     // MVP 里默认 true；以后可做"没造终端机时受限、造了才解锁"。
     public bool IsOnline()
     {
-        return isActive;
+        return isActive && isBuilt; // 建成 + 激活才算在线（施工中不在线，迷雾/任务都不生效）
+    }
+
+    // 建造系统放下预览时调用：施工完成前不算建成。
+    void OnBuildPlaced() { isBuilt = false; }
+
+    // 施工完成时调用：终端机上线，营地进入"一产"。
+    void OnBuildComplete()
+    {
+        isBuilt = true;
+        if (WorldManager.Instance == null) return;
+        WorldState w = WorldManager.Instance.world;
+        if (w.terminalLevel < 1) w.terminalLevel = 1;
+        string msg = ProgressionRules.LF("terminal_built", ProgressionRules.TierLabel(w.terminalLevel));
+        if (EventLogManager.Instance != null) EventLogManager.Instance.AddEvent(w.day, msg);
+        w.eventLog.Add(new MemoryEntry { day = w.day, content = msg }); // 让 AI 导演/NPC 知道
     }
 
     // 预留：以后终端机要显示信息（地图情报、资源概览等）时，从这里走。
