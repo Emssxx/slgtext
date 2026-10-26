@@ -108,10 +108,8 @@ public class AIDirector : MonoBehaviour
         {
             EventLogManager.Instance.AddEvent(world.day, eventText);
             world.eventLog.Add(new MemoryEntry { day = world.day, content = eventText });
-
-            // 事件发生后，60% 概率点名一个 NPC 针对事件反应。
-            if (UnityEngine.Random.value < 0.6f)
-                MakeNpcReactToEvent(eventText);
+            // （旧版在这里会随机点名一个 NPC 用 LLM 复述/评论事件——信息重复又容易说错，已删除。
+            //   NPC 仍然"知道"发生了什么：事件写进了 eventLog，和他聊天时会出现在提示词的"最近发生的事"里。）
         }
         else
         {
@@ -131,29 +129,6 @@ public class AIDirector : MonoBehaviour
         // 把事件类型交给执行器，触发对应的客观后果。
         if (EventExecutor.Instance != null && !string.IsNullOrEmpty(eventType))
             EventExecutor.Instance.ExecuteEvent(eventType);
-    }
-
-    // 点名一个清醒 NPC 针对事件反应。
-    void MakeNpcReactToEvent(string eventDesc)
-    {
-        WorldState world = WorldManager.Instance.world;
-        var candidates = new System.Collections.Generic.List<NpcData>();
-        foreach (NpcData npc in world.npcs)
-            if (npc.health > 0f && !npc.isBroken) candidates.Add(npc);
-        if (candidates.Count == 0) return;
-
-        NpcData chosen = candidates[UnityEngine.Random.Range(0, candidates.Count)];
-        NpcAgent agent = FindObjectOfType<NpcAgent>();
-        if (agent != null)
-        {
-            // 按当前界面语言选 reason 的语言，减少把 AI 往中文带
-            bool isJp = LocalizationManager.Instance != null
-                        && LocalizationManager.Instance.current == Language.Japanese;
-            string reason = isJp
-                ? "あなたは今、この出来事を経験した：" + eventDesc + "。それに対して、この人物らしい即座の反応をしてください。"
-                : "你刚刚经历了这件事：" + eventDesc + "。请针对它做出你这个角色会有的即时反应。";
-            agent.MakeNpcSpeak(chosen, reason);
-        }
     }
 
     // 解析 {"type":"...","event":"..."}，返回 EventData。

@@ -61,6 +61,25 @@ public static class CommandParser
     // 查某地点的坐标。找不到返回 false。
     public static bool TryGetLocationPos(string locName, WorldState world, out float x, out float y)
     {
+        // 特殊记号（指令系统 / AI 词库用）：@camp 营地、@storage 仓库（目前就在营地）、@terminal 终端机、@npc:id 某个 NPC 现在的位置
+        if (!string.IsNullOrEmpty(locName) && locName[0] == '@')
+        {
+            Vector3 p = Vector3.zero;
+            bool ok = false;
+            if (locName == "@camp" || locName == "@storage") { p = NpcNav.CampCenter(Vector3.zero); ok = true; }
+            else if (locName == "@terminal")
+            {
+                if (TerminalController.Instance != null) { p = TerminalController.Instance.transform.position; ok = true; }
+            }
+            else if (locName.StartsWith("@npc:"))
+            {
+                NpcMover m = NpcView.GetMover(locName.Substring(5));
+                if (m != null) { p = m.transform.position; ok = true; }
+            }
+            x = p.x; y = p.y;
+            return ok;
+        }
+
         // 第一优先：按地点名匹配 world.locations（原有逻辑保留）
         foreach (LocationData loc in world.locations)
         {

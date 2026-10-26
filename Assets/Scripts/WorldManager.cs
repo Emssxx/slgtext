@@ -28,6 +28,7 @@ public class WorldManager : MonoBehaviour
         FindFirstObjectByType<NpcSpawner>()?.SpawnAll(); // 1.5 按 world.npcs 数据自动生成场景 NPC
         RegisterAllMarkers();                            // 2. 登记场景里的地点/物品标记
         RelationshipManager.InitAllRelationships(world); // 3. 初始化 NPC 间关系
+        NpcMemory.BeginSession(world);                   // 4. 建本局的 NPC 档案文件夹（名册、AI 词库、每人的档案和聊天记录）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
     }
 

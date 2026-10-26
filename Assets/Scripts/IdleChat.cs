@@ -191,6 +191,9 @@ public static class IdleChatRules
             log = Loc("idle_log_chat", a.npcName, b.npcName, topicName);
         }
         if (LogManager.Instance != null) LogManager.Instance.AddLog(a.npcName, log, a.id);
+
+        // 实际说过的台词记进双方的档案（以后和玩家聊天时能想起来）。
+        NpcMemory.AddIdleChat(s);
     }
 
     // 聊完后多久才会再聊（外向的人短，内向的人长）。

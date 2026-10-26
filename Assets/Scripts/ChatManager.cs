@@ -9,8 +9,14 @@ public class ChatManager : MonoBehaviour
 {
     public static ChatManager Instance { get; private set; }
 
-    // 供外部（如 BuildModeToggle）查询输入栏是否聚焦，用 isFocused 而不是 EventSystem 选中状态
-    public static bool InputFocused => Instance != null && Instance.inputField != null && Instance.inputField.isFocused;
+    // 供外部（如 BuildModeToggle）查询"玩家是否正在打字"，用 isFocused 而不是 EventSystem 选中状态。
+    // 新版的 NPC 专属对话窗口（NpcChatWindow）在打字时也算，快捷键会被屏蔽。
+    public static bool InputFocused =>
+        (Instance != null && Instance.inputField != null && Instance.inputField.isFocused) || NpcChatWindow.InputFocused;
+
+    [Header("旧版共用聊天栏")]
+    [Tooltip("新版改为每个 NPC 一个专属对话窗口（NpcChatWindow）。勾选时隐藏这里的旧聊天栏，只保留事件和日志。")]
+    public bool hideLegacyChat = true;
 
     [Header("界面引用（Inspector 拖进来）")]
     public TMP_InputField inputField;      // 输入框
@@ -44,6 +50,15 @@ public class ChatManager : MonoBehaviour
         sendButton.onClick.AddListener(OnSend);
         inputField.onSubmit.AddListener(OnInputSubmit);
         RefreshLocalizedTexts(); // 启动时先按当前语言显示一次
+        if (hideLegacyChat) HideLegacySection();
+    }
+
+    // 隐藏旧的共用聊天栏（输入框所在的 ChatSection），事件栏和日志栏照常显示。
+    void HideLegacySection()
+    {
+        Transform t = inputField != null ? inputField.transform : null;
+        while (t != null && t.name != "ChatSection") t = t.parent;
+        if (t != null) t.gameObject.SetActive(false);
     }
 
     // 订阅语言切换：语言一变就刷新输入框占位文字和发送按钮文字。
@@ -72,6 +87,7 @@ public class ChatManager : MonoBehaviour
 
     void Update()
     {
+        if (hideLegacyChat) return; // 旧聊天栏已隐藏：Y / Esc 交给 NpcChatWindow
         if (Keyboard.current == null || inputField == null) return;
 
         // 输入栏聚焦中，按 Esc → 释放聚焦（退出对话模式）

@@ -39,7 +39,7 @@ public class GridClickInput : MonoBehaviour
         // 点在 UI 上时不处理，让按钮/输入框正常响应
         if (IsPointerOverUI()) return;
 
-        if (GridManager.Instance == null || chatManager == null) return;
+        if (GridManager.Instance == null) return;
 
         // 屏幕坐标 → 世界坐标（2D 正交相机：z 用相机距离修正）
         Vector2 mouseScreen = Mouse.current.position.ReadValue();
@@ -60,6 +60,12 @@ public class GridClickInput : MonoBehaviour
 
         // 格子坐标 → 编号（如 "G7"）
         string label = GridManager.Instance.CellToLabel(cell.x, cell.y);
+
+        // NPC 专属对话窗口开着：插到它的输入栏（"去 G7" 这类指令）
+        if (NpcChatWindow.Instance != null && NpcChatWindow.Instance.AppendToInput(label)) return;
+
+        // 旧版共用聊天栏（已隐藏时不处理）
+        if (chatManager == null || chatManager.inputField == null || !chatManager.inputField.gameObject.activeInHierarchy) return;
 
         // 追加到输入框：有内容则加空格分隔，没有就直接写
         string current = chatManager.inputField.text;

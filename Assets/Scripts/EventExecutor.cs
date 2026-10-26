@@ -145,7 +145,7 @@ public class EventExecutor : MonoBehaviour
 
     // ============ 低语与幻象（简化版：点名NPC说一句受幻象影响的话）============
     // 后果：营地里有人听见低语/看见死人。简化版 = 点名一个NPC（优先挑正在幻觉的），
-    //       让他说一句受幻象影响的话（复用 NpcAgent.MakeNpcSpeak，由LLM生成）。
+    //       让他头顶冒出一句受幻象影响的话（本地台词，不调 LLM；也记进他的对话记录）。
     //   完整版（可对话的先遣队员/死者幻象返场）留待以后，见事件篇。
     void DoWhisperVision()
     {
@@ -170,19 +170,9 @@ public class EventExecutor : MonoBehaviour
         //    以后有 SoundManager 时，在这里播放低语 AudioClip。
         // if (SoundManager.Instance != null) SoundManager.Instance.Play("whisper");
 
-        // 3. 让这个NPC说一句受幻象影响的话（LLM生成，符合其人格与当前精神状态）。
-        NpcAgent agent = FindObjectOfType<NpcAgent>();
-        if (agent != null)
-        {
-            string reason = L(
-                "亚空间的低语在你耳边响起，你仿佛听见了不存在的声音，" +
-                "或瞥见了本不该在这里的人影。请以你这个角色的状态，" +
-                "说出你此刻的反应（简短、不安、符合你的精神状态）。",
-                "亜空間の囁きが耳元で響いた。存在しない声を聞いた気がする、" +
-                "あるいはここにいるはずのない人影を見た気がする。今のあなたの状態のまま、" +
-                "この瞬間の反応を言うこと（短く、不安げに、精神状態に合わせて）。");
-            agent.MakeNpcSpeak(chosen, reason);
-        }
+        // 3. 让这个NPC头顶冒出一句受幻象影响的话（本地台词，不调 LLM），同时记进他的对话记录。
+        string[] lines = LanguageGuard.IsJp ? WhisperLinesJa : WhisperLinesZh;
+        NpcChat.Post(chosen.id, ChatRole.Npc, lines[Random.Range(0, lines.Length)], true);
 
         // 4. 记录事件日志。
         if (EventLogManager.Instance != null)
@@ -190,6 +180,24 @@ public class EventExecutor : MonoBehaviour
                 "营地里，有人开始听见不存在的低语……",
                 "拠点で、誰かが「あるはずのない囁き」を聞きはじめた……"));
     }
+
+    // 低语与幻象时 NPC 说的话（本地台词）。
+    static readonly string[] WhisperLinesZh =
+    {
+        "……你们听见了吗？有人在叫我的名字。",
+        "刚才那边……站着一个人。现在不见了。",
+        "别出声……它就在雾里看着我们。",
+        "我好像听见我妈在喊我……不可能的。",
+        "墙后面有人在敲……一下、两下……",
+    };
+    static readonly string[] WhisperLinesJa =
+    {
+        "……聞こえたか？誰かが私の名前を呼んでる。",
+        "さっき、あそこに……人が立ってた。もういない。",
+        "静かに……霧の中から、あいつがこっちを見てる。",
+        "母さんが呼ぶ声がした気がする……そんなはずないのに。",
+        "壁の向こうで誰かが叩いてる……一回、二回……",
+    };
 
     // 找一个随机的可站立格子，输出其世界坐标。找到返回true。
     bool TryGetRandomStandableCell(out Vector3 worldPos)

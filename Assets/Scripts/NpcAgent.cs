@@ -1,164 +1,154 @@
 using UnityEngine;
 using System;
+using System.Collections.Generic;
+using System.Text;
 using Newtonsoft.Json;
 
-// NPC 代理（新架构版）：只负责"表达层"——把玩家的话变成 NPC 的对话/行动反应。
-// 【职责边界】
-//   ✅ 负责：调 LLM 生成对话、解析玩家指令成任务、信任度听从判定。
-//   ❌ 不负责：NPC 行为决策（那是 NpcDecisionRules 状态机的事，纯规则，不走 LLM）。
-// 玩家说话时的处理流程：
-//   崩解拦截 → AI 解析指令是否含任务 → 有任务则按信任度判定听不听 → 听则交任务队列；
-//   无任务（纯聊天）则正常生成对话。
+// NPC 代理（新版）：玩家和"某一个" NPC 的一对一对话 + 指令。
+//
+// 【分工】扬长避短——7B 小模型只负责"演好眼前这一句"，其余全交给代码：
+//   代码：点名（NpcRoster）→ 认指令（NpcCommands + GameLexicon 词库）→ 信任判定 → 排任务执行；
+//         从这个 NPC 的档案（NpcMemory，最近 200 条）里挑"最近几句"和"跟这次话题相关的旧记忆"；
+//         从词库里挑出玩家提到的东西的说明。
+//   LLM ：只扮演这一个 NPC，按他的人物卡、记忆和此刻的处境说一两句话（也负责给"接受/做不到"的指令配音）。
+//
+// 每个 NPC 有自己的对话窗口（NpcChatWindow）和自己的聊天记录，不再共用一个聊天栏、也不会串台。
 public class NpcAgent : MonoBehaviour
 {
     [Header("引用与设置")]
-    public ChatManager chatManager;  // 聊天框（Inspector 拖入）
-    public string npcId = "npc_01";  // 当前对话目标 NPC 的 id
+    public ChatManager chatManager;  // 旧版共用聊天栏（保留引用，新版不再使用）
+    public string npcId = "npc_01";  // 最近一次对话的 NPC
+
+    const int RecentLines = 8;  // 提示词里放最近几句对话
+    const int RecallLines = 4;  // 提示词里放几条相关的旧记忆
 
     void Start()
     {
-        if (chatManager != null)
-            chatManager.OnPlayerMessage += HandlePlayerMessage; // 订阅玩家发消息
-        else
-            Debug.LogError("NpcAgent 没有设置 chatManager 引用！");
+        NpcChatWindow.Ensure().OnPlayerMessage += HandlePlayerMessage;
     }
 
     void OnDestroy()
     {
-        if (chatManager != null)
-            chatManager.OnPlayerMessage -= HandlePlayerMessage;
+        if (NpcChatWindow.Instance != null) NpcChatWindow.Instance.OnPlayerMessage -= HandlePlayerMessage;
     }
 
-    // 切换当前对话的 NPC（UI 点卡片/点场景NPC时调用）。
+    // 打开某个 NPC 的对话窗口（点场景里的 NPC、点状态卡时调用）。
     public void SwitchTarget(string newNpcId)
     {
-        NpcData target = WorldManager.Instance.GetNpcById(newNpcId);
-
-        // 死亡拦截：不能切换到已死亡的 NPC 对话。
-        if (target != null && target.IsDead)
-        {
-            // 说话人和提示语都走翻译表（GetFormat 把 NPC 名字填进 {0}）
-            LocalizationManager loc = LocalizationManager.Instance;
-            chatManager.AddMessage(
-                loc != null ? loc.Get("system_speaker") : "系统",
-                loc != null ? loc.GetFormat("npc_dead_cannot_talk", target.npcName) : $"{target.npcName} 已经死亡，无法与其对话。",
-                Color.gray);
-            return;
-        }
-
+        if (string.IsNullOrEmpty(newNpcId)) return;
         npcId = newNpcId;
-        string name = target != null ? target.npcName : newNpcId;
-        chatManager.AddMessage(
-            LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("system_speaker") : "系统",
-            // 提示语走翻译表，按界面语言显示（GetFormat 把 NPC 名字填进 {0}）
-            LocalizationManager.Instance != null
-                ? LocalizationManager.Instance.GetFormat("now_talking_with", name)
-                : "你现在正在和【" + name + "】对话。",
-            Color.gray);
+        NpcChatWindow.Ensure().Open(newNpcId);
     }
 
-    // ============ 玩家说话入口 ============
-    void HandlePlayerMessage(string playerText)
+    // ============ 玩家在某个 NPC 的窗口里说了一句话 ============
+    void HandlePlayerMessage(string id, string text)
     {
-        NpcData npc = WorldManager.Instance.GetNpcById(npcId);
-        if (npc == null) { Debug.LogError("找不到 NPC，id = " + npcId); return; }
-
-        // 死亡拦截：死了的 NPC 不回应（优先级比崩解拦截高）。
-        if (npc.IsDead)
-        {
-            var loc0 = LocalizationManager.Instance;
-            chatManager.AddMessage(loc0 != null ? loc0.Get("system_speaker") : "系统",
-                loc0 != null ? loc0.GetFormat("npc_dead_cannot_talk", npc.npcName) : $"{npc.npcName} 已经死亡，无法回应。", Color.gray);
-            return;
-        }
-
-        // 玩家在和这个 NPC 说话：让它停下闲逛/闲聊，站着听一会儿（正在执行指令时不受影响）。
-        NpcIdleBrain.InterruptFor(npc.id, 8f);
-
-        // 崩解拦截：崩解的 NPC 不调 LLM，直接说代码生成的疯话。
-        if (npc.isBroken)
-        {
-            string crazy = BrokenSpeech.Generate(npc);
-            chatManager.AddMessage(npc.npcName, Prefix(npc) + crazy, chatManager.npcColor);
-            return;
-        }
-
-        // 先用 AI 把玩家的话解析成任务（看是不是行动指令）。
-        string parsePrompt = TaskPlanner.BuildParsePrompt(WorldManager.Instance.world);
-        AIClientHub.Instance.Send(
-            parsePrompt, playerText,
-            (rawJson) => OnTaskPlanReply(rawJson, npc, playerText),
-            true);
-    }
-
-    // AI 解析指令的结果回来。
-    void OnTaskPlanReply(string rawJson, NpcData npc, string playerText)
-    {
-        TaskPlan plan = TaskPlanner.ParsePlan(rawJson);
-
-        // 解析出了任务 → 这是行动指令，要走"信任度判定 + 任务执行"。
-        if (plan != null && plan.tasks != null && plan.tasks.Count > 0)
-        {
-            // 信任度判定：这个 NPC 这次听不听玩家的指令。
-            if (!TrustRules.WillObey(npc))
-            {
-                chatManager.AddMessage(npc.npcName, Prefix(npc) + GetRefuseLine(npc), chatManager.npcColor);
-                return;
-            }
-
-            // 听 → 交给任务队列执行。
-            NpcTaskRunner runner = NpcView.GetMover(npc.id)?.GetComponent<NpcTaskRunner>();
-            if (runner != null)
-            {
-                runner.RunTasks(plan.tasks);
-                string startAction = LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("start_action") : "开始行动";
-                string say = string.IsNullOrEmpty(plan.reply) ? "（" + startAction + "）" : plan.reply;
-                chatManager.AddMessage(npc.npcName, Prefix(npc) + say, chatManager.npcColor);
-                return;
-            }
-        }
-
-        // 没有任务（纯聊天）→ 正常生成对话。
-        string systemPrompt = BuildSystemPrompt(npc);
-        AIClientHub.Instance.Send(systemPrompt, playerText,
-            (reply) => OnNpcReply(reply, npc.id), true);
-    }
-
-    // ============ 让某个 NPC 主动开口（危急时、导演点名时调用）============
-    public void MakeNpcSpeak(NpcData npc, string reason)
-    {
+        if (WorldManager.Instance == null) return;
+        WorldState world = WorldManager.Instance.world;
+        NpcData npc = WorldManager.Instance.GetNpcById(id);
         if (npc == null) return;
 
-        // 死亡拦截：死了的 NPC 不主动说话（优先级比崩解拦截高）。
-        if (npc.IsDead) return;
+        // 1. 点名：一开口就在叫某人（"王芳，去仓库" / "让王芳去仓库"）→ 由那个人来执行，窗口也切过去。
+        string body = text;
+        string called = NpcRoster.FindAddressee(text, out string rest);
+        if (called != null)
+        {
+            if (!string.IsNullOrEmpty(rest)) body = rest;
+            if (called != id)
+            {
+                NpcData other = WorldManager.Instance.GetNpcById(called);
+                if (other != null)
+                {
+                    NpcChat.Post(id, ChatRole.System, LF("chatwin_rerouted", other.npcName));
+                    id = called;
+                    npc = other;
+                    NpcChatWindow.Ensure().Open(id);
+                }
+            }
+        }
+        npcId = id;
+        NpcChat.Post(id, ChatRole.Player, text);
 
-        // 崩解拦截
+        // 2. 死亡 / 崩解拦截
+        if (npc.IsDead)
+        {
+            NpcChat.Post(id, ChatRole.System, LF("npc_dead_cannot_talk", npc.npcName));
+            return;
+        }
+        NpcIdleBrain.InterruptFor(id, 8f); // 停下闲逛/闲聊，站着听你说（执行指令时不受影响）
         if (npc.isBroken)
         {
-            string crazy = BrokenSpeech.Generate(npc);
-            chatManager.AddMessage(npc.npcName, Prefix(npc) + crazy, chatManager.npcColor);
+            NpcChat.Post(id, ChatRole.Npc, Prefix(npc) + BrokenSpeech.Generate(npc), true);
             return;
         }
 
-        string systemPrompt = BuildSystemPrompt(npc);
-        string userPrompt = LanguageGuard.Pick(
-            "（这一刻没有玩家对你说话。你出于以下原因，主动开口说点什么：" + reason + "。" +
-            "请用你的口吻说一句自言自语或对同伴的话。）",
-            "（今、誰もあなたに話しかけていない。次の理由で、あなたは自分から何かを口にする：" + reason + "。" +
-            "あなたの口調で、独り言か仲間への一言を言うこと。）");
+        // 3. 是指令吗？（代码用词库 + 名册 + 动词表认，认不出就是普通聊天）
+        NpcCommand cmd = NpcCommands.Parse(body, npc, world);
+        if (cmd != null) { HandleCommand(npc, cmd, body); return; }
 
-        AIClientHub.Instance.Send(systemPrompt, userPrompt,
-            (reply) => OnNpcReply(reply, npc.id), true);
+        // 4. 普通聊天
+        RequestReply(npc, body, null);
     }
 
-    // ============ 构建对话提示词 ============
-    // 注意：新架构里 LLM 只生成对话，不再决定 action/reason。
-    string BuildSystemPrompt(NpcData npc)
+    // ============ 指令 ============
+    void HandleCommand(NpcData npc, NpcCommand cmd, string playerText)
+    {
+        WorldState world = WorldManager.Instance.world;
+
+        // 做不到（仓库没有、地点不对、对象已死…）：不执行，让 NPC 用自己的口吻说明原因。
+        if (!NpcCommands.Plan(npc, cmd, world, out List<NpcTask> tasks, out string order, out string fail))
+        {
+            RequestReply(npc, playerText, LF("sit_order_fail", order, fail));
+            return;
+        }
+
+        // 信任判定：这次听不听你的（规则掷骰，不调 LLM）。
+        if (!TrustRules.WillObey(npc))
+        {
+            NpcChat.Post(npc.id, ChatRole.Npc, Prefix(npc) + GetRefuseLine(npc), true);
+            return;
+        }
+
+        NpcMover mover = NpcView.GetMover(npc.id);
+        NpcTaskRunner runner = mover != null ? mover.GetComponent<NpcTaskRunner>() : null;
+        if (runner == null)
+        {
+            RequestReply(npc, playerText, LF("sit_order_fail", order, L("fail_place_unknown")));
+            return;
+        }
+
+        // 新指令覆盖旧指令：先停下手上的，再开始新的（动作立刻开始，台词随后由 LLM 配上）。
+        runner.CancelAll();
+        runner.RunTasks(tasks);
+        NpcChat.Post(npc.id, ChatRole.System, LF("chatwin_order_started", npc.npcName, order));
+        RequestReply(npc, playerText, LF("sit_order_ok", order));
+    }
+
+    // ============ 让 LLM 以这个 NPC 的身份说一句 ============
+    // situation：此刻的特殊情况（接受了指令 / 做不到），没有就传 null。
+    void RequestReply(NpcData npc, string playerText, string situation)
+    {
+        string id = npc.id;
+        NpcChatWindow.Ensure().SetThinking(id, true);
+        string systemPrompt = BuildSystemPrompt(npc, playerText, situation);
+
+        AIClientHub.Instance.Send(systemPrompt, playerText, raw =>
+        {
+            if (NpcChatWindow.Instance != null) NpcChatWindow.Instance.SetThinking(id, false);
+            NpcData n = WorldManager.Instance != null ? WorldManager.Instance.GetNpcById(id) : null;
+            string line = DialogueCleaner.Clean(ParseDialogue(raw), n != null ? n.npcName : "");
+            if (string.IsNullOrEmpty(line)) line = "……";
+            NpcChat.Post(id, ChatRole.Npc, (n != null ? Prefix(n) : "") + line, true);
+        }, true);
+    }
+
+    // ============ 提示词：一个 NPC 的完整"剧本" ============
+    // 整段按当前界面语言写；人物卡 + 处境 + 词条说明 + 相关回忆 + 最近对话 + 此刻情况 + 精神状态。
+    string BuildSystemPrompt(NpcData npc, string playerText, string situation)
     {
         WorldState world = WorldManager.Instance.world;
         bool jp = LanguageGuard.IsJp;
 
-        // 把结构化性格翻译成文字（喂 AI）。
         Personality p = npc.personality;
         string personalityDesc = jp
             ? $"勇敢{p.bravery}／利他{p.altruism}／慎重{p.caution}／社交{p.sociability}／楽観{p.optimism}（0〜100、高いほど強い）"
@@ -166,83 +156,116 @@ public class NpcAgent : MonoBehaviour
         string traitDesc = npc.traits != null ? string.Join("、", npc.traits) : "";
         string gender = jp ? (npc.gender == "男" ? "男性" : "女性") : npc.gender;
 
-        // 精神状态注入（清醒时为空串，已按当前语言）。
-        string mental = MentalState.GetInjection(npc, world);
-
-        // 世界概况：当前语言的简短文字（代替原来整份世界 JSON，防止中文混入和上下文溢出）。
         string context = PromptContext.WorldSummary(world, npc);
-
+        string hints = GameLexicon.Hints(playerText + " " + situation);
+        string recent = FormatRecent(npc, jp);
+        string recalled = FormatRecalled(npc, playerText, jp);
+        string mental = MentalState.GetInjection(npc, world);
         string langRule = LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "";
 
-        // 拼接。世界观 + 人物卡 + 概况 + 精神注入 + 输出格式 + 语言指令（语言指令放最后）。
-        // 整段提示词都用当前界面语言写——这是让小模型不说错语言的根本办法。
+        StringBuilder sb = new StringBuilder();
         if (jp)
         {
-            return
-                WorldLore.Background + "\n\n" +
-                WorldLore.WorldLaws + "\n\n" +
-                WorldLore.PlayerIdentity + "\n\n" +
-                WorldLore.SpeakingRules + "\n\n" +
-                WorldLore.NpcMood + "\n\n" +
-                "あなたは以下の人物そのものであり、本当に亜空間の中にいる。この人物として考え、話すこと。\n" +
-                "【人物カード】\n" +
-                "- 名前：" + npc.npcName + "（" + gender + "）\n" +
-                "- 職業：" + npc.profession + "\n" +
-                "- 性格：" + traitDesc + "\n" +
-                "- 性格の数値：" + personalityDesc + "\n" +
-                "- 価値観：" + npc.values + "\n" +
-                "- 話し方：" + npc.speakingStyle + "（台詞は必ずこの話し方に合わせること）\n" +
-                "- 経歴：" + npc.background + "\n" +
-                "- 今の目標：" + npc.currentGoal + "\n\n" +
-                context + "\n" +
-                mental + "\n\n" +
-                "【出力形式】JSONオブジェクトを1つだけ出力し、それ以外は何も書かないこと：\n" +
-                "{\n" +
-                "  \"dialogue\": \"あなたの話し方で、実際に口に出す台詞\"\n" +
-                "}" +
-                "\n\n" + langRule;
+            sb.AppendLine("あなたは以下の人物そのものであり、本当に亜空間の中にいる。この人物として考え、話すこと。");
+            sb.AppendLine("【人物カード】");
+            sb.AppendLine("- 名前：" + npc.npcName + "（" + gender + "）");
+            sb.AppendLine("- 職業：" + npc.profession);
+            sb.AppendLine("- 性格：" + traitDesc);
+            sb.AppendLine("- 性格の数値：" + personalityDesc);
+            sb.AppendLine("- 価値観：" + npc.values);
+            sb.AppendLine("- 話し方：" + npc.speakingStyle + "（台詞は必ずこの話し方に合わせること）");
+            sb.AppendLine("- 経歴：" + npc.background);
+            sb.AppendLine("- 今の目標：" + npc.currentGoal);
+            sb.AppendLine("- 「あの声」への信頼度：" + Mathf.RoundToInt(npc.playerTrust) + "/100");
+            sb.AppendLine();
+            sb.AppendLine(WorldLore.Background);
+            sb.AppendLine();
+            sb.AppendLine(WorldLore.PlayerIdentity);
+            sb.AppendLine();
+            sb.AppendLine(WorldLore.SpeakingRules);
+            sb.AppendLine();
+            sb.Append(context);
+            if (hints.Length > 0) { sb.AppendLine("【話に出てきた物の説明】"); sb.Append(hints); }
+            if (recalled.Length > 0) { sb.AppendLine("【あなたが思い出したこと】"); sb.Append(recalled); }
+            if (recent.Length > 0) { sb.AppendLine("【最近の会話】"); sb.Append(recent); }
+            if (!string.IsNullOrEmpty(situation)) { sb.AppendLine("【今この瞬間】"); sb.AppendLine(situation); }
+            sb.AppendLine(mental);
+            sb.AppendLine();
+            sb.AppendLine("【出力形式】JSONオブジェクトを1つだけ出力し、それ以外は何も書かないこと：");
+            sb.AppendLine("{\"dialogue\": \"あなたの話し方で、実際に口に出す台詞\"}");
+            sb.AppendLine("台詞は1〜2文、短く口語的に。「あの声」が今言ったことにそのまま答えること。前に言ったことを繰り返さない。不安は日常の言葉に自然ににじませ、毎回「怖い」と叫ばない。");
         }
-
-        return
-            WorldLore.Background + "\n\n" +
-            WorldLore.WorldLaws + "\n\n" +
-            WorldLore.PlayerIdentity + "\n\n" +
-            WorldLore.SpeakingRules + "\n\n" +
-            WorldLore.NpcMood + "\n\n" +
-            "你就是下面这个人，你真实地身处亚空间中。请完全以这个人的身份思考和说话。\n" +
-            "【人物卡】\n" +
-            "- 名字：" + npc.npcName + "（" + gender + "）\n" +
-            "- 职业：" + npc.profession + "\n" +
-            "- 性格词条：" + traitDesc + "\n" +
-            "- 性格维度：" + personalityDesc + "\n" +
-            "- 价值观：" + npc.values + "\n" +
-            "- 说话风格：" + npc.speakingStyle + "（你的对话必须符合这个风格）\n" +
-            "- 背景：" + npc.background + "\n" +
-            "- 当前目标：" + npc.currentGoal + "\n\n" +
-            context + "\n" +
-            mental + "\n\n" +
-            "【输出要求】只输出一个 JSON 对象，不要任何多余文字：\n" +
-            "{\n" +
-            "  \"dialogue\": \"符合你说话风格的话\"\n" +
-            "}" +
-            "\n\n" + langRule;
+        else
+        {
+            sb.AppendLine("你就是下面这个人，你真实地身处亚空间中。请完全以这个人的身份思考和说话。");
+            sb.AppendLine("【人物卡】");
+            sb.AppendLine("- 名字：" + npc.npcName + "（" + gender + "）");
+            sb.AppendLine("- 职业：" + npc.profession);
+            sb.AppendLine("- 性格词条：" + traitDesc);
+            sb.AppendLine("- 性格维度：" + personalityDesc);
+            sb.AppendLine("- 价值观：" + npc.values);
+            sb.AppendLine("- 说话风格：" + npc.speakingStyle + "（你的对话必须符合这个风格）");
+            sb.AppendLine("- 背景：" + npc.background);
+            sb.AppendLine("- 当前目标：" + npc.currentGoal);
+            sb.AppendLine("- 对「那个声音」的信任度：" + Mathf.RoundToInt(npc.playerTrust) + "/100");
+            sb.AppendLine();
+            sb.AppendLine(WorldLore.Background);
+            sb.AppendLine();
+            sb.AppendLine(WorldLore.PlayerIdentity);
+            sb.AppendLine();
+            sb.AppendLine(WorldLore.SpeakingRules);
+            sb.AppendLine();
+            sb.Append(context);
+            if (hints.Length > 0) { sb.AppendLine("【话里提到的东西】"); sb.Append(hints); }
+            if (recalled.Length > 0) { sb.AppendLine("【你想起来的事】"); sb.Append(recalled); }
+            if (recent.Length > 0) { sb.AppendLine("【最近的对话】"); sb.Append(recent); }
+            if (!string.IsNullOrEmpty(situation)) { sb.AppendLine("【此刻】"); sb.AppendLine(situation); }
+            sb.AppendLine(mental);
+            sb.AppendLine();
+            sb.AppendLine("【输出要求】只输出一个 JSON 对象，不要任何多余文字：");
+            sb.AppendLine("{\"dialogue\": \"符合你说话风格、真正说出口的话\"}");
+            sb.AppendLine("只说一到两句，口语、简短。直接回应「那个声音」刚才的话，不要重复你之前说过的话。处境的不安自然地渗进话里，不要每句都喊害怕。");
+        }
+        sb.AppendLine();
+        sb.Append(langRule);
+        return sb.ToString();
     }
 
-    // ============ AI 对话回复处理 ============
-    void OnNpcReply(string rawJson, string speakerId)
+    // 最近的对话（和玩家的，也包括刚和同伴聊过的），不含刚说的这一句（它会作为用户输入单独给）。
+    string FormatRecent(NpcData npc, bool jp)
     {
-        string dialogue = ParseDialogue(rawJson);
+        List<ChatEntry> list = NpcMemory.Recent(npc.id, RecentLines + 1);
+        if (list.Count > 0 && list[list.Count - 1].Role == ChatRole.Player) list.RemoveAt(list.Count - 1);
+        StringBuilder sb = new StringBuilder();
+        foreach (ChatEntry e in list) sb.AppendLine(Line(e, jp));
+        return sb.ToString();
+    }
 
-        NpcData npc = WorldManager.Instance.GetNpcById(speakerId);
-        string speaker = npc != null ? npc.npcName : "NPC";
+    // 从更早的记录里，挑出和这句话相关的回忆。
+    string FormatRecalled(NpcData npc, string playerText, bool jp)
+    {
+        List<ChatEntry> list = NpcMemory.Recall(npc.id, playerText, RecallLines, RecentLines + 4);
+        StringBuilder sb = new StringBuilder();
+        foreach (ChatEntry e in list)
+            sb.AppendLine((jp ? $"・{e.day}日目　" : $"・第{e.day}天　") + Line(e, jp));
+        return sb.ToString();
+    }
 
-        // 精神状态前缀（失神/幻觉的提示）。
-        string prefix = npc != null ? Prefix(npc) : "";
-
-        // 清洗对话（去自报名字、出戏称呼等）。
-        string cleaned = DialogueCleaner.Clean(dialogue, npc != null ? npc.npcName : "");
-
-        chatManager.AddMessage(speaker, prefix + cleaned, chatManager.npcColor);
+    // 一条记录 → 提示词里的一行（"那个声音：…" / "你：…" / "王芳（对你）：…"）。
+    static string Line(ChatEntry e, bool jp)
+    {
+        switch (e.Role)
+        {
+            case ChatRole.Player:
+                return (jp ? "あの声：" : "那个声音：") + e.text;
+            case ChatRole.Npc:
+                if (string.IsNullOrEmpty(e.with) || e.with == "player") return (jp ? "あなた：" : "你：") + e.text;
+                return (jp ? "あなた（" + e.with + "に）：" : "你（对" + e.with + "）：") + e.text;
+            case ChatRole.Other:
+                return (jp ? e.speaker + "（あなたに）：" : e.speaker + "（对你）：") + e.text;
+            default:
+                return e.text;
+        }
     }
 
     // 按精神状态返回对话前缀（用翻译表，跟随语言）。
@@ -267,7 +290,7 @@ public class NpcAgent : MonoBehaviour
     {
         float t = npc.playerTrust;
         string[] pool;
-        bool jp = LanguageGuard.IsJp; // 拒绝台词是写死的，也要跟随界面语言
+        bool jp = LanguageGuard.IsJp;
         if (t < 30f)
             pool = jp ? new[] { "なんでお前の言うことを聞かなきゃならない。", "お前は信用できない。", "……嫌だ。", "何様のつもりだ、俺に命令するのか？" }
                       : new[] { "凭什么听你的。", "我不信任你。", "……不。", "你算什么，能命令我？" };
@@ -283,14 +306,14 @@ public class NpcAgent : MonoBehaviour
     // 解析 AI 返回的 JSON，取出 dialogue（失败则把原文当对话）。
     string ParseDialogue(string raw)
     {
+        if (string.IsNullOrEmpty(raw)) return "";
         try
         {
             int start = raw.IndexOf('{');
             int end = raw.LastIndexOf('}');
             if (start >= 0 && end > start)
             {
-                string jsonPart = raw.Substring(start, end - start + 1);
-                NpcReplyData d = JsonConvert.DeserializeObject<NpcReplyData>(jsonPart);
+                NpcReplyData d = JsonConvert.DeserializeObject<NpcReplyData>(raw.Substring(start, end - start + 1));
                 if (d != null && !string.IsNullOrEmpty(d.dialogue))
                     return d.dialogue;
             }
@@ -299,11 +322,14 @@ public class NpcAgent : MonoBehaviour
         {
             Debug.LogWarning("解析 NPC 对话 JSON 失败，按纯文本处理。错误：" + e.Message);
         }
-        return raw; // 降级：直接用原文
+        return raw;
     }
+
+    static string L(string key) => LocalizationManager.Instance != null ? LocalizationManager.Instance.Get(key) : key;
+    static string LF(string key, params object[] args) => LocalizationManager.Instance != null ? LocalizationManager.Instance.GetFormat(key, args) : key;
 }
 
-// AI 对话输出契约（新架构：只有 dialogue，不再有 action/reason）。
+// AI 对话输出契约（只有 dialogue）。
 [Serializable]
 public class NpcReplyData
 {
