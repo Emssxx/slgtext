@@ -166,6 +166,13 @@ public class ChatActivity : IdleActivity
         return s;
     }
 
+    // 台词还没到就散场了（被指令叫走、被打断、走不过去）：取消还在生成的 LLM 请求。
+    public override void OnStop(NpcIdleBrain brain, bool interrupted)
+    {
+        IdleChatSession s = brain.ChatSession;
+        if (s != null && s.lines == null) IdleChat.Voice.Cancel(s);
+    }
+
     public override IEnumerator Run(NpcIdleBrain brain, IdleContext ctx)
     {
         NpcIdleManager m = Mgr;
@@ -186,6 +193,12 @@ public class ChatActivity : IdleActivity
         if (me == null || other == null) { s.Abort(); yield break; }
         s.topic = IdleChatRules.PickTopic(me, other, ctx.world);         // 话题由规则决定
         brain.SetAction("idle_act_chat", other.npcName);
+
+        // 先去要台词：LLM 写台词要几秒，和"走过去"同时进行，走到时基本就写好了。
+        List<IdleChatLine> lines = null;
+        bool got = false;
+        float askedAt = Time.time;
+        IdleChat.Voice.Compose(s, result => { lines = result; got = true; });
 
         // 1. 走到对方身边（对方会停下来，转身看着你走过来）
         if (Vector2.Distance(brain.transform.position, partner.transform.position) > m.talkDistance + 0.3f)
@@ -211,18 +224,21 @@ public class ChatActivity : IdleActivity
         brain.Face(partner.transform.position);
         partner.Face(brain.transform.position);
 
-        // 2. 要台词（来源可能是异步的，最多等 VoiceTimeout 秒；等不到就用本地台词）
-        List<IdleChatLine> lines = null;
-        bool got = false;
-        IdleChat.Voice.Compose(s, result => { lines = result; got = true; });
-        float wait = 0f;
-        while (!got && wait < IdleChat.VoiceTimeout)
+        // 2. 等台词（从开始要算起最多等 VoiceTimeout 秒；等的时候发起方头上冒"……"，像在组织语言）
+        float arrivedAt = Time.time;
+        bool thinking = false;
+        while (!got && Time.time - askedAt < IdleChat.VoiceTimeout)
         {
             if (s.Ended) yield break;
-            wait += Time.deltaTime;
+            if (!thinking && Time.time - arrivedAt > 0.6f)
+            {
+                brain.Say("……", IdleChat.VoiceTimeout);
+                thinking = true;
+            }
             yield return null;
         }
-        if (lines == null || lines.Count == 0) lines = LocalIdleChatVoice.Build(s);
+        if (!got) IdleChat.Voice.Cancel(s);                                          // 等太久：取消生成，别占着显卡
+        if (lines == null || lines.Count == 0) lines = LocalIdleChatVoice.Build(s); // LLM 忙/失败/超时 → 本地台词
         s.lines = lines;
 
         // 3. 你一句我一句

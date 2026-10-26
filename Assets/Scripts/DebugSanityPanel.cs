@@ -52,6 +52,9 @@ public class DebugSanityPanel : MonoBehaviour
         }
         _freeze = newFreeze;
 
+        // 测试需求行为：清空仓库里的食物 → 物资不足，NPC 会出去搜寻
+        if (GUILayout.Button("清空仓库食物（测试外出搜寻）")) ClearFood(world);
+
         GUILayout.Space(6);
         _scroll = GUILayout.BeginScrollView(_scroll);
 
@@ -59,8 +62,9 @@ public class DebugSanityPanel : MonoBehaviour
         {
             if (npc.IsDead) continue; // 死亡的 NPC 不显示
 
-            // 第一行：名字 + 数值 + 当前精神等级
-            GUILayout.Label($"{npc.npcName}   SAN:{npc.sanity:0}   {LevelName(MentalState.GetLevel(npc))}");
+            // 第一行：名字 + 数值 + 当前精神等级 + 正在做的事
+            GUILayout.Label($"{npc.npcName}   SAN:{npc.sanity:0}   {LevelName(MentalState.GetLevel(npc))}   {npc.currentAction}");
+            GUILayout.Label($"饥饿:{npc.hunger:0}  体力:{npc.energy:0}  生命:{npc.health:0}");
 
             // 第二行：滑条，拖动直接改 SAN（0~100）
             float slider = GUILayout.HorizontalSlider(npc.sanity, 0f, 100f);
@@ -81,11 +85,30 @@ public class DebugSanityPanel : MonoBehaviour
                 SetSanity(npc, 100f);        // 顺便把 SAN 拉回满，不然下回合又会被锁定
             }
             GUILayout.EndHorizontal();
+
+            // 第四行：测试需求行为（下一个决策周期 ≤5 秒内生效）
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("饿")) npc.hunger = 95f;    // → 去营地吃东西
+            if (GUILayout.Button("累")) npc.energy = 15f;    // → 回营地休息
+            if (GUILayout.Button("伤")) npc.health = 12f;    // → 慌张逃回营地
+            if (GUILayout.Button("复原")) { npc.hunger = 0f; npc.energy = 100f; npc.health = 100f; }
+            GUILayout.EndHorizontal();
             GUILayout.Space(8);
         }
 
         GUILayout.EndScrollView();
         GUILayout.EndArea();
+    }
+
+    // 把仓库里所有食物类物品清零（测试"物资不足 → 外出搜寻"）。
+    void ClearFood(WorldState world)
+    {
+        if (ItemDatabase.Instance == null) return;
+        foreach (ItemStack s in world.sharedStorage)
+        {
+            ItemData d = ItemDatabase.Instance.Get(s.itemName);
+            if (d != null && d.category == ItemCategory.Food) s.count = 0;
+        }
     }
 
     // 设置某个 NPC 的 SAN，同时更新冻结记录。

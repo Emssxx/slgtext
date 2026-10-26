@@ -49,6 +49,10 @@ public class NpcIdleManager : MonoBehaviour
     public float pairCooldown = 50f;                       // 同一对人聊完后多久才会再聊
     public bool logChatLines = false;                      // 是否把每句台词也写进行为日志（默认只写一条概要）
 
+    [Header("闲聊配音（本地 LLM 现场写台词；模型忙/失败/超时自动用本地台词）")]
+    public bool llmVoice = true;                           // 关掉 = 全部用本地剧本台词
+    [Range(0f, 1f)] public float llmVoiceChance = 1f;      // 多大比例的闲聊尝试用 LLM 配音
+
     [Header("节奏")]
     public Vector2 gapSeconds = new Vector2(0.5f, 1.5f);   // 两个活动之间的停顿
     public float holdAfterTaskSeconds = 60f;               // 玩家指令做完后，在指令终点附近待多久再回营地
@@ -86,6 +90,9 @@ public class NpcIdleManager : MonoBehaviour
         activities.Add(new WanderActivity());     // 闲逛
         activities.Add(new ChatActivity());       // 找人闲聊
         // 以后的新活动加在这里，例如：activities.Add(new WarmByFireActivity());
+
+        // 闲聊台词来源：LLM 配音（内部会按 llmVoice / llmVoiceChance 决定要不要用，不行就退回本地台词）。
+        IdleChat.Voice = new LlmIdleChatVoice();
     }
 
     void OnDestroy()

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-// 本地台词（默认的闲聊台词来源，不走 LLM）：按话题从剧本里挑一段，两人你一句我一句。
+// 本地台词（不走 LLM，永远可用；LLM 配音忙/失败/超时时的兜底）：按话题从剧本里挑一段，两人你一句我一句。
 // 每段剧本按"发起方、对方、发起方、对方……"的顺序交替。中日两套，按界面语言选。
 // 占位符（按"说这句话的人"来替换）：
 //   {me} 自己的名字　{you} 对方的名字　{myjob} 自己以前的职业　{yourjob} 对方以前的职业　{day} 第几天
@@ -12,6 +12,8 @@ public class LocalIdleChatVoice : IIdleChatVoice
     {
         if (done != null) done(Build(session));
     }
+
+    public void Cancel(IdleChatSession session) { } // 同步生成，没有要取消的
 
     // 生成一场闲聊的台词（同步）。
     public static List<IdleChatLine> Build(IdleChatSession s)

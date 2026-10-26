@@ -8,6 +8,8 @@ public class NpcBehaviorDriver : MonoBehaviour
 {
     [Header("设置")]
     public float decideInterval = 5f; // 每隔多少秒，让所有 NPC 重新决策一次
+    [Tooltip("需求行为（吃饭/休息/搜寻/逃跑）是否让 NPC 真的走过去做。关掉 = 和以前一样只改数值。")]
+    public bool physicalNeeds = true;
 
     private float _timer;
 
@@ -45,12 +47,29 @@ public class NpcBehaviorDriver : MonoBehaviour
             // 崩解的不执行普通行为（它的表现走 BrokenSpeech / 精神系统）。
             if (behavior == NpcDecisionRules.Behavior.Broken) continue;
 
-            // 2. 执行：把决策落到世界上（改数值/物资/记忆）。
-            NpcDecisionRules.Execute(npc, behavior, world);
+            // 2. 需求行为（吃饭/休息/搜寻/逃跑）：交给 NpcNeedRunner，让 NPC 真的走过去做，做完再结算。
+            if (physicalNeeds && behavior != NpcDecisionRules.Behavior.Idle)
+            {
+                NpcNeedRunner needs = GetNeedRunner(npc.id);
+                if (needs != null)
+                {
+                    if (needs.IsRunning) continue; // 上一个需求还没做完
+                    if (needs.TryStart(npc, behavior, world) != NpcNeedRunner.StartResult.Unavailable) continue;
+                }
+            }
 
-            // 3.（可选）让 NPC 实际移动到对应位置。
-            //    比如决定 gather 就走向"搜寻点"、rest 就回"营地"。
-            //    阶段先只做数值，移动表现以后接（需要地点数据支持）。
+            // 3. 其余情况（待命 / 正在执行玩家指令或施工 / 场景里没有这个 NPC）：和以前一样直接结算。
+            NpcDecisionRules.Execute(npc, behavior, world);
         }
+    }
+
+    // 取这个 NPC 的需求执行器（没有就自动挂一个，不用改预制体）。
+    static NpcNeedRunner GetNeedRunner(string npcId)
+    {
+        NpcMover mover = NpcView.GetMover(npcId);
+        if (mover == null) return null;
+        NpcNeedRunner r = mover.GetComponent<NpcNeedRunner>();
+        if (r == null) r = mover.gameObject.AddComponent<NpcNeedRunner>();
+        return r;
     }
 }

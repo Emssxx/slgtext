@@ -2,11 +2,13 @@ using UnityEngine;
 using System;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using Newtonsoft.Json;
 
 // 与本地 Ollama 通信的客户端（单例）。是 LLM 调用的统一出口。
 // 以后要切换"本地/云端"，只需在这里换实现，上层（NpcAgent/AIDirector）不用动。
-public class OllamaAIClient : MonoBehaviour, IAIClient
+// 同时支持"后台请求"（IAIBackgroundClient）：NPC 闲聊配音这类可随时取消的请求。
+public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
 {
     public static OllamaAIClient Instance;
 
@@ -104,6 +106,52 @@ public class OllamaAIClient : MonoBehaviour, IAIClient
         {
             Debug.LogError($"AI 请求失败：{e.Message}");
             callback?.Invoke(FallbackJson);
+        }
+    }
+
+    /// <summary>
+    /// 后台请求（NPC 闲聊配音等，由 AIClientHub.SendBackground 调度）：
+    /// 可以随时取消（玩家说话时立刻让出模型）；生成长度有上限（更快）；
+    /// 失败、超时、被取消时回调 null（调用方改用本地台词），不报错误。
+    /// </summary>
+    public async void SendBackgroundRequest(string systemPrompt, string userPrompt, Action<string> callback,
+                                            bool jsonFormat, int maxTokens, CancellationToken token)
+    {
+        try
+        {
+            // num_ctx 必须和前台请求一致：Ollama 遇到不同的 num_ctx 会重新加载模型（很慢）。num_predict 不影响。
+            object options = new
+            {
+                temperature = temperature, top_p = topP, repeat_penalty = repeatPenalty,
+                num_ctx = numCtx, num_predict = maxTokens
+            };
+            var messages = new[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user",   content = userPrompt }
+            };
+            object requestData = jsonFormat
+                ? (object)new { model = modelName, messages = messages, stream = false, format = "json", options = options }
+                : new { model = modelName, messages = messages, stream = false, options = options };
+
+            var content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json");
+            HttpResponseMessage response = await _client.PostAsync(ollamaApiUrl, content, token); // 取消时连接断开，Ollama 会停止生成
+            response.EnsureSuccessStatusCode();
+            string responseBody = await response.Content.ReadAsStringAsync();
+            if (token.IsCancellationRequested) { callback?.Invoke(null); return; }
+
+            var result = JsonConvert.DeserializeObject<OllamaResponse>(responseBody);
+            string text = (result != null && result.message != null) ? result.message.content : null;
+            callback?.Invoke(string.IsNullOrEmpty(text) ? null : text);
+        }
+        catch (OperationCanceledException)
+        {
+            callback?.Invoke(null); // 被前台请求打断，或超时：安静地放弃
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[后台AI] 请求失败：{e.Message}");
+            callback?.Invoke(null);
         }
     }
 }

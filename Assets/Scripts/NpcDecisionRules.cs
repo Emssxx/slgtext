@@ -34,7 +34,11 @@ public static class NpcDecisionRules
         //    阈值受谨慎影响：越谨慎越早去吃（谨慎100→阈值约70；谨慎0→阈值约90）。
         float hungerThreshold = 90f - npc.personality.caution * 0.2f;
         if (npc.hunger >= hungerThreshold)
+        {
+            // 饿了但仓库里一点吃的都没有：还有体力就出去找（不然只会原地反复"找吃的"）。
+            if (!HasAnyFood(world) && npc.energy > 40f) return Behavior.Gather;
             return Behavior.Eat;
+        }
 
         // 4. 太累 → 休息。
         float energyThreshold = 20f;
@@ -54,6 +58,13 @@ public static class NpcDecisionRules
     {
         if (ItemDatabase.Instance == null) return true;
         return ItemDatabase.Instance.CountInStorage(ItemCategory.Food, world) < 2;
+    }
+
+    // 仓库里还有没有任何吃的（没有物品图鉴时当作有，保持原来的行为）。
+    static bool HasAnyFood(WorldState world)
+    {
+        if (ItemDatabase.Instance == null) return true;
+        return ItemDatabase.Instance.CountInStorage(ItemCategory.Food, world) > 0;
     }
 
     // 把决策真正落到世界上：修改数值/物资，写进记忆。

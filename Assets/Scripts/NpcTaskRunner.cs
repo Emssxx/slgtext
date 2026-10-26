@@ -14,8 +14,10 @@ public class NpcTaskRunner : MonoBehaviour
 
     private NpcMover _mover;
     private Animator _animator;
+    private NpcView _view;
     private Queue<NpcTask> _queue = new Queue<NpcTask>();
     private bool _running = false;
+    private string _claimedId; // 在 NpcBusy 登记占用时用的 id（物体销毁后也能正确解除）
 
     // 是否正在执行玩家指令的任务（闲置行为系统读它：有任务时不去干扰移动）。
     public bool IsBusy => _running;
@@ -25,6 +27,13 @@ public class NpcTaskRunner : MonoBehaviour
         _mover = GetComponent<NpcMover>();
         _animator = GetComponent<Animator>();
         if (_animator == null) _animator = GetComponentInChildren<Animator>();
+        _view = GetComponent<NpcView>();
+    }
+
+    void OnDisable()
+    {
+        // 物体被关掉/销毁时协程会停，这里把状态和占用登记一起收拾干净。
+        if (_running) { _running = false; ReleaseClaim(); }
     }
 
     // 取消所有任务并立刻停止移动（被事件打断时调用）。
@@ -34,6 +43,21 @@ public class NpcTaskRunner : MonoBehaviour
         _running = false;        // 重置运行标志
         StopAllCoroutines();     // 停止正在跑的任务协程（DoGo/DoAct/DoPush）
         _mover.Stop();           // 通知 NpcMover 停下，清路径、停动画
+        ReleaseClaim();
+    }
+
+    // 执行玩家指令期间在 NpcBusy 登记占用（优先级最高），需求行为、闲置行为都会让路。
+    void ClaimNpc()
+    {
+        _claimedId = (_view != null && !string.IsNullOrEmpty(_view.npcId)) ? _view.npcId : npcId;
+        NpcBusy.Claim(_claimedId, NpcBusy.Task);
+    }
+
+    void ReleaseClaim()
+    {
+        if (string.IsNullOrEmpty(_claimedId)) return;
+        NpcBusy.Release(_claimedId, NpcBusy.Task);
+        _claimedId = null;
     }
 
     // 下达一串任务（清掉旧的，执行新的）。
@@ -47,12 +71,14 @@ public class NpcTaskRunner : MonoBehaviour
     IEnumerator RunLoop()
     {
         _running = true;
+        ClaimNpc();
         while (_queue.Count > 0)
         {
             NpcTask task = _queue.Dequeue();
             yield return StartCoroutine(DoOneTask(task));
         }
         _running = false;
+        ReleaseClaim();
     }
 
     IEnumerator DoOneTask(NpcTask task)

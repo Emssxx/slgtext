@@ -198,6 +198,12 @@ public class LocalizationManager : MonoBehaviour
             { "idle_topic_tense",     ("彼此的不满", "お互いへの不満") },
             { "idle_topic_hallucination", ("看见的怪东西", "見えたという奇妙なもの") },
 
+            // —— 需求行为（NpcNeedRunner）——
+            { "need_act_eat",         ("去营地拿吃的", "食べ物を取りに拠点へ向かっている") },
+            { "need_act_rest",        ("回营地休息", "拠点で休もうとしている") },
+            { "need_act_gather",      ("外出搜寻物资", "物資を探しに出ている") },
+            { "need_act_flee",        ("惊慌地逃回营地", "慌てて拠点へ逃げている") },
+
             // 以后要加文本，继续往这里加：{ "key", ("中文", "日文") },
         };
     }

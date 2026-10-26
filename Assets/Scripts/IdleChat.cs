@@ -64,12 +64,17 @@ public class IdleChatSession
     }
 }
 
-// 台词来源接口。默认是本地台词（LocalIdleChatVoice）。
-// 以后接 LLM 配音：实现这个接口，异步生成好台词后调用 done(lines)；失败就 done(null)，会自动退回本地台词。
-// 然后在任意初始化处写 IdleChat.Voice = new 你的实现();
+// 台词来源接口。现有两种实现：
+//   LocalIdleChatVoice —— 本地剧本台词（同步，永远可用，作兜底）
+//   LlmIdleChatVoice   —— 本地 LLM 现场写台词（异步；忙/失败/超时时 done(null)，自动退回本地台词）
+// NpcIdleManager 启动时设置 IdleChat.Voice（默认 LLM 配音）。
 public interface IIdleChatVoice
 {
+    // 生成一场闲聊的台词。完成时调用 done(lines)；放弃时 done(null)。
     void Compose(IdleChatSession session, Action<List<IdleChatLine>> done);
+
+    // 闲聊散场 / 等太久时调用：取消还没完成的生成（本地台词什么都不用做）。
+    void Cancel(IdleChatSession session);
 }
 
 public static class IdleChat
@@ -77,8 +82,9 @@ public static class IdleChat
     // 当前使用的台词来源（可在运行时替换）。
     public static IIdleChatVoice Voice = new LocalIdleChatVoice();
 
-    // 异步台词最多等多久（秒），超时用本地台词兜底（两人已经面对面站着了，不能让他们干等）。
-    public static float VoiceTimeout = 6f;
+    // 从"开始要台词"算起最多等多久（秒）。要台词和走过去是同时进行的，到了还没好就再等一会儿，
+    // 超时用本地台词兜底（两人已经面对面站着了，不能让他们干等）。
+    public static float VoiceTimeout = 7f;
 
     // 一句话在气泡里停留多久：按字数算，2~5 秒。
     public static float LineDuration(string text)
