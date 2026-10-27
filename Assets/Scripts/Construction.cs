@@ -22,7 +22,9 @@ public class ConstructionSite : MonoBehaviour
     public static readonly List<ConstructionSite> All = new List<ConstructionSite>();
 
     public BuildableData data;
-    public Vector2Int cell;
+    public Vector2Int cell;                     // 中心那一格（显示位置用）
+    public Vector2Int origin;                   // 占地左下角那一格
+    public Vector2Int size = Vector2Int.one;    // 占地大小（小格）
     public float workRequired = 1f;   // 需要的工作量（人·秒）
     public float progress;            // 已完成的工作量
     public readonly List<string> builders = new List<string>(); // 指派的施工者（npc id）
@@ -30,6 +32,7 @@ public class ConstructionSite : MonoBehaviour
     SpriteRenderer[] _renderers;
     Color[] _colors;
     Transform _bar, _fill;
+    float _barWidth = 0.8f;
     static Sprite _white;
 
     public float Ratio => workRequired > 0f ? Mathf.Clamp01(progress / workRequired) : 1f;
@@ -44,19 +47,37 @@ public class ConstructionSite : MonoBehaviour
         }
     }
 
+    public bool Contains(Vector2Int c)
+    {
+        return c.x >= origin.x && c.x < origin.x + size.x && c.y >= origin.y && c.y < origin.y + size.y;
+    }
+
+    // 点到占地里的任何一格都算点到这块规划区。
     public static ConstructionSite At(Vector2Int c)
     {
-        foreach (ConstructionSite s in All) if (s != null && s.cell == c) return s;
+        foreach (ConstructionSite s in All) if (s != null && s.Contains(c)) return s;
         return null;
+    }
+
+    // 占地的半宽 / 半高（世界单位）。
+    public Vector2 HalfExtents
+    {
+        get
+        {
+            float cs = GridManager.Instance != null ? GridManager.Instance.cellSize : 1f;
+            return new Vector2(size.x * cs * 0.5f, size.y * cs * 0.5f);
+        }
     }
 
     void OnEnable() { if (!All.Contains(this)) All.Add(this); }
     void OnDisable() { All.Remove(this); }
 
-    public void Setup(BuildableData d, Vector2Int c, float work)
+    public void Setup(BuildableData d, Vector2Int o, Vector2Int s, float work)
     {
         data = d;
-        cell = c;
+        origin = o;
+        size = new Vector2Int(Mathf.Max(1, s.x), Mathf.Max(1, s.y));
+        cell = new Vector2Int(o.x + (size.x - 1) / 2, o.y + (size.y - 1) / 2);
         workRequired = Mathf.Max(0.1f, work);
         _renderers = GetComponentsInChildren<SpriteRenderer>();
         _colors = new Color[_renderers.Length];
@@ -87,7 +108,7 @@ public class ConstructionSite : MonoBehaviour
         {
             bool show = builders.Count > 0 || progress > 0f;
             _bar.gameObject.SetActive(show);
-            if (show && _fill != null) _fill.localScale = new Vector3(0.8f * Ratio, 0.1f, 1f);
+            if (show && _fill != null) _fill.localScale = new Vector3(_barWidth * Ratio, 0.1f, 1f);
         }
     }
 
@@ -109,14 +130,17 @@ public class ConstructionSite : MonoBehaviour
             t.Apply();
             _white = Sprite.Create(t, new UnityEngine.Rect(0, 0, 1, 1), new Vector2(0f, 0.5f), 1f); // 轴心在左边：缩放时从左往右长
         }
+        // 进度条：按占地宽度，放在建筑上方
+        Vector2 half = HalfExtents;
+        _barWidth = Mathf.Clamp(half.x * 2f * 0.8f, 0.4f, 3f);
         GameObject bar = new GameObject("SiteBar");
         bar.transform.SetParent(transform, false);
-        bar.transform.localPosition = new Vector3(-0.4f, 0.62f, 0f);
+        bar.transform.localPosition = new Vector3(-_barWidth * 0.5f, half.y + 0.12f, 0f);
         _bar = bar.transform;
 
         GameObject bg = new GameObject("Bg");
         bg.transform.SetParent(_bar, false);
-        bg.transform.localScale = new Vector3(0.8f, 0.1f, 1f);
+        bg.transform.localScale = new Vector3(_barWidth, 0.1f, 1f);
         SpriteRenderer bsr = bg.AddComponent<SpriteRenderer>();
         bsr.sprite = _white;
         bsr.color = new Color(0f, 0f, 0f, 0.6f);
@@ -160,11 +184,13 @@ public class ConstructionManager : MonoBehaviour
     }
 
     readonly Dictionary<string, Builder> _builders = new Dictionary<string, Builder>();
+    // 施工位置的方向（乘上占地半宽 / 半高 + 一点空隙）：左右下上，再四个角
     static readonly Vector2[] Spots =
     {
-        new Vector2(-0.8f, 0f), new Vector2(0.8f, 0f), new Vector2(0f, -0.8f), new Vector2(0f, 0.8f),
-        new Vector2(-0.8f, -0.8f), new Vector2(0.8f, -0.8f), new Vector2(-0.8f, 0.8f), new Vector2(0.8f, 0.8f)
+        new Vector2(-1f, 0f), new Vector2(1f, 0f), new Vector2(0f, -1f), new Vector2(0f, 1f),
+        new Vector2(-1f, -1f), new Vector2(1f, -1f), new Vector2(-1f, 1f), new Vector2(1f, 1f)
     };
+    const float SpotGap = 0.3f; // 站在占地外面多远
 
     // —— 指派面板 ——
     GameObject _panel;
@@ -201,18 +227,19 @@ public class ConstructionManager : MonoBehaviour
 
     // ============ 规划区的创建 / 取消 ============
 
-    public ConstructionSite CreateSite(BuildableData data, Vector2Int cell, GameObject preview)
+    public ConstructionSite CreateSite(BuildableData data, Vector2Int origin, Vector2Int size, GameObject preview)
     {
         if (data == null) return null;
         if (preview == null)
         {
             preview = new GameObject(data.id);
-            preview.transform.position = GridManager.Instance != null ? GridManager.Instance.CellToWorld(cell) : Vector3.zero;
+            preview.transform.position = GridManager.Instance != null ? GridManager.Instance.AreaCenter(origin, size) : Vector3.zero;
             SpriteRenderer sr = preview.AddComponent<SpriteRenderer>();
             sr.sprite = data.sprite;
         }
+        if (preview.GetComponent<BuildingFootprint>() == null) preview.AddComponent<BuildingFootprint>().Set(origin, size);
         ConstructionSite site = preview.AddComponent<ConstructionSite>();
-        site.Setup(data, cell, data.buildTime * workPerBuildSecond);
+        site.Setup(data, origin, size, data.buildTime * workPerBuildSecond);
         return site;
     }
 
@@ -222,7 +249,7 @@ public class ConstructionManager : MonoBehaviour
         if (site == null) return;
         foreach (string id in new List<string>(site.builders)) Unassign(id);
         GridManager g = GridManager.Instance;
-        if (g != null) g.ClearCell(site.cell.x, site.cell.y);
+        if (g != null) g.ClearArea(site.origin, site.size);
         WorldState w = WorldManager.Instance != null ? WorldManager.Instance.world : null;
         if (w != null && site.data != null && site.data.uniqueBuild) w.placedUniqueBuilds.Remove(site.data.id); // 唯一建筑（终端机）可以重新放
         Say(LanguageGuard.Pick("取消了规划：", "計画を取り消した：") + site.DisplayName);
@@ -327,11 +354,13 @@ public class ConstructionManager : MonoBehaviour
 
             // 走到自己的位置
             int idx = Mathf.Max(0, b.site.builders.IndexOf(id)) % Spots.Length;
-            Vector3 center = GridManager.Instance != null ? GridManager.Instance.CellToWorld(b.site.cell) : b.site.transform.position;
-            Vector3 spot = center + (Vector3)Spots[idx];
+            Vector3 center = b.site.transform.position;
+            Vector2 half = b.site.HalfExtents;
+            Vector3 spot = center + new Vector3(Spots[idx].x * (half.x + SpotGap), Spots[idx].y * (half.y + SpotGap), 0f);
             float dist = Vector2.Distance(m.transform.position, spot);
-            bool arrived = dist <= 0.35f || (!m.IsMoving && dist <= 1.3f)
-                           || (!m.IsMoving && b.moveTries >= 3 && Vector2.Distance(m.transform.position, center) <= 2f); // 位置被挡住：在附近也能干
+            float near = Mathf.Max(half.x, half.y) + 1.2f;
+            bool arrived = dist <= 0.3f || (!m.IsMoving && dist <= 0.9f)
+                           || (!m.IsMoving && b.moveTries >= 3 && Vector2.Distance(m.transform.position, center) <= near); // 位置被挡住：在附近也能干
             if (!arrived)
             {
                 b.moveCmdTimer -= dt;

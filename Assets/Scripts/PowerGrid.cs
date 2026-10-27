@@ -30,9 +30,14 @@ public static class PowerGrid
     public static float[] ClimateLevelPower = { 0f, 1f, 2.5f, 4.5f }; // 加温器 / 降温器 0~3 档每回合耗电
     public static float PurifierPowerPerLevel = 1f; // 净化器满负荷时每档每回合耗电（实际按处理量折算）
     public static float DegreesPerLevel = 5f;      // 加温器 / 降温器每档改变多少度
-    public static float Radius = 5f;               // 加温器 / 降温器的作用半径（格）
+    public static float Radius = 5f;               // 加温器 / 降温器的作用半径（世界单位 = 细分前的大格；显示给玩家时换算成小格，见 RadiusCells）
     public static int MaxLevel = 3;                // 最高档位
-    public static float MaxLinkLength = 15f;       // 一根电线最长多少格
+    public static float MaxLinkLength = 15f;       // 一根电线最长多长（世界单位；显示时换算成小格）
+
+    // 换算成小格数（给玩家看的"半径 X 格""最长 X 格"）
+    public static int RadiusCells => Mathf.RoundToInt(Radius / CellSize);
+    public static int MaxLinkCells => Mathf.RoundToInt(MaxLinkLength / CellSize);
+    static float CellSize => GridManager.Instance != null && GridManager.Instance.cellSize > 0f ? GridManager.Instance.cellSize : 1f;
 
     class Link
     {
@@ -196,14 +201,13 @@ public static class PowerGrid
     public static float TemperatureOffsetAt(Vector3 pos)
     {
         float off = 0f;
-        float cell = GridManager.Instance != null ? GridManager.Instance.cellSize : 1f;
         foreach (PowerNode d in PowerNode.All)
         {
             if (d == null || !d.IsDevice || !d.powered || d.level <= 0) continue;
             if (d.kind != PowerNodeKind.Heater && d.kind != PowerNodeKind.Cooler) continue;
             Vector3 p = d.transform.position;
             float dx = p.x - pos.x, dy = p.y - pos.y;
-            if (dx * dx + dy * dy > (Radius * cell) * (Radius * cell)) continue;
+            if (dx * dx + dy * dy > Radius * Radius) continue;
             off += (d.kind == PowerNodeKind.Heater ? 1f : -1f) * d.level * DegreesPerLevel;
         }
         return off;
@@ -267,7 +271,11 @@ public static class PowerGrid
     {
         EnsureTerminalNode();
         foreach (PowerNode n in PowerNode.All)
-            if (n != null && n.Cell == cell) return n;
+        {
+            if (n == null) continue;
+            BuildingFootprint fp = n.GetComponent<BuildingFootprint>(); // 多格建筑：点到占地里任何一格都算
+            if (fp != null ? fp.Contains(cell) : n.Cell == cell) return n;
+        }
         return null;
     }
 
@@ -293,9 +301,8 @@ public static class PowerGrid
                 return LanguageGuard.Pick("拆掉了电线：", "電線を外した：") + a.DisplayName + " — " + b.DisplayName;
             }
         }
-        float cell = GridManager.Instance != null ? GridManager.Instance.cellSize : 1f;
-        if (Vector3.Distance(a.transform.position, b.transform.position) > MaxLinkLength * cell)
-            return LanguageGuard.Pick("太远了，电线最长 " + MaxLinkLength + " 格。", "遠すぎる。電線は最長 " + MaxLinkLength + " マスまで。");
+        if (Vector3.Distance(a.transform.position, b.transform.position) > MaxLinkLength)
+            return LanguageGuard.Pick("太远了，电线最长 " + MaxLinkCells + " 格。", "遠すぎる。電線は最長 " + MaxLinkCells + " マスまで。");
         Link nl = new Link { a = a, b = b, line = CreateLine() };
         _links.Add(nl);
         _dirty = true;
@@ -532,6 +539,9 @@ public static class WireTool
         if (n == null) return;
         _marker = new GameObject("WireSelection");
         _marker.transform.position = n.transform.position;
+        BuildingFootprint fp = n.GetComponent<BuildingFootprint>(); // 选中框和建筑一样大
+        if (fp != null && GridManager.Instance != null)
+            _marker.transform.localScale = new Vector3(fp.size.x * GridManager.Instance.cellSize, fp.size.y * GridManager.Instance.cellSize, 1f);
         SpriteRenderer sr = _marker.AddComponent<SpriteRenderer>();
         sr.sprite = PowerBuildings.OutlineSprite();
         sr.color = new Color(1f, 0.85f, 0.3f, 0.95f);

@@ -2,7 +2,11 @@ using UnityEngine;
 using System.Collections.Generic;
 
 // 网格系统：把地图划分成方格，提供坐标互转、编号、可建造判定、占用记录。
-// 是建造模式的地基。配合 Tilemap（1 格 = 1 世界单位）。
+// 是建造模式的地基。
+// 【细分】场景里设置的是"大格"（配合 Tilemap，1 大格 = 1 世界单位）；运行时每个大格再切成 subdivision × subdivision 个小格
+//   （默认 3 → 一格变 9 格，每小格 1/3 单位）。之后所有格子坐标、建造占地、坐标浮窗都按小格算。
+//   建筑占几个小格由它的图片大小自动决定（1 单位的图 = 3×3 小格），也可以在 BuildableData 里手动指定，做出不同体积、形状的建筑。
+//   想恢复原来的大格：把 subdivision 改成 1。
 public class GridManager : MonoBehaviour
 {
     public static GridManager Instance;
@@ -12,6 +16,11 @@ public class GridManager : MonoBehaviour
     public int gridHeight = 20;         // 纵向多少格
     public float cellSize = 1f;         // 每格的世界尺寸（配合 Tilemap，1 格 = 1 单位）
     public Vector2 origin = Vector2.zero; // 网格左下角的世界坐标
+    [Tooltip("运行时把每格再细分成 N×N 小格（3 = 一格变 9 格；1 = 不细分）。上面的宽高和格子大小按细分前填。")]
+    [Range(1, 6)] public int subdivision = 3;
+
+    // 实际生效的细分倍数（别的系统把"以前按大格填的数值"换算成小格时用，比如视野半径 ×Subdivision）。
+    public static int Subdivision { get; private set; } = 1;
 
     // 每格的占用记录：null = 空，否则存占用它的东西的名字（如建筑名）。
     private string[,] _occupied;
@@ -20,6 +29,11 @@ public class GridManager : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+        int n = Mathf.Max(1, subdivision);
+        gridWidth *= n;          // 细分：格子数 ×N、每格边长 ÷N，地图在世界里的大小不变
+        gridHeight *= n;
+        cellSize /= n;
+        Subdivision = n;
         _occupied = new string[gridWidth, gridHeight]; // 默认全 null（空）
     }
 
@@ -104,4 +118,67 @@ public class GridManager : MonoBehaviour
     {
         if (InBounds(x, y)) _occupied[x, y] = null;
     }
+
+    // ============ 多格建筑（占地 size 个小格）============
+
+    // 以鼠标所在的格子为中心摆一块 size 大小的地：返回左下角那一格。偶数边长时鼠标格偏左下。
+    public Vector2Int FootprintOrigin(Vector2Int cell, Vector2Int size)
+    {
+        return new Vector2Int(cell.x - (size.x - 1) / 2, cell.y - (size.y - 1) / 2);
+    }
+
+    // 这块地是不是每一格都能建。
+    public bool IsAreaBuildable(Vector2Int origin, Vector2Int size)
+    {
+        for (int x = origin.x; x < origin.x + size.x; x++)
+            for (int y = origin.y; y < origin.y + size.y; y++)
+                if (!IsBuildable(x, y)) return false;
+        return true;
+    }
+
+    public void SetAreaOccupied(Vector2Int origin, Vector2Int size, string what)
+    {
+        for (int x = origin.x; x < origin.x + size.x; x++)
+            for (int y = origin.y; y < origin.y + size.y; y++)
+                SetOccupied(x, y, what);
+    }
+
+    public void ClearArea(Vector2Int origin, Vector2Int size)
+    {
+        for (int x = origin.x; x < origin.x + size.x; x++)
+            for (int y = origin.y; y < origin.y + size.y; y++)
+                ClearCell(x, y);
+    }
+
+    // 这块地的中心（世界坐标）：建筑放在这里。
+    public Vector3 AreaCenter(Vector2Int origin, Vector2Int size)
+    {
+        Vector3 c = CellToWorld(origin);
+        return c + new Vector3((size.x - 1) * cellSize * 0.5f, (size.y - 1) * cellSize * 0.5f, 0f);
+    }
+}
+
+// 挂在放下的建筑上：记下它占了哪几个小格（多格建筑的点击、电线、悬停信息都靠它找到建筑本体）。
+public class BuildingFootprint : MonoBehaviour
+{
+    public static readonly List<BuildingFootprint> All = new List<BuildingFootprint>();
+
+    public Vector2Int origin;            // 左下角那一格
+    public Vector2Int size = Vector2Int.one;
+
+    public void Set(Vector2Int o, Vector2Int s) { origin = o; size = new Vector2Int(Mathf.Max(1, s.x), Mathf.Max(1, s.y)); }
+
+    public bool Contains(Vector2Int c)
+    {
+        return c.x >= origin.x && c.x < origin.x + size.x && c.y >= origin.y && c.y < origin.y + size.y;
+    }
+
+    public static BuildingFootprint At(Vector2Int c)
+    {
+        foreach (BuildingFootprint f in All) if (f != null && f.Contains(c)) return f;
+        return null;
+    }
+
+    void OnEnable() { if (!All.Contains(this)) All.Add(this); }
+    void OnDisable() { All.Remove(this); }
 }

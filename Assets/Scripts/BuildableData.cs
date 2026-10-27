@@ -12,11 +12,30 @@ public class BuildableData : ScriptableObject
     public Sprite sprite;               // 建造物的图片素材（实体和半透明预览都用它）
     public GameObject prefab;           // 实例化用的预制体（拖入 Wall.prefab / Box.prefab）
 
-    [Header("网格占用")]
-    [Tooltip("占几格宽。当前建造逻辑只支持 1×1，此字段先留作以后扩展多格用。")]
-    public int width = 1;               // 占几格宽（以后多格用，现在固定 1）
-    [Tooltip("占几格高。当前建造逻辑只支持 1×1。")]
-    public int height = 1;              // 占几格高（以后多格用，现在固定 1）
+    [Header("网格占用（单位：小格，见 GridManager.subdivision）")]
+    [Tooltip("勾上 = 按图片大小自动算占几格（1 单位大的图 = 3×3 小格）。想做细长 / 特殊形状的建筑就关掉，用下面的宽高。")]
+    public bool autoFootprint = true;
+    [Tooltip("占几格宽（小格）。只在 autoFootprint 关掉时用。")]
+    public int width = 1;
+    [Tooltip("占几格高（小格）。只在 autoFootprint 关掉时用。")]
+    public int height = 1;
+
+    // 实际占地（小格数）。cellSize = GridManager.cellSize。
+    public Vector2Int FootprintSize(float cellSize)
+    {
+        if (!autoFootprint || cellSize <= 0f) return new Vector2Int(Mathf.Max(1, width), Mathf.Max(1, height));
+        Vector2 sz = Vector2.zero;
+        Vector3 scale = Vector3.one;
+        SpriteRenderer sr = prefab != null ? prefab.GetComponent<SpriteRenderer>() : null;
+        if (prefab != null) scale = prefab.transform.localScale;
+        if (sr != null && sr.drawMode != SpriteDrawMode.Simple) sz = sr.size;
+        else if (sr != null && sr.sprite != null) sz = sr.sprite.bounds.size;
+        else if (sprite != null) sz = sprite.bounds.size;
+        if (sz == Vector2.zero) return new Vector2Int(Mathf.Max(1, width), Mathf.Max(1, height));
+        int w = Mathf.Max(1, Mathf.CeilToInt(Mathf.Abs(sz.x * scale.x) / cellSize - 0.25f)); // 差一点点满格也算一格（0.9 单位的图 = 3 格）
+        int h = Mathf.Max(1, Mathf.CeilToInt(Mathf.Abs(sz.y * scale.y) / cellSize - 0.25f));
+        return new Vector2Int(w, h);
+    }
 
     [Header("通行")]
     [Tooltip("是否阻挡移动。true=墙（NPC无法穿过，建造后需重新烘焙NavMesh）；false=箱子（可穿过）。")]

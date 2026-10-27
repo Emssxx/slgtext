@@ -51,7 +51,7 @@ public class FogVisionUpdater : MonoBehaviour
             // 把NPC的世界位置转成格子坐标。
             Vector2Int cell = GridManager.Instance.WorldToCell(view.transform.position);
             // 揭开这个NPC周围 sightRadius 范围。
-            FogManager.Instance.RevealArea(cell.x, cell.y, sightRadius);
+            FogManager.Instance.RevealArea(cell.x, cell.y, sightRadius * GridManager.Subdivision); // 半径按细分前的大格填，换算成小格
         }
     }
 }

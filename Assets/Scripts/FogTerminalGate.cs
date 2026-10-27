@@ -73,6 +73,6 @@ public class FogTerminalGate : MonoBehaviour
         // 用终端机自身的位置作为营地中心（终端机就是营地核心）。
         Vector3 campPos = TerminalController.Instance.transform.position;
         Vector2Int center = GridManager.Instance.WorldToCell(campPos);
-        FogManager.Instance.RevealArea(center.x, center.y, campRevealRadius);
+        FogManager.Instance.RevealArea(center.x, center.y, campRevealRadius * GridManager.Subdivision); // 半径按细分前的大格填，换算成小格
     }
 }

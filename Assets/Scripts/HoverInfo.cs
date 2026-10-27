@@ -9,7 +9,7 @@ using TMPro;
 //   NPC：姓名、职业、正在做什么、生命 / 饥饿 / 体力（缺水时多一行）。
 //   建筑：名称、是否在工作（发电 / 储电 / 加温 / 净化 / 接雨水 / 施工中……）。
 // 另外：鼠标在地图上停够半秒，鼠标左上方弹出这一格的坐标浮窗（内容由 CellInfo 的各个提供者写，以后加地形信息就加提供者）；
-// 同时悬停在 NPC / 建筑上时，坐标浮窗改为显示在它们的信息框正下方。
+// 同时悬停在 NPC / 建筑上时，坐标浮窗改为显示在它们的信息框下方（左边对齐）。
 // 鼠标在 UI 上时不显示。用不受暂停影响的时间（建造模式会暂停游戏）。
 // 由 HudLayout 调 HoverInfo.Ensure() 创建，自带一个最上层的 Canvas。
 public class HoverInfo : MonoBehaviour
@@ -227,7 +227,7 @@ public class HoverInfo : MonoBehaviour
         _cellBox.gameObject.SetActive(false);
     }
 
-    // 有 NPC / 建筑信息框时：放在它正下方；没有时：鼠标左上方。都不超出屏幕。
+    // 有 NPC / 建筑信息框时：放在它下方、左边对齐；没有时：鼠标左上方。都不超出屏幕。
     void PlaceCell(Vector2 sp)
     {
         Rect r = _canvasRt.rect;
@@ -237,10 +237,11 @@ public class HoverInfo : MonoBehaviour
         {
             Vector2 bp = _box.anchoredPosition, bs = _box.sizeDelta;
             float bottom = bp.y - _box.pivot.y * bs.y;
+            float left = bp.x - _box.pivot.x * bs.x;          // 信息框的左边
             float gap = _box.pivot.y < 0.5f ? 12f : 4f; // 信息框在物体上方时，下面挂着尖角：多空一点
-            _cellBox.pivot = new Vector2(0.5f, 1f);
-            pos = new Vector2(bp.x, bottom - gap);
-            pos.x = Mathf.Clamp(pos.x, r.xMin + size.x * 0.5f + 4f, r.xMax - size.x * 0.5f - 4f);
+            _cellBox.pivot = new Vector2(0f, 1f);              // 左上角对齐：和信息框左边对齐
+            pos = new Vector2(left, bottom - gap);
+            pos.x = Mathf.Clamp(pos.x, r.xMin + 4f, r.xMax - size.x - 4f);
             pos.y = Mathf.Max(pos.y, r.yMin + size.y + 4f);
         }
         else
@@ -281,6 +282,8 @@ public class HoverInfo : MonoBehaviour
         if (string.IsNullOrEmpty(occ)) return;
         ConstructionSite site = ConstructionSite.At(cell);
         if (site != null) { target = site.gameObject; return; }
+        BuildingFootprint fp = BuildingFootprint.At(cell); // 多格建筑：占地里任何一格都指向建筑本体
+        if (fp != null) { target = fp.gameObject; return; }
         if (cell != _cell) { _cell = cell; _cellObj = FindObjectAtCell(cell); }
         if (_cellObj != null) { target = _cellObj; return; }
         _cellName = occ;

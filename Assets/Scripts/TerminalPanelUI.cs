@@ -452,8 +452,8 @@ public class TerminalPanelUI : MonoBehaviour
         if (unlinked.Count > 0)
             sb.AppendLine((jp ? "<color=#FFB060>未接続：" : "<color=#FFB060>没接电线：") + string.Join("、", unlinked) + "</color>");
         sb.Append(jp
-            ? "<size=85%><color=#9AA5B8>「電線」で発電機・蓄電池・設備をつなぐ。余った電気は蓄電池へ（効率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%）。足りない時は浄水器から先に止まる。ヒーター／クーラー 1/2/3段階：消費 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "、±" + PowerGrid.DegreesPerLevel + "℃ずつ（半径" + PowerGrid.Radius + "マス）。浄水器：1段階で最大 " + WaterWorks.PurifyPerLevel + " 杯、浄化した分だけ消費。</color></size>"
-            : "<size=85%><color=#9AA5B8>用「电线」把发电机、蓄电池和设备连起来。多余的电充进电池（效率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%），电不够时先停净化器。加温器/降温器 1/2/3 档耗电 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "，每档 ±" + PowerGrid.DegreesPerLevel + "℃（半径 " + PowerGrid.Radius + " 格）；净化器每档最多净化 " + WaterWorks.PurifyPerLevel + " 份，按净化量耗电。</color></size>");
+            ? "<size=85%><color=#9AA5B8>「電線」で発電機・蓄電池・設備をつなぐ。余った電気は蓄電池へ（効率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%）。足りない時は浄水器から先に止まる。ヒーター／クーラー 1/2/3段階：消費 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "、±" + PowerGrid.DegreesPerLevel + "℃ずつ（半径" + PowerGrid.RadiusCells + "マス）。浄水器：1段階で最大 " + WaterWorks.PurifyPerLevel + " 杯、浄化した分だけ消費。</color></size>"
+            : "<size=85%><color=#9AA5B8>用「电线」把发电机、蓄电池和设备连起来。多余的电充进电池（效率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%），电不够时先停净化器。加温器/降温器 1/2/3 档耗电 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "，每档 ±" + PowerGrid.DegreesPerLevel + "℃（半径 " + PowerGrid.RadiusCells + " 格）；净化器每档最多净化 " + WaterWorks.PurifyPerLevel + " 份，按净化量耗电。</color></size>");
         _powerSummary.text = sb.ToString();
 
         // 设备列表（加温器 / 降温器 / 水源净化器）

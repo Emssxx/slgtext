@@ -26,10 +26,20 @@ public class BuildManager : MonoBehaviour
     private bool _buildMode = false;           // 是否在建造模式
     private BuildableData _selectedData = null; // 当前选中的建造物数据（null=未选）
 
-    // ——阶段A：网格覆盖层——
-    private GameObject _gridOverlay; // 覆盖层父物体
-    private Dictionary<Vector2Int, SpriteRenderer> _overlayCells // 格子坐标 → 覆盖层SpriteRenderer，供高亮用
-        = new Dictionary<Vector2Int, SpriteRenderer>();
+    // ——阶段A：网格覆盖层（一张贴图，一个像素 = 一个小格：绿 = 能建，红 = 已占用）——
+    private GameObject _gridOverlay;  // 覆盖层物体
+    private Texture2D _overlayTex;
+    private Color32[] _overlayPixels;
+    private bool _overlayDirty;
+    static readonly Color32 OverlayFree = new Color32(0, 255, 0, 90);
+    static readonly Color32 OverlayBusy = new Color32(255, 0, 0, 90);
+    static readonly Color32 OverlayHoverOk = new Color32(255, 255, 255, 150);
+    static readonly Color32 OverlayHoverBad = new Color32(255, 40, 40, 190);
+
+    // ——鼠标所指位置的占地预览（选了建筑后跟着鼠标走）——
+    private readonly List<Vector2Int> _hoverCells = new List<Vector2Int>();
+    private GameObject _ghost;
+    private SpriteRenderer _ghostSr;
 
     // ——阶段B：建造菜单UI——
     private GameObject _buildMenuUI; // 运行时生成的Canvas
@@ -48,6 +58,8 @@ public class BuildManager : MonoBehaviour
     void Update()
     {
         if (!_buildMode) return;
+        UpdateHoverPreview();
+        FlushOverlay();
 
         // 左键点击：选格子加入队列（需要先选好类型）
         if (Mouse.current.leftButton.wasPressedThisFrame)
@@ -71,8 +83,9 @@ public class BuildManager : MonoBehaviour
             ConstructionSite site = ConstructionSite.At(GridManager.Instance.WorldToCell(mw));
             if (site != null && ConstructionManager.Instance != null)
             {
+                Vector2Int so = site.origin, ss = site.size;
                 ConstructionManager.Instance.Cancel(site);
-                if (_overlayCells.TryGetValue(site.cell, out SpriteRenderer osr)) osr.color = new Color(0f, 1f, 0f, 0.4f); // 格子空出来了：变回绿色
+                RefreshOverlayArea(so, ss); // 格子空出来了：变回绿色
             }
         }
 
@@ -97,6 +110,7 @@ public class BuildManager : MonoBehaviour
         _buildMode = false;
         _selectedData = null;
         WireTool.Deactivate();
+        ClearHoverPreview();
         HideGridOverlay();
         HideBuildMenu();
         Time.timeScale = 1f;     // 恢复游戏时间
@@ -239,42 +253,104 @@ public class BuildManager : MonoBehaviour
         GridManager grid = GridManager.Instance;
         if (grid == null) return;
 
+        // 一张 gridWidth × gridHeight 的贴图铺满地图：比每格一个物体省得多（细分后格子很多）
+        int w = grid.gridWidth, h = grid.gridHeight;
+        _overlayTex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        _overlayTex.filterMode = FilterMode.Point;
+        _overlayTex.wrapMode = TextureWrapMode.Clamp;
+        _overlayPixels = new Color32[w * h];
+        for (int x = 0; x < w; x++)
+            for (int y = 0; y < h; y++)
+                _overlayPixels[y * w + x] = grid.IsBuildable(x, y) ? OverlayFree : OverlayBusy;
+        _overlayTex.SetPixels32(_overlayPixels);
+        _overlayTex.Apply();
+
         _gridOverlay = new GameObject("GridOverlay");
-        _overlayCells.Clear();
-
-        // 运行时生成1×1白色Sprite，600个格子共用
-        Texture2D tex = new Texture2D(1, 1);
-        tex.SetPixel(0, 0, Color.white);
-        tex.Apply();
-        Sprite whiteSprite = Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
-
-        for (int x = 0; x < grid.gridWidth; x++)
-        {
-            for (int y = 0; y < grid.gridHeight; y++)
-            {
-                GameObject go = new GameObject($"Cell_{x}_{y}");
-                go.transform.SetParent(_gridOverlay.transform);
-                go.transform.position = grid.CellToWorld(x, y);
-                go.transform.localScale = Vector3.one * grid.cellSize;
-
-                SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
-                sr.sprite = whiteSprite;
-                sr.sortingOrder = 10; // 在Tilemap地图层上方
-
-                bool canBuild = grid.IsBuildable(x, y);
-                sr.color = canBuild
-                    ? new Color(0f, 1f, 0f, 0.4f)  // 绿：可建
-                    : new Color(1f, 0f, 0f, 0.4f);  // 红：不可建
-
-                _overlayCells[new Vector2Int(x, y)] = sr; // 存引用，供阶段E高亮用
-            }
-        }
+        _gridOverlay.transform.position = new Vector3(grid.origin.x, grid.origin.y, 0f);
+        SpriteRenderer sr = _gridOverlay.AddComponent<SpriteRenderer>();
+        sr.sprite = Sprite.Create(_overlayTex, new Rect(0, 0, w, h), Vector2.zero, 1f / grid.cellSize); // 1 像素 = 1 小格
+        sr.sortingOrder = 10; // 在Tilemap地图层上方
+        _overlayDirty = false;
     }
 
     void HideGridOverlay()
     {
         if (_gridOverlay != null) { Destroy(_gridOverlay); _gridOverlay = null; }
-        _overlayCells.Clear();
+        if (_overlayTex != null) { Destroy(_overlayTex); _overlayTex = null; }
+        _overlayPixels = null;
+        _hoverCells.Clear();
+    }
+
+    void SetOverlay(int x, int y, Color32 c)
+    {
+        GridManager grid = GridManager.Instance;
+        if (_overlayPixels == null || grid == null || !grid.InBounds(x, y)) return;
+        _overlayPixels[y * grid.gridWidth + x] = c;
+        _overlayDirty = true;
+    }
+
+    // 按格子当前的占用情况恢复颜色（绿 / 红）。
+    void RefreshOverlayArea(Vector2Int origin, Vector2Int size)
+    {
+        GridManager grid = GridManager.Instance;
+        if (grid == null) return;
+        for (int x = origin.x; x < origin.x + size.x; x++)
+            for (int y = origin.y; y < origin.y + size.y; y++)
+                SetOverlay(x, y, grid.IsBuildable(x, y) ? OverlayFree : OverlayBusy);
+    }
+
+    void FlushOverlay()
+    {
+        if (!_overlayDirty || _overlayTex == null || _overlayPixels == null) return;
+        _overlayTex.SetPixels32(_overlayPixels);
+        _overlayTex.Apply();
+        _overlayDirty = false;
+    }
+
+    // 选了建筑后：鼠标所在位置显示它会占哪些格（白 = 能放，红 = 被挡住）和一个半透明的建筑影子。
+    void UpdateHoverPreview()
+    {
+        GridManager grid = GridManager.Instance;
+        bool show = _selectedData != null && !WireTool.Active && grid != null && Mouse.current != null
+                    && !(EventSystem.current != null && EventSystem.current.IsPointerOverGameObject());
+        // 先把上一帧高亮的格子恢复
+        foreach (Vector2Int c in _hoverCells) SetOverlay(c.x, c.y, grid != null && grid.IsBuildable(c.x, c.y) ? OverlayFree : OverlayBusy);
+        _hoverCells.Clear();
+        if (!show) { if (_ghost != null) _ghost.SetActive(false); return; }
+
+        Vector2 ms = Mouse.current.position.ReadValue();
+        Vector3 mw = mainCamera.ScreenToWorldPoint(new Vector3(ms.x, ms.y, 0));
+        Vector2Int cell = grid.WorldToCell(mw);
+        Vector2Int size = _selectedData.FootprintSize(grid.cellSize);
+        Vector2Int origin = grid.FootprintOrigin(cell, size);
+        bool ok = grid.IsAreaBuildable(origin, size);
+        for (int x = origin.x; x < origin.x + size.x; x++)
+            for (int y = origin.y; y < origin.y + size.y; y++)
+            {
+                if (!grid.InBounds(x, y)) continue;
+                _hoverCells.Add(new Vector2Int(x, y));
+                SetOverlay(x, y, ok ? OverlayHoverOk : OverlayHoverBad);
+            }
+
+        // 建筑影子
+        if (_ghost == null)
+        {
+            _ghost = new GameObject("BuildGhost");
+            _ghostSr = _ghost.AddComponent<SpriteRenderer>();
+            _ghostSr.sortingOrder = 11;
+        }
+        SpriteRenderer psr = _selectedData.prefab != null ? _selectedData.prefab.GetComponent<SpriteRenderer>() : null;
+        _ghostSr.sprite = psr != null && psr.sprite != null ? psr.sprite : _selectedData.sprite;
+        _ghost.transform.localScale = _selectedData.prefab != null ? _selectedData.prefab.transform.localScale : Vector3.one;
+        _ghost.transform.position = grid.AreaCenter(origin, size);
+        _ghostSr.color = ok ? new Color(1f, 1f, 1f, 0.45f) : new Color(1f, 0.35f, 0.35f, 0.45f);
+        _ghost.SetActive(_ghostSr.sprite != null);
+    }
+
+    void ClearHoverPreview()
+    {
+        _hoverCells.Clear();
+        if (_ghost != null) { Destroy(_ghost); _ghost = null; _ghostSr = null; }
     }
 
     // ——阶段C：点击格子——————————————————————————————————————
@@ -300,28 +376,28 @@ public class BuildManager : MonoBehaviour
 
         GridManager grid = GridManager.Instance;
 
-        // 格子不可建（越界或已占用）
-        if (!grid.IsBuildable(cell.x, cell.y))
+        // 占地：以点的格子为中心，按建筑大小占若干小格
+        Vector2Int size = _selectedData.FootprintSize(grid.cellSize);
+        Vector2Int origin = grid.FootprintOrigin(cell, size);
+
+        // 有任何一格不可建（越界或已占用）
+        if (!grid.IsAreaBuildable(origin, size))
         {
-            Debug.Log($"[BuildManager] {grid.CellToLabel(cell.x, cell.y)} 不可建造。");
+            Debug.Log($"[BuildManager] {grid.CellToLabel(cell.x, cell.y)} 放不下（占地 {size.x}×{size.y} 格）。");
             return;
         }
 
-        // 阶段E：点击高亮反馈
-        FlashCell(cell);
-
-        // 先标记占用，防止连点同一格
-        grid.SetOccupied(cell.x, cell.y, _selectedData.displayName);
-
-        // 覆盖层格子变红（已占用）
-        if (_overlayCells.TryGetValue(cell, out SpriteRenderer overlaySR))
-            overlaySR.color = new Color(1f, 0f, 0f, 0.4f);
+        // 先标记占用，防止连点同一处；覆盖层这些格子变红
+        grid.SetAreaOccupied(origin, size, _selectedData.displayName);
+        RefreshOverlayArea(origin, size);
+        Vector3 center = grid.AreaCenter(origin, size);
 
         // 生成半透明预览（用 BuildableData.prefab 实例化，alpha调到0.5）
         GameObject previewGO = null;
         if (_selectedData.prefab != null)
         {
-            previewGO = Instantiate(_selectedData.prefab, grid.CellToWorld(cell), Quaternion.identity);
+            previewGO = Instantiate(_selectedData.prefab, center, Quaternion.identity);
+            previewGO.AddComponent<BuildingFootprint>().Set(origin, size); // 记下占了哪些格（点击、电线、悬停信息用）
             previewGO.SendMessage("OnBuildPlaced", SendMessageOptions.DontRequireReceiver); // 通知：施工中（终端机用）
             // SortingOrder 设为 0，与地图同层；NPC 用 1，保证 NPC 始终显示在建筑上方
             SpriteRenderer psr = previewGO.GetComponent<SpriteRenderer>();
@@ -334,7 +410,7 @@ public class BuildManager : MonoBehaviour
         }
 
         // 变成一块规划区（蓝图）：不自动开工，等玩家点它指派施工的人
-        ConstructionManager.Ensure().CreateSite(_selectedData, cell, previewGO);
+        ConstructionManager.Ensure().CreateSite(_selectedData, origin, size, previewGO);
 
         Debug.Log($"[BuildManager] 规划：{_selectedData.displayName} @ {grid.CellToLabel(cell.x, cell.y)}");
         ProgressionRules.NotifyPlaced(_selectedData);           // 唯一建筑记一笔
@@ -373,22 +449,6 @@ public class BuildManager : MonoBehaviour
             Debug.Log("[BuildManager] 有阻挡建筑施工完成，已触发 NavMesh 重新烘焙。");
         }
         else Debug.LogWarning("[BuildManager] navMeshSurface 未赋值，跳过 NavMesh 烘焙。");
-    }
-
-    // ——阶段E：点击格子短暂高亮—————————————————————————————
-
-    void FlashCell(Vector2Int cell)
-    {
-        if (_overlayCells.TryGetValue(cell, out SpriteRenderer sr))
-            StartCoroutine(FlashCoroutine(sr));
-    }
-
-    IEnumerator FlashCoroutine(SpriteRenderer sr)
-    {
-        if (sr == null) yield break;
-        sr.color = new Color(1f, 1f, 1f, 0.8f); // 短暂变白
-        yield return new WaitForSecondsRealtime(0.15f); // 用真实时间，时间暂停时也能正常闪烁
-        if (sr != null) sr.color = new Color(1f, 0f, 0f, 0.4f); // 恢复红（已排队）
     }
 
     // ——工具方法——————————————————————————————————————————

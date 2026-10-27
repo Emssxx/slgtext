@@ -82,8 +82,9 @@ public class FogParticleRenderer : MonoBehaviour
         shape.scale = new Vector3(w, h, 0.1f);
 
         var emission = _ps.emission;
-        int cellCount = _grid.gridWidth * _grid.gridHeight;
-        emission.rateOverTime = cellCount * emissionPerCell;
+        // 按地图面积（世界单位²，= 细分前的格数）算发射量：格子细分后雾的浓度不变
+        float area = w * h;
+        emission.rateOverTime = area * emissionPerCell;
 
         var vel = _ps.velocityOverLifetime;
         vel.enabled = true;
