@@ -13,6 +13,9 @@ using TMPro;
 // 同时悬停在 NPC / 建筑上时，坐标浮窗改为显示在它们的信息框下方（左边对齐）。
 // NPC 的信息改成"锁定框"样式：四个角框住 NPC（淡绿色微光，和天数数字同色），信息写在左上角外面，透明底；
 //   出现时四个角从中间展开（expandTime 秒）。建筑 / 资源仍用原来的方框。
+//   和生命值联动：生命从 100 往 0 掉，颜色 绿 → 黄 → 红 平滑过渡，故障抖动越来越大（有上限）、电流闪烁越来越频繁。
+//   NPC 死亡瞬间：不用悬停也自动弹出锁定框（盖过当前悬停），四条线从四个角往中心延伸（deathCrossTime 秒），
+//   然后每行文字从左到右划掉（默认一共 0.8 秒播完），停留 deathHoldTime 秒后淡出；文字后面垫一块半透明黑色底板。悬停在已死亡的 NPC 上直接显示划掉后的样子。
 // 鼠标在 UI 上时不显示。用不受暂停影响的时间（建造模式会暂停游戏）。
 // 由 HudLayout 调 HoverInfo.Ensure() 创建，自带一个最上层的 Canvas。
 public class HoverInfo : MonoBehaviour
@@ -34,6 +37,33 @@ public class HoverInfo : MonoBehaviour
     [Tooltip("文字微光（关掉 = 纯色文字）")]
     public bool textGlow = true;
 
+    [Header("NPC 锁定框：生命值联动")]
+    public Color hpMidColor = new Color(1f, 0.9f, 0.35f, 1f);    // 一半血：黄（比之前更饱和，浅色地面上也看得清）
+    public Color hpLowColor = new Color(1f, 0.38f, 0.32f, 1f);   // 没血：红
+    [Tooltip("生命为 0 时最大抖动幅度（像素）")]
+    public float maxJitter = 3f;
+    [Tooltip("生命为 0 时每秒电流闪烁次数")]
+    public float maxFlickerRate = 7f;
+
+    [Header("NPC 锁定框：死亡")]
+    [Tooltip("四条线从四个角延伸到中心用多久（秒）")]
+    public float deathCrossTime = 0.3f;
+    [Tooltip("每行文字被划掉用多久（秒）")]
+    public float deathStrikeTime = 0.3f;
+    [Tooltip("下一行比上一行晚多久开始划（秒）。默认值下十字 + 五行划线正好 0.8 秒播完")]
+    public float deathStrikeStagger = 0.05f;
+    [Tooltip("动画播完后停留多久（秒）")]
+    public float deathHoldTime = 2f;
+    [Tooltip("最后淡出用多久（秒）")]
+    public float deathFadeTime = 0.4f;
+
+    // 死亡锁定框一共显示多久：动画（十字 + 五行划线）+ 停留 + 淡出
+    float DeathShowTime => deathCrossTime + deathStrikeStagger * 4f + deathStrikeTime + deathHoldTime + deathFadeTime;
+
+    [Header("NPC 锁定框：文字底板")]
+    public Color textBgColor = new Color(0f, 0f, 0f, 0.5f);
+    public Vector2 textBgPadding = new Vector2(6f, 4f);
+
     const float Pad = 10f;
     const float MinSize = 150f; // 最小宽度：短内容也是一个方块，不会缩成一条
 
@@ -53,11 +83,36 @@ public class HoverInfo : MonoBehaviour
     // —— NPC 锁定框 ——
     RectTransform _npcRoot, _npcTextRt;
     readonly RectTransform[] _corners = new RectTransform[4]; // 左上 / 右上 / 左下 / 右下
+    readonly RawImage[] _cornerImgs = new RawImage[4];
     TextMeshProUGUI _npcText;
     bool _npcShown;
     float _npcAnim;
     float _npcStackBottom;  // 锁定框（含文字）最下沿，坐标浮窗挂在它下面
     float _npcLeft;
+    float _hpTarget = 1f, _hpShown = 1f;        // 生命比例（目标 / 显示用，平滑靠近）
+    float _glitchTimer, _flickTimer, _flickLeft, _flickAlpha = 1f, _flickBright;
+    readonly Vector2[] _cornerJitter = new Vector2[4];
+    Vector2 _textJitter;
+    Material _npcMat;
+
+    // —— 死亡效果 ——
+    readonly RectTransform[] _crossLines = new RectTransform[4];
+    readonly RawImage[] _crossImgs = new RawImage[4];
+    readonly List<RectTransform> _strikes = new List<RectTransform>();
+    readonly List<RawImage> _strikeImgs = new List<RawImage>();
+    bool _deathFx;            // 这次显示要画死亡效果（十字线 + 划线）
+    float _deathFxT;          // 死亡效果的时间轴（悬停已死亡的 NPC 时直接给一个很大的值 = 画完的样子）
+    string _deathId;          // 正在播放死亡效果的 NPC（不用悬停）
+    GameObject _deathGo;
+    float _deathT = -1f;      // < 0 = 没有在播放
+    Bounds _lastBounds;       // NPC 物体淡出销毁后，框停在最后的位置
+    readonly HashSet<string> _knownDead = new HashSet<string>();
+    bool _deadInit;
+    float _deathCheck;
+    Color _fxColor = Color.white;
+    RectTransform _npcBg;
+    Image _npcBgImg;
+    float _fxAlpha = 1f;
 
     // —— 坐标浮窗 ——
     RectTransform _cellBox;
@@ -179,7 +234,29 @@ public class HoverInfo : MonoBehaviour
             img.texture = tex;
             img.raycastTarget = false;
             _corners[i] = c;
+            _cornerImgs[i] = img;
         }
+
+        // 死亡时的四条线（从中心到四个角），和角框同样的发光线条
+        for (int i = 0; i < 4; i++)
+        {
+            RectTransform l = NewRect("DeathLine" + i, _npcRoot);
+            l.anchorMin = l.anchorMax = new Vector2(0.5f, 0.5f);
+            l.pivot = new Vector2(0f, 0.5f);
+            RawImage li = l.gameObject.AddComponent<RawImage>();
+            li.texture = LineTexture();
+            li.raycastTarget = false;
+            l.gameObject.SetActive(false);
+            _crossLines[i] = l;
+            _crossImgs[i] = li;
+        }
+
+        // 文字底板（半透明黑），在文字下面
+        _npcBg = NewRect("TextBg", _npcRoot);
+        _npcBg.anchorMin = _npcBg.anchorMax = new Vector2(0.5f, 0.5f);
+        _npcBgImg = _npcBg.gameObject.AddComponent<Image>();
+        _npcBgImg.color = textBgColor;
+        _npcBgImg.raycastTarget = false;
 
         _npcTextRt = NewRect("Text", _npcRoot);
         _npcTextRt.anchorMin = _npcTextRt.anchorMax = new Vector2(0.5f, 0.5f);
@@ -204,6 +281,7 @@ public class HoverInfo : MonoBehaviour
             m.SetFloat("_UnderlaySoftness", 0.45f);
             _npcText.extraPadding = true;
             _npcText.UpdateMeshPadding();
+            _npcMat = m;
         }
         _npcRoot.gameObject.SetActive(false);
     }
@@ -227,10 +305,10 @@ public class HoverInfo : MonoBehaviour
                 float v = Overlap(x, x + 1, pad, pad + th) * Overlap(y, y + 1, top - arm, top);   // 竖
                 cov[y * N + x] = Mathf.Min(1f, Mathf.Max(h, v));
             }
+        // 画成白色，用 RawImage.color 上色（生命值联动要随时变色）；光晕稍暗一点，染色后显得更饱和
         SegmentPainter.Style st = new SegmentPainter.Style
         {
-            r = HudGlow.Green.r, g = HudGlow.Green.g, b = HudGlow.Green.b,
-            gr = HudGlow.GreenGlow.r, gg = HudGlow.GreenGlow.g, gb = HudGlow.GreenGlow.b,
+            r = 1f, g = 1f, b = 1f, gr = 0.85f, gg = 0.85f, gb = 0.85f,
             glow = 0.85f, glowRadius = 6f * S,
         };
         byte[] px = SegmentPainter.Compose(cov, null, N, N, st);
@@ -245,6 +323,35 @@ public class HoverInfo : MonoBehaviour
         return _cornerTex = t;
     }
 
+    // 一条横向的发光线（宽度可以随便拉伸）：中间实线 CornerThick 粗，上下留发光。
+    static Texture2D _lineTex;
+    static Texture2D LineTexture()
+    {
+        if (_lineTex != null) return _lineTex;
+        const int S = 2, W = 4;
+        int H = (int)((CornerThick + CornerPad * 2f) * S);
+        float c = H * 0.5f, half = CornerThick * S * 0.5f;
+        float[] cov = new float[W * H];
+        for (int y = 0; y < H; y++)
+        {
+            float v = Overlap(y, y + 1, c - half, c + half);
+            for (int x = 0; x < W; x++) cov[y * W + x] = v;
+        }
+        SegmentPainter.Style st = new SegmentPainter.Style { r = 1f, g = 1f, b = 1f, gr = 0.85f, gg = 0.85f, gb = 0.85f, glow = 0.85f, glowRadius = 6f * S };
+        byte[] px = SegmentPainter.Compose(cov, null, W, H, st);
+        Color32[] cols = new Color32[W * H];
+        for (int i = 0; i < cols.Length; i++) cols[i] = new Color32(px[i * 4], px[i * 4 + 1], px[i * 4 + 2], px[i * 4 + 3]);
+        Texture2D t = new Texture2D(W, H, TextureFormat.RGBA32, false);
+        t.name = "HoverLine";
+        t.filterMode = FilterMode.Bilinear;
+        t.wrapMode = TextureWrapMode.Clamp;
+        t.SetPixels32(cols);
+        t.Apply(false);
+        return _lineTex = t;
+    }
+
+    static float LineHeight => CornerThick + CornerPad * 2f;
+
     static float Overlap(float a0, float a1, float b0, float b1) => Mathf.Clamp01(Mathf.Min(a1, b1) - Mathf.Max(a0, b0));
 
     // NPC 文字：去掉原来各行的颜色，统一淡绿色；原来的灰色副信息改成稍淡一点（保留层次）。
@@ -255,8 +362,9 @@ public class HoverInfo : MonoBehaviour
         return s.Replace("</color>", "<alpha=#FF>");
     }
 
-    void SetNpcText(string text)
+    void SetNpcText(string text, float hp01)
     {
+        _hpTarget = Mathf.Clamp01(hp01);
         _npcText.text = GreenText(text);
         Vector2 pref = _npcText.GetPreferredValues(_npcText.text, maxWidth, 0f);
         _npcTextRt.sizeDelta = new Vector2(Mathf.Min(pref.x, maxWidth) + 2f, pref.y);
@@ -264,6 +372,8 @@ public class HoverInfo : MonoBehaviour
         {
             _npcShown = true;
             _npcAnim = 0f;
+            _hpShown = _hpTarget;   // 刚弹出：直接用当前生命，不从满血渐变
+            _flickLeft = 0f; _flickAlpha = 1f; _flickBright = 0f;
             _npcRoot.gameObject.SetActive(true);
         }
     }
@@ -271,11 +381,13 @@ public class HoverInfo : MonoBehaviour
     // 四个角框住 NPC 图片（屏幕上的范围），文字放在左上角外面；刚出现时从中间展开。
     void PlaceNpc(GameObject go)
     {
-        if (!_npcShown || go == null || _cam == null) return;
-        SpriteRenderer sr = go.GetComponentInChildren<SpriteRenderer>();
-        Bounds b;
-        if (sr != null) b = sr.bounds;
-        else b = new Bounds(go.transform.position, new Vector3(0.6f, 0.9f, 0f));
+        if (!_npcShown || _cam == null) return;
+        if (go != null)
+        {
+            SpriteRenderer sr = go.GetComponentInChildren<SpriteRenderer>();
+            _lastBounds = sr != null ? sr.bounds : new Bounds(go.transform.position, new Vector3(0.6f, 0.9f, 0f));
+        }
+        Bounds b = _lastBounds; // 物体已经销毁（死亡淡出后）：停在最后的位置
         if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRt, _cam.WorldToScreenPoint(b.min), null, out Vector2 lo)) return;
         if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRt, _cam.WorldToScreenPoint(b.max), null, out Vector2 hi)) return;
         lo -= new Vector2(framePadding, framePadding);
@@ -285,7 +397,8 @@ public class HoverInfo : MonoBehaviour
         _npcAnim = Mathf.Min(1f, _npcAnim + (expandTime > 0f ? Time.unscaledDeltaTime / expandTime : 1f));
         float e = 1f - (1f - _npcAnim) * (1f - _npcAnim) * (1f - _npcAnim); // 缓出：先快后慢
         Vector2[] pts = { new Vector2(lo.x, hi.y), new Vector2(hi.x, hi.y), new Vector2(lo.x, lo.y), new Vector2(hi.x, lo.y) };
-        for (int i = 0; i < 4; i++) _corners[i].anchoredPosition = Vector2.LerpUnclamped(center, pts[i], e);
+        UpdateHpFx(Time.unscaledDeltaTime);
+        for (int i = 0; i < 4; i++) _corners[i].anchoredPosition = Vector2.LerpUnclamped(center, pts[i], e) + _cornerJitter[i];
 
         // 文字：左上角外面；顶上放不下就放到框的下面
         Rect r = _canvasRt.rect;
@@ -296,16 +409,158 @@ public class HoverInfo : MonoBehaviour
         bool below = hi.y + 4f + size.y > r.yMax;
         _npcTextRt.pivot = new Vector2(0f, below ? 1f : 0f);
         _npcText.alignment = below ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.BottomLeft;
-        float x = Mathf.Clamp(left, r.xMin + 4f, r.xMax - size.x - 4f);
-        _npcTextRt.anchoredPosition = new Vector2(x, below ? botY - 4f : topY + 4f);
-        _npcText.alpha = e;
+        float x = Mathf.Clamp(left, r.xMin + 4f + textBgPadding.x, r.xMax - size.x - 4f - textBgPadding.x);
+        float gapY = 4f + textBgPadding.y; // 留出底板的边，别压到角框
+        _npcTextRt.anchoredPosition = new Vector2(x, below ? botY - gapY : topY + gapY) + _textJitter;
+        _npcText.alpha = e * _flickAlpha * _fxAlpha;
+
+        // 底板跟着文字（含抖动），四周多留一点；随展开 / 淡出变透明，不跟着闪烁
+        _npcBg.pivot = _npcTextRt.pivot;
+        _npcBg.anchoredPosition = _npcTextRt.anchoredPosition + new Vector2(-textBgPadding.x, below ? textBgPadding.y : -textBgPadding.y);
+        _npcBg.sizeDelta = size + textBgPadding * 2f;
+        _npcBgImg.color = new Color(textBgColor.r, textBgColor.g, textBgColor.b, textBgColor.a * e * _fxAlpha);
 
         _npcLeft = x;
-        _npcStackBottom = below ? lo.y - 4f - size.y : lo.y;
+        _npcStackBottom = below ? lo.y - 4f - size.y - textBgPadding.y * 2f : lo.y;
+
+        UpdateDeathFx(center);
+    }
+
+    // 死亡效果：① 四条线从四个角延伸到中心（deathCrossTime）；② 之后每行文字从左到右划一条线（一行比一行晚一点）。
+    void UpdateDeathFx(Vector2 center)
+    {
+        if (!_deathFx)
+        {
+            foreach (RectTransform l in _crossLines) if (l.gameObject.activeSelf) l.gameObject.SetActive(false);
+            foreach (RectTransform l in _strikes) if (l.gameObject.activeSelf) l.gameObject.SetActive(false);
+            return;
+        }
+        float a = _flickAlpha * _fxAlpha;
+        Color lineCol = new Color(_fxColor.r, _fxColor.g, _fxColor.b, a);
+
+        // ① 十字线：从四个角往中心延伸（跟着角的抖动走）
+        float p = deathCrossTime > 0f ? Mathf.Clamp01(_deathFxT / deathCrossTime) : 1f;
+        float ep = 1f - (1f - p) * (1f - p);
+        for (int i = 0; i < 4; i++)
+        {
+            RectTransform l = _crossLines[i];
+            Vector2 from = _corners[i].anchoredPosition;
+            Vector2 d = center - from;
+            float len = d.magnitude * ep;
+            bool on = len > 0.5f;
+            if (l.gameObject.activeSelf != on) l.gameObject.SetActive(on);
+            if (!on) continue;
+            l.anchoredPosition = from;
+            l.sizeDelta = new Vector2(len, LineHeight);
+            l.localEulerAngles = new Vector3(0f, 0f, Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg);
+            _crossImgs[i].color = lineCol;
+        }
+
+        // ② 划线：沿每行文字的中线，从左到右
+        TMP_TextInfo info = _npcText.textInfo;
+        int lines = info != null ? info.lineCount : 0;
+        int k = 0;
+        for (int i = 0; i < lines && i < info.lineInfo.Length; i++)
+        {
+            TMP_LineInfo li = info.lineInfo[i];
+            if (li.visibleCharacterCount <= 0) continue;
+            float x0 = li.lineExtents.min.x, x1 = li.lineExtents.max.x;
+            float yc = (li.lineExtents.min.y + li.lineExtents.max.y) * 0.5f;
+            float start = deathCrossTime + k * deathStrikeStagger;
+            float q = deathStrikeTime > 0f ? Mathf.Clamp01((_deathFxT - start) / deathStrikeTime) : 1f;
+            float eq = 1f - (1f - q) * (1f - q);
+            RectTransform st = Strike(k);
+            bool on = eq > 0.001f;
+            if (st.gameObject.activeSelf != on) st.gameObject.SetActive(on);
+            k++;
+            if (!on) continue;
+            st.anchorMin = st.anchorMax = _npcTextRt.pivot;   // TMP 的坐标以文字框的轴心为原点
+            st.anchoredPosition = new Vector2(x0 - 2f, yc) + Vector2.zero;
+            st.sizeDelta = new Vector2((x1 - x0 + 4f) * eq, LineHeight);
+            _strikeImgs[k - 1].color = new Color(_fxColor.r, _fxColor.g, _fxColor.b, _npcText.alpha);
+        }
+        for (int i = k; i < _strikes.Count; i++) if (_strikes[i].gameObject.activeSelf) _strikes[i].gameObject.SetActive(false);
+    }
+
+    RectTransform Strike(int i)
+    {
+        while (_strikes.Count <= i)
+        {
+            RectTransform l = NewRect("Strike" + _strikes.Count, _npcTextRt);
+            l.pivot = new Vector2(0f, 0.5f);
+            RawImage img = l.gameObject.AddComponent<RawImage>();
+            img.texture = LineTexture();
+            img.raycastTarget = false;
+            _strikes.Add(l);
+            _strikeImgs.Add(img);
+        }
+        return _strikes[i];
+    }
+
+    // 生命值联动：颜色（绿→黄→红）、故障抖动、电流闪烁。danger = 0（满血）… 1（没血）。
+    void UpdateHpFx(float dt)
+    {
+        _hpShown = Mathf.MoveTowards(_hpShown, _hpTarget, dt * 0.8f); // 掉血 / 回血时颜色平滑变化
+        float d = 1f - _hpShown;
+
+        // 颜色：0 → 0.5 绿到黄，0.5 → 1 黄到红（用平滑曲线，过渡不生硬）
+        Color col = d < 0.5f ? Color.Lerp(HudGlow.Green, hpMidColor, Mathf.SmoothStep(0f, 1f, d * 2f))
+                             : Color.Lerp(hpMidColor, hpLowColor, Mathf.SmoothStep(0f, 1f, (d - 0.5f) * 2f));
+
+        // 电流闪烁：频率随危险程度升高；闪的时候大多是暗一下，偶尔是一下发白的"电弧"
+        float rate = maxFlickerRate * Mathf.Pow(d, 1.3f);
+        if (_flickLeft > 0f)
+        {
+            _flickLeft -= dt;
+            if (_flickLeft <= 0f) { _flickAlpha = 1f; _flickBright = 0f; }
+        }
+        else if (rate > 0.01f)
+        {
+            _flickTimer -= dt;
+            if (_flickTimer <= 0f)
+            {
+                _flickTimer = Random.Range(0.4f, 1.6f) / rate;      // 下一次闪烁（不规则）
+                _flickLeft = Random.Range(0.03f, 0.09f);
+                if (Random.value < 0.7f) { _flickAlpha = Random.Range(0.15f, 0.55f); _flickBright = 0f; }
+                else { _flickAlpha = 1f; _flickBright = Random.Range(0.45f, 0.8f); } // 一下变黑的"断电"闪
+                if (Random.value < 0.25f * d) _flickTimer = Random.Range(0.04f, 0.1f); // 危险时常常连闪
+            }
+        }
+        Color baseCol = col;
+        col = Color.Lerp(col, Color.black, _flickBright);
+
+        // 故障抖动：幅度随危险程度平滑变大（最大 maxJitter 像素）；隔一小段时间跳一次位置，横向为主，像信号不稳
+        float amp = maxJitter * d * d;
+        _glitchTimer -= dt;
+        if (_glitchTimer <= 0f)
+        {
+            _glitchTimer = Mathf.Lerp(0.12f, 0.035f, d);
+            bool jump = amp > 0.05f && Random.value < Mathf.Lerp(0.25f, 0.9f, d);
+            for (int i = 0; i < 4; i++)
+                _cornerJitter[i] = jump ? new Vector2(Random.Range(-amp, amp), Random.Range(-amp, amp) * 0.4f) : Vector2.zero;
+            _textJitter = jump && Random.value < 0.6f ? new Vector2(Random.Range(-amp, amp) * 1.3f, 0f) : Vector2.zero;
+        }
+        if (_flickLeft > 0f && _flickAlpha < 1f) _textJitter.x += Random.Range(-amp, amp); // 闪烁那一下顺便错位
+
+        float a = _flickAlpha * _fxAlpha;
+        _fxColor = col;
+        foreach (RawImage img in _cornerImgs) img.color = new Color(col.r, col.g, col.b, a);
+        _npcText.color = new Color(col.r, col.g, col.b, 1f); // 透明度由 PlaceNpc 里的 alpha 控制
+        if (_npcMat != null)
+        {
+            // 绿色时是同色微光；变黄 / 变红后微光逐渐换成深色柔边，浅色地面上也看得清
+            float k = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.15f, 0.45f, d));
+            Color glow = new Color(baseCol.r * 0.75f, baseCol.g * 0.75f, baseCol.b * 0.75f, 0.4f);
+            Color shade = new Color(0.05f, 0.03f, 0.02f, 0.65f);
+            Color u = Color.Lerp(glow, shade, k);
+            _npcMat.SetColor("_UnderlayColor", new Color(u.r, u.g, u.b, u.a * a));
+        }
     }
 
     void HideNpc()
     {
+        _deathFx = false;
+        _fxAlpha = 1f;
         if (!_npcShown) return;
         _npcShown = false;
         _npcRoot.gameObject.SetActive(false);
@@ -334,6 +589,9 @@ public class HoverInfo : MonoBehaviour
     // NPC / 建筑的信息框。
     void UpdateTarget(GameObject t, NpcView npc)
     {
+        CheckDeaths();
+        if (_deathT >= 0f) { UpdateDeathPin(); return; } // 正在播放死亡效果：盖过悬停
+
         if (t != _target)
         {
             _target = t;
@@ -352,11 +610,71 @@ public class HoverInfo : MonoBehaviour
             _refresh = 0.25f;
             string text = _npc != null ? NpcText(_npc) : BuildingText(_target);
             if (string.IsNullOrEmpty(text)) { Hide(); return; }
-            if (_npc != null) SetNpcText(text);   // NPC：锁定框样式
+            if (_npc != null)                                   // NPC：锁定框样式
+            {
+                SetNpcText(text, NpcHp01(_npc));
+                NpcData nd = FindNpc(_npc.npcId);
+                if (nd != null && nd.IsDead && !_deathFx) { _deathFx = true; _deathFxT = 99f; } // 已死亡：直接画划掉后的样子
+            }
             else SetText(text);
         }
         if (_npc != null) PlaceNpc(_target);
         else Place(_target);
+    }
+
+    // 每 0.2 秒看一次有没有 NPC 刚死（开局就已经死的不算）。
+    void CheckDeaths()
+    {
+        _deathCheck -= Time.unscaledDeltaTime;
+        if (_deathCheck > 0f) return;
+        _deathCheck = 0.2f;
+        if (WorldManager.Instance == null || WorldManager.Instance.world == null || WorldManager.Instance.world.npcs == null) return;
+        foreach (NpcData n in WorldManager.Instance.world.npcs)
+        {
+            if (n == null || !n.IsDead || _knownDead.Contains(n.id)) continue;
+            _knownDead.Add(n.id);
+            if (_deadInit) StartDeathPin(n.id);
+        }
+        _deadInit = true;
+    }
+
+    void StartDeathPin(string id)
+    {
+        NpcMover mover = NpcView.GetMover(id);
+        if (mover == null) return; // 场景里没有这个 NPC 的物体：不弹
+        Hide();
+        _target = null;
+        _npc = null;
+        _deathId = id;
+        _deathGo = mover.gameObject;
+        _deathT = 0f;
+        _refresh = 0f;
+    }
+
+    // 死亡锁定框：跟着 NPC（淡出销毁后停在最后的位置），播完十字线和划线，到时间淡出。
+    void UpdateDeathPin()
+    {
+        _deathT += Time.unscaledDeltaTime;
+        if (_deathT >= DeathShowTime)
+        {
+            _deathT = -1f;
+            _deathId = null;
+            _deathGo = null;
+            HideNpc();
+            return;
+        }
+        _refresh -= Time.unscaledDeltaTime;
+        if (!_npcShown || _refresh <= 0f)
+        {
+            _refresh = 0.25f;
+            string text = NpcTextById(_deathId);
+            if (string.IsNullOrEmpty(text)) { _deathT = -1f; HideNpc(); return; }
+            SetNpcText(text, 0f);
+        }
+        _deathFx = true;
+        _deathFxT = _deathT;
+        _fxAlpha = deathFadeTime > 0f ? Mathf.Clamp01((DeathShowTime - _deathT) / deathFadeTime) : 1f; // 最后淡出
+        PlaceNpc(_deathGo != null ? _deathGo : null);
     }
 
     // ============ 坐标浮窗 ============
@@ -515,9 +833,17 @@ public class HoverInfo : MonoBehaviour
 
     // ============ 文字 ============
 
-    static string NpcText(NpcView view)
+    static float NpcHp01(NpcView view)
     {
         NpcData n = FindNpc(view.npcId);
+        return n != null ? Mathf.Clamp01(n.health / 100f) : 1f;
+    }
+
+    static string NpcText(NpcView view) => NpcTextById(view.npcId);
+
+    static string NpcTextById(string id)
+    {
+        NpcData n = FindNpc(id);
         if (n == null) return null;
         bool jp = LanguageGuard.IsJp;
         string doing;
@@ -529,13 +855,14 @@ public class HoverInfo : MonoBehaviour
         string s = "<b>" + n.npcName + "</b>";
         if (!string.IsNullOrEmpty(n.profession)) s += "  <size=80%><color=#9AA5B8>" + n.profession + "</color></size>";
         s += "\n" + (jp ? "行動：" : "正在：") + doing;
-        if (!n.IsDead)
+        // 饥饿值 / 水分：100 = 不饿 / 不渴（死亡时也显示，死亡效果要把这几行划掉）
+        s += "\n<size=82%><color=#C8CFDC>" + (jp ? "生命 " : "生命 ") + Mathf.RoundToInt(Mathf.Max(0f, n.health)) +
+             (jp ? "　満腹 " : "　饥饿 ") + Mathf.RoundToInt(n.satiety) + "</color></size>";
+        s += "\n<size=82%><color=#C8CFDC>" + (jp ? "水分 " : "水分 ") + Mathf.RoundToInt(n.water) +
+             (jp ? "　体力 " : "　体力 ") + Mathf.RoundToInt(n.energy) + "</color></size>";
+        if (n.IsDead) s += "\n<size=82%>" + (jp ? "バイタル反応なし" : "无生命体征") + "</size>";
+        else
         {
-            // 饥饿值 / 水分：100 = 不饿 / 不渴
-            s += "\n<size=82%><color=#C8CFDC>" + (jp ? "生命 " : "生命 ") + Mathf.RoundToInt(n.health) +
-                 (jp ? "　満腹 " : "　饥饿 ") + Mathf.RoundToInt(n.satiety) +
-                 (jp ? "　水分 " : "　水分 ") + Mathf.RoundToInt(n.water) +
-                 (jp ? "　体力 " : "　体力 ") + Mathf.RoundToInt(n.energy) + "</color></size>";
             // 状态词条（濒死 / 受伤 / 生病 / 饥饿 / 口渴 / 疲惫……）
             List<HealthTag> tags = NpcHealth.Tags(n);
             if (tags.Count == 0) s += "\n<size=82%>" + Good(jp ? "健康" : "健康") + "</size>";
