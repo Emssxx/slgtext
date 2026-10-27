@@ -17,10 +17,14 @@ public class FogManager : MonoBehaviour
     private FogState[,] _fog;
     private int _w, _h;
 
+    [Tooltip("用整张地图一张贴图画迷雾（FogOfWarRenderer：边缘柔和、带流动的雾气，镜头外也有）。关掉 = 用原来的粒子雾")]
+    public bool useTextureFog = true;
+
     void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+        if (useTextureFog && GetComponent<FogOfWarRenderer>() == null) gameObject.AddComponent<FogOfWarRenderer>();
     }
 
     void Start()

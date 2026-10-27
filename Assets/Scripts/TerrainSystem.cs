@@ -48,6 +48,14 @@ public class TerrainSystem : MonoBehaviour
     public TileBase swampTile;
     public TileBase waterTile;
 
+    [Header("资源图片（不填 = 先找 Resources/TerrainArt/<类别> 文件夹，再没有就用程序画的占位图；每格可放多张，按变体随机挑）")]
+    [Tooltip("图片要求：Pixels Per Unit 决定大小（1 单位 = 1 地砖，推荐 256）；Pivot 设在树干根部 / 石头底部中心。该点会放在占地中心，前后遮挡也按它排。\n" +
+             "也可以不填这里，直接把图放进 Assets/Resources/TerrainArt/ 下对应文件夹：Grass / Sapling / Tree / GiantTree / SmallStone / Stone / BigStone / SmallOre / Ore / BigOre")]
+    public Sprite[] grassSprites;
+    public Sprite[] saplingSprites, treeSprites, giantTreeSprites;
+    public Sprite[] smallStoneSprites, stoneSprites, bigStoneSprites;
+    public Sprite[] smallOreSprites, oreSprites, bigOreSprites;
+
     [Header("寻路")]
     [Tooltip("沼泽在 NavMesh 里的区域编号（3 = 第一个自定义区域）")]
     public int swampArea = 3;
@@ -552,6 +560,52 @@ public class TerrainSystem : MonoBehaviour
                 if (on) _resAt[i] = n;
                 else if (_resAt[i] == n) _resAt[i] = null;
             }
+    }
+
+    // Inspector 里填了资源图片就用它（没填返回 null，用程序画的占位图）。
+    public Sprite CustomResourceSprite(ResourceKind kind, int size, int variant)
+    {
+        Sprite[] arr;
+        switch (kind)
+        {
+            case ResourceKind.Tree: arr = size <= 1 ? saplingSprites : size == 2 ? treeSprites : giantTreeSprites; break;
+            case ResourceKind.Stone: arr = size <= 1 ? smallStoneSprites : size == 2 ? stoneSprites : bigStoneSprites; break;
+            case ResourceKind.Ore: arr = size <= 1 ? smallOreSprites : size == 2 ? oreSprites : bigOreSprites; break;
+            default: arr = grassSprites; break;
+        }
+        if (arr == null || arr.Length == 0) arr = FolderSprites(kind, size);
+        if (arr == null || arr.Length == 0) return null;
+        int start = ((variant % arr.Length) + arr.Length) % arr.Length;
+        for (int i = 0; i < arr.Length; i++)
+        {
+            Sprite s = arr[(start + i) % arr.Length];
+            if (s != null) return s;
+        }
+        return null;
+    }
+
+    // Resources/TerrainArt/<类别> 里的图（按文件名排序，Sapling_01、Sapling_02……），每类只读一次。
+    static readonly Dictionary<int, Sprite[]> _folderSprites = new Dictionary<int, Sprite[]>();
+    static Sprite[] FolderSprites(ResourceKind kind, int size)
+    {
+        size = Mathf.Clamp(size, 1, 3);
+        int key = (int)kind * 4 + size;
+        if (_folderSprites.TryGetValue(key, out Sprite[] cached)) return cached;
+        string folder;
+        switch (kind)
+        {
+            case ResourceKind.Tree: folder = size <= 1 ? "Sapling" : size == 2 ? "Tree" : "GiantTree"; break;
+            case ResourceKind.Stone: folder = size <= 1 ? "SmallStone" : size == 2 ? "Stone" : "BigStone"; break;
+            case ResourceKind.Ore: folder = size <= 1 ? "SmallOre" : size == 2 ? "Ore" : "BigOre"; break;
+            default: folder = "Grass"; break;
+        }
+        Sprite[] arr = Resources.LoadAll<Sprite>("TerrainArt/" + folder);
+        if (arr != null && arr.Length > 1) System.Array.Sort(arr, (a, b) => string.CompareOrdinal(a.name, b.name));
+        _folderSprites[key] = arr;
+        if (arr != null && arr.Length > 0)
+            Debug.Log("[TerrainSystem] 读到 TerrainArt/" + folder + " 的图 " + arr.Length + " 张：" + arr[0].name +
+                      "（" + arr[0].rect.width + "×" + arr[0].rect.height + "，PPU " + arr[0].pixelsPerUnit + "，世界尺寸 " + arr[0].bounds.size + "）");
+        return arr;
     }
 
     // ============ 查询（没有地形系统时都返回"普通土地"的结果，别的系统可以放心调）============

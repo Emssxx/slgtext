@@ -63,8 +63,12 @@ public class FogParticleRenderer : MonoBehaviour
     // NPC位置を毎フレーム集める用。
     private readonly List<Vector3> _npcPositions = new List<Vector3>();
 
+    // FogOfWarRenderer（贴图迷雾）启用时为 true：粒子雾不再生成。
+    public static bool Suppressed;
+
     void Start()
     {
+        if (Suppressed) { enabled = false; return; }
         _grid = GridManager.Instance;
         if (_grid == null) { Debug.LogError("[FogParticleRenderer] GridManager が無い"); return; }
         BuildParticleSystem();

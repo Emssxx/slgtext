@@ -7,8 +7,8 @@ using TMPro;
 // HUD 布局（运行时整理主界面，不用改场景）：
 //   左上角：事件栏 + 日志栏收进一个抽屉，点右侧的小把手滑动展开 / 收起。幸存者列表按钮跟着抽屉走。
 //   右下角：建造按钮；进入建造模式时，建造菜单从屏幕右边滑出来（菜单本身仍由 BuildManager 生成）。
-//   顶部中间：天数（第 1 天显示 1，第 2 天显示 2……），下面一行是天气和气温（ClimateSystem）；
-//             天数左边是电力、右边是净化水和「终端机」按钮（ResourceHud）。
+//   右上角：天数（电子表风格段码字，第 1 天显示 1……）；
+//   顶部中间：电力 | 净化水 | 「终端机」按钮（ResourceHud），下面一行是天气和气温（ClimateSystem）。
 //   NPC 对话窗口在左下角（见 NpcChatWindow）。
 // 由 WorldManager.Start 调 HudLayout.Ensure() 创建。场景里原有的面板只是被"挪了位置"，各自的逻辑不变。
 public class HudLayout : MonoBehaviour
@@ -24,9 +24,13 @@ public class HudLayout : MonoBehaviour
     [Tooltip("建造按钮离屏幕右下角的距离（下面留出 AI 状态文字的位置）")]
     public Vector2 buildButtonOffset = new Vector2(-16f, 60f);
 
-    [Header("天数")]
-    [Tooltip("1 = 屏幕顶部中间；0.5 = 屏幕正中央")]
+    [Header("天数（右上角）")]
+    [Tooltip("1 = 屏幕右上角；0.5 = 屏幕右边正中")]
     [Range(0f, 1f)] public float dayAnchorY = 1f;
+    [Tooltip("天数框大小（原来是 96×64）")]
+    public Vector2 daySize = new Vector2(150f, 100f);
+    [Tooltip("离屏幕右上角的距离")]
+    public Vector2 dayOffset = new Vector2(-14f, -6f);
 
     // 建造菜单停靠的位置（右下角锚点坐标，BuildManager 生成菜单时读取）。
     public static Vector2 BuildMenuPos = new Vector2(-16f, 106f);
@@ -249,34 +253,30 @@ public class HudLayout : MonoBehaviour
     {
         bool top = dayAnchorY > 0.75f;
 
-        // 外框（橙色细边，和事件文字同色）+ 深色底 + 大号数字
+        // 透明底 + 电子表风格的段码数字（淡绿色、淡淡发光），下面一行小字 DAY（见 SegmentDisplay.cs）
         RectTransform frame = NewRect("HudDay", root);
-        frame.anchorMin = frame.anchorMax = new Vector2(0.5f, dayAnchorY);
-        frame.pivot = new Vector2(0.5f, top ? 1f : 0.5f);
-        frame.anchoredPosition = new Vector2(0f, top ? -8f : 0f);
-        frame.sizeDelta = new Vector2(96f, 64f);
-        Image border = frame.gameObject.AddComponent<Image>();
-        border.color = new Color(1f, 0.6f, 0.3f, 0.55f);
-        border.raycastTarget = false;
+        frame.anchorMin = frame.anchorMax = new Vector2(1f, dayAnchorY);
+        frame.pivot = new Vector2(1f, top ? 1f : 0.5f);
+        frame.anchoredPosition = new Vector2(dayOffset.x, top ? dayOffset.y : 0f);
+        frame.sizeDelta = daySize;
 
-        RectTransform inner = NewRect("Bg", frame);
-        Stretch(inner, Vector2.zero, Vector2.one, new Vector2(2f, 2f), new Vector2(-2f, -2f));
-        Image bg = inner.gameObject.AddComponent<Image>();
-        bg.color = new Color(0.06f, 0.07f, 0.1f, 0.85f);
-        bg.raycastTarget = false;
-
-        TextMeshProUGUI num = NewText(frame, "Day", 44f);
-        num.fontStyle = FontStyles.Bold;
-        Stretch(num.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        RectTransform digits = NewRect("Day", frame);
+        Stretch(digits, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        RawImage digitImage = digits.gameObject.AddComponent<RawImage>();
+        digitImage.raycastTarget = false;
+        digitImage.color = Color.clear; // 第一次画好之前别闪白块
+        SegmentText seg = digits.gameObject.AddComponent<SegmentText>();
+        seg.subText = "DAY";
 
         HudDayCounter counter = frame.gameObject.AddComponent<HudDayCounter>();
-        counter.label = num;
+        counter.segments = seg;
 
-        // 天气 + 气温（天数下面一行）
+        // 天气 + 气温（顶部中间，电力 / 水那一排下面）
+        const float resRowH = 64f; // ResourceHud 那一排的高度
         RectTransform wx = NewRect("HudWeather", root);
-        wx.anchorMin = wx.anchorMax = new Vector2(0.5f, dayAnchorY);
-        wx.pivot = new Vector2(0.5f, top ? 1f : 0.5f);
-        wx.anchoredPosition = new Vector2(0f, top ? -(8f + frame.sizeDelta.y + 4f) : -(frame.sizeDelta.y * 0.5f + 18f));
+        wx.anchorMin = wx.anchorMax = new Vector2(0.5f, 1f);
+        wx.pivot = new Vector2(0.5f, 1f);
+        wx.anchoredPosition = new Vector2(0f, -(8f + resRowH + 4f));
         wx.sizeDelta = new Vector2(440f, 28f);
         Image wbg = wx.gameObject.AddComponent<Image>();
         wbg.color = new Color(0.06f, 0.07f, 0.1f, 0.7f);
@@ -288,12 +288,12 @@ public class HudLayout : MonoBehaviour
         hw.background = wbg;
 
         // 顶部中间的状态卡区域往下让一让，别被天数挡住
-        if (top && StatusPanelManager.Instance != null)
+        if (StatusPanelManager.Instance != null)
         {
             RectTransform sp = StatusPanelManager.Instance.transform as RectTransform;
             if (sp != null && sp.anchorMin.y > 0.99f)
             {
-                float y = -(8f + frame.sizeDelta.y + 4f + 28f + 6f);
+                float y = -(8f + resRowH + 4f + 28f + 6f);
                 if (sp.anchoredPosition.y > y) sp.anchoredPosition = new Vector2(sp.anchoredPosition.x, y);
             }
         }
@@ -348,18 +348,20 @@ public class HudLayout : MonoBehaviour
 public class HudDayCounter : MonoBehaviour
 {
     public TMP_Text label;
+    public SegmentText segments; // 有它就用电子表数字，没有就用 label
     int _shown = -1;
     float _pulse;
 
     void Update()
     {
-        if (label == null || WorldManager.Instance == null || WorldManager.Instance.world == null) return;
+        if ((label == null && segments == null) || WorldManager.Instance == null || WorldManager.Instance.world == null) return;
         int day = WorldManager.Instance.world.day;
         if (day != _shown)
         {
             if (_shown >= 0) _pulse = 1f; // 开局第一次显示不跳
             _shown = day;
-            label.text = day.ToString();
+            if (segments != null) segments.SetText(day.ToString());
+            else label.text = day.ToString();
         }
         if (_pulse > 0f)
         {

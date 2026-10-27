@@ -75,7 +75,8 @@ public class ResourceNode : MonoBehaviour
         // 图片轴心（树干根部 / 石头底部）放在占地中心
         go.transform.position = g.AreaCenter(n.origin, new Vector2Int(size, size));
         SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
-        sr.sprite = TerrainArt.ResourceSprite(s.kind, size, s.variant);
+        Sprite custom = TerrainSystem.Instance != null ? TerrainSystem.Instance.CustomResourceSprite(s.kind, size, s.variant) : null;
+        sr.sprite = custom != null ? custom : TerrainArt.ResourceSprite(s.kind, size, s.variant); // Inspector 里填了图就用填的
         if (s.kind == ResourceKind.Grass) sr.sortingOrder = -1;  // 草：地面装饰层，永远在脚下
         else
         {

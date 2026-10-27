@@ -25,6 +25,8 @@ public class GridOverlay : MonoBehaviour
     void OnPostRender()
     {
         if (GridManager.Instance == null) return;
+        // 不在建造模式就不画（Esc 退出建造模式时不会经过 BuildModeToggle，之前网格线会一直留着）
+        if (BuildManager.Instance == null || !BuildManager.Instance.IsBuildMode) return;
 
         var gm = GridManager.Instance;
         float ox = gm.origin.x;
