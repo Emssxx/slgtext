@@ -30,6 +30,7 @@ public class WorldManager : MonoBehaviour
         RelationshipManager.InitAllRelationships(world); // 3. 初始化 NPC 间关系
         NpcMemory.BeginSession(world);                   // 4. 建本局的 NPC 档案文件夹（名册、AI 词库、每人的档案和聊天记录）
         HudLayout.Ensure();                              // 5. 整理主界面布局（左上事件/日志抽屉、右下建造、顶部天数）
+        ClimateSystem.Ensure();                          // 6. 天气 + 气温 + 电力（每回合在 RunOneTurnResolve 里结算）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
     }
 
@@ -100,6 +101,7 @@ public class WorldManager : MonoBehaviour
     public void RunOneTurnResolve()
     {
         AdvanceTurn();
+        if (ClimateSystem.Instance != null) ClimateSystem.Instance.OnTurn(world); // 天气、气温、风力发电、加温/降温、收集雨水
         WorldRules.ApplyTurnEffects(world);
         WorldRules.ApplyBreakdown(world);
         WorldRules.ApplyHealth(world);

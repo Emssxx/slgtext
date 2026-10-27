@@ -219,7 +219,7 @@ public class NpcTaskRunner : MonoBehaviour
             NpcDecisionRules.Execute(self, NpcDecisionRules.Behavior.Gather, w); // 仓库 +1 营养块、体力 -15、写日志
             yield break;
         }
-        self.energy = Mathf.Clamp(self.energy - 15f, 0f, 100f);
+        self.energy = Mathf.Clamp(self.energy - 15f * ClimateSystem.EnergyFactor(self), 0f, 100f); // 炎热时消耗更多
         string itemName = GameLexicon.NameOf(itemId);
         if (Random.value < FindChance(itemId))
         {

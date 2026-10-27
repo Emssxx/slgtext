@@ -50,6 +50,7 @@ public class BuildManager : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         if (mainCamera == null) mainCamera = Camera.main;
+        buildables = PowerBuildings.AppendTo(buildables); // 追加风力发电机、营地加温器、营地降温器（运行时生成）
     }
 
     void Update()
@@ -89,6 +90,7 @@ public class BuildManager : MonoBehaviour
     {
         _buildMode = false;
         _selectedData = null;
+        WireTool.Deactivate();
         HideGridOverlay();
         HideBuildMenu();
         Time.timeScale = 1f;     // 恢复游戏时间
@@ -130,10 +132,10 @@ public class BuildManager : MonoBehaviour
             if (g.Count > 0) { cats.Add(cat); groups.Add(g); }
         }
 
-        // 2. 面板高度：标题 + 每个分类小标题26 + 每个按钮40
+        // 2. 面板高度：标题 + 每个分类小标题26 + 每个按钮40（最后多一个「电线」按钮）
         int btnCount = 0;
         foreach (List<BuildableData> g in groups) btnCount += g.Count;
-        float panelHeight = 44f + cats.Count * 26f + btnCount * 40f;
+        float panelHeight = 44f + cats.Count * 26f + btnCount * 40f + 48f;
 
         GameObject panel = new GameObject("Panel");
         panel.transform.SetParent(_buildMenuUI.transform, false);
@@ -169,6 +171,19 @@ public class BuildManager : MonoBehaviour
             }
         }
 
+        // 4. 电线（连线工具，不是建筑）：先点一个电力设备，再点另一个，把它们连起来
+        y -= 8f;
+        MakeButton(panel.transform, ProgressionRules.L("build_wire"), new Vector2(80f, y - 8f), () => { });
+        Image wireImg = panel.transform.GetChild(panel.transform.childCount - 1).GetComponent<Image>();
+        Color wireIdle = new Color(0.35f, 0.3f, 0.1f, 1f), wireOn = new Color(0.85f, 0.65f, 0.15f, 1f);
+        wireImg.color = WireTool.Active ? wireOn : wireIdle;
+        wireImg.GetComponent<Button>().onClick.AddListener(() =>
+        {
+            _selectedData = null;
+            WireTool.Toggle();
+            wireImg.color = WireTool.Active ? wireOn : wireIdle;
+        });
+
         panel.AddComponent<UiSlider>().SlideTo(shownPos); // 从右边滑出来
     }
 
@@ -200,6 +215,7 @@ public class BuildManager : MonoBehaviour
     // 菜单按钮回调：记录当前选中的建造物数据
     public void SelectBuildType(BuildableData data)
     {
+        if (WireTool.Active) WireTool.Toggle(); // 选了建筑就退出电线模式
         _selectedData = data;
         Debug.Log($"[BuildManager] 已选择：{data.displayName}，点格子开始建造。");
     }
@@ -255,6 +271,9 @@ public class BuildManager : MonoBehaviour
 
     void HandleCellClick(Vector2Int cell)
     {
+        // 电线模式：点的是电力设备，不是建造
+        if (WireTool.Active) { WireTool.HandleClick(cell); return; }
+
         // 还没选类型，提示玩家先选
         if (_selectedData == null)
         {

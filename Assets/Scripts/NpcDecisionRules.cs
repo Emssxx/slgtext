@@ -96,7 +96,7 @@ public static class NpcDecisionRules
                 break;
 
             case Behavior.Gather:
-                npc.energy = Mathf.Clamp(npc.energy - 15f, 0f, 100f);
+                npc.energy = Mathf.Clamp(npc.energy - 15f * ClimateSystem.EnergyFactor(npc), 0f, 100f); // 炎热时消耗更多
                 WorldManager.Instance.AddToStorage("ration", 1); // 搜寻带回 1 份蛋白营养块
                 npc.currentAction = "外出搜寻物资";
                 log = Loc("log_gather", npc.npcName);

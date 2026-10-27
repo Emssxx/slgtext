@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
-// AI 终端机面板：点击终端机打开。三个分页——升级 / 合成（建造台）/ 科技。
+// AI 终端机面板：点击终端机打开。四个分页——升级 / 合成（建造台）/ 科技 / 能源（电网 + 加温器、降温器的档位）。
 // 底部显示算力槽和任务队列。UI 运行时自动生成（和仓库面板同一风格）。
 // 挂在场景里的常驻空物体上（和 TerminalDatabase 放一起即可），不要挂在终端机预制体上。
 public class TerminalPanelUI : MonoBehaviour
@@ -16,14 +16,21 @@ public class TerminalPanelUI : MonoBehaviour
     [Header("设置")]
     public float refreshInterval = 0.25f; // 打开时多久刷新一次（进度条要动，所以快一点）
 
-    enum Tab { Upgrade, Craft, Tech }
+    enum Tab { Upgrade, Craft, Tech, Power }
     private Tab _tab = Tab.Craft;
 
     // —— 运行时生成的 UI ——
     private GameObject _panel;
     private TMP_Text _header, _queueText, _dName, _dDesc, _dCost, _dReq, _feedback, _actionText;
     private Button _actionBtn;
-    private Button[] _tabBtns = new Button[3];
+    private Button[] _tabBtns = new Button[4];
+
+    // —— 能源页 ——
+    private GameObject _powerRoot;
+    private TMP_Text _powerSummary, _powerHeader;
+    private class DevRow { public PowerNode node; public GameObject root; public TMP_Text label, status; }
+    private readonly List<DevRow> _devRows = new List<DevRow>();
+    const int MaxDevRows = 6;
     private RectTransform _listRoot;
 
     // 左侧列表的一行
@@ -87,7 +94,12 @@ public class TerminalPanelUI : MonoBehaviour
         _header.text = $"{L("terminal_name")}　<color=#4EA8FF>{ProgressionRules.TierLabel(ProgressionRules.Tier)}</color>　<size=75%><color=#9AA5B8>{status}</color></size>";
 
         // 分页按钮高亮
-        for (int i = 0; i < 3; i++) _tabBtns[i].GetComponent<Image>().color = (int)_tab == i ? TabSelColor : TabColor;
+        for (int i = 0; i < _tabBtns.Length; i++) _tabBtns[i].GetComponent<Image>().color = (int)_tab == i ? TabSelColor : TabColor;
+
+        // 能源页：另一套界面
+        bool power = _tab == Tab.Power;
+        SetMainVisible(!power);
+        if (power) { RefreshPower(); return; }
 
         // 左侧列表
         List<(string id, string label, bool dim)> entries = BuildEntries();
@@ -325,9 +337,9 @@ public class TerminalPanelUI : MonoBehaviour
         ct.text = "×"; ct.fontSize = 28;
         close.onClick.AddListener(Close);
 
-        // 三个分页按钮
-        string[] tabKeys = { "term_tab_upgrade", "term_tab_craft", "term_tab_tech" };
-        for (int i = 0; i < 3; i++)
+        // 四个分页按钮
+        string[] tabKeys = { "term_tab_upgrade", "term_tab_craft", "term_tab_tech", "term_tab_power" };
+        for (int i = 0; i < tabKeys.Length; i++)
         {
             Tab t = (Tab)i;
             _tabBtns[i] = NewButton(_panel.transform, "Tab" + i, TabColor, out TMP_Text tt);
@@ -367,6 +379,139 @@ public class TerminalPanelUI : MonoBehaviour
         _queueText = NewText(_panel.transform, "Queue", "", 18, Color.white, TextAlignmentOptions.TopLeft);
         _queueText.enableWordWrapping = true;
         Place(_queueText.rectTransform, 24, 476, 852, 90);
+
+        BuildPowerUI();
+    }
+
+    // ================= 能源页 =================
+
+    void BuildPowerUI()
+    {
+        _powerRoot = new GameObject("PowerTab", typeof(RectTransform));
+        _powerRoot.transform.SetParent(_panel.transform, false);
+        Place((RectTransform)_powerRoot.transform, 24, 120, 852, 446);
+
+        _powerSummary = NewText(_powerRoot.transform, "Summary", "", 18, Color.white, TextAlignmentOptions.TopLeft);
+        _powerSummary.enableWordWrapping = true;
+        Place(_powerSummary.rectTransform, 0, 0, 852, 150);
+
+        _powerHeader = NewText(_powerRoot.transform, "DevHeader", "", 18, SubColor, TextAlignmentOptions.Left);
+        Place(_powerHeader.rectTransform, 0, 154, 852, 26);
+        _powerRoot.SetActive(false);
+    }
+
+    void SetMainVisible(bool on)
+    {
+        _listRoot.gameObject.SetActive(on);
+        _dName.gameObject.SetActive(on);
+        _dDesc.gameObject.SetActive(on);
+        _dCost.gameObject.SetActive(on);
+        _dReq.gameObject.SetActive(on);
+        _feedback.gameObject.SetActive(on);
+        _queueText.gameObject.SetActive(on);
+        if (!on) _actionBtn.gameObject.SetActive(false);
+        if (_powerRoot != null) _powerRoot.SetActive(!on);
+    }
+
+    void RefreshPower()
+    {
+        bool jp = LanguageGuard.IsJp;
+        ClimateSystem cs = ClimateSystem.Instance;
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        if (cs != null)
+        {
+            sb.AppendLine((jp ? "天気：" : "天气：") + cs.HudText(jp) +
+                          (jp ? "　風力発電：1台 " : "　风力发电：每台 ") + cs.WindPowerPerTurn.ToString("0.#") + (jp ? " /ターン（AI端末にも内蔵）" : " /回合（终端机也自带一台）"));
+        }
+        // 水源：收集器存的雨水 → 净化器
+        sb.AppendLine(jp
+            ? "水源：雨水タンク " + WaterWorks.CollectorCount + " 基（雨水 " + WaterWorks.RawTotal + "/" + WaterWorks.RawCapacity + "）　浄水器 " + WaterWorks.PurifierCount + " 台　前ターンの浄化 " + WaterWorks.PurifiedLastTurn
+            : "水源：雨水收集器 " + WaterWorks.CollectorCount + " 台（存雨水 " + WaterWorks.RawTotal + "/" + WaterWorks.RawCapacity + "）　净化器 " + WaterWorks.PurifierCount + " 台　上回合净化 " + WaterWorks.PurifiedLastTurn + " 份");
+
+        List<string> unlinked = new List<string>();
+        foreach (PowerGrid.Network n in PowerGrid.Networks)
+        {
+            int devices = 0;
+            foreach (PowerNode p in n.nodes) if (p.IsDevice) devices++;
+            if (n.Generators == 0)
+            {
+                foreach (PowerNode p in n.nodes) if (p.IsDevice) unlinked.Add(p.DisplayName);
+                continue;
+            }
+            if (n.nodes.Count == 1 && devices == 0 && n.nodes[0].kind == PowerNodeKind.Turbine)
+            {
+                unlinked.Add(n.nodes[0].DisplayName);
+                continue;
+            }
+            sb.AppendLine((jp ? "電力網" : "电网") + n.id + "：" + (jp ? "発電 " : "发电 ") + n.Produced.ToString("0.#") +
+                          (jp ? "　蓄電 " : "　储电 ") + n.Stored.ToString("0.#") + "/" + n.Capacity.ToString("0") +
+                          (jp ? "　消費 " : "　用电 ") + n.Consumed.ToString("0.#") + (jp ? "（発電機 " : "（发电机 ") + n.Generators + (jp ? "台・設備 " : " 台、设备 ") + devices + (jp ? "台）" : " 台）"));
+        }
+        if (unlinked.Count > 0)
+            sb.AppendLine((jp ? "<color=#FFB060>未接続：" : "<color=#FFB060>没接电线：") + string.Join("、", unlinked) + "</color>");
+        sb.Append(jp
+            ? "<size=85%><color=#9AA5B8>建築モードの「電線」で発電機と設備をつなぐ。どの設備も1段階ごとに1ターン " + PowerGrid.ConsumptionPerLevel + " 消費。ヒーター／クーラー：1段階 ±" + PowerGrid.DegreesPerLevel + "℃（半径" + PowerGrid.Radius + "マス）。浄水器：1段階で雨水 " + WaterWorks.PurifyPerLevel + " 杯を浄化（雨水がない時は待機）。</color></size>"
+            : "<size=85%><color=#9AA5B8>在建造模式里用「电线」把发电机和设备连起来。每档每回合耗 " + PowerGrid.ConsumptionPerLevel + " 电。加温器/降温器：每档 ±" + PowerGrid.DegreesPerLevel + "℃（半径 " + PowerGrid.Radius + " 格）；净化器：每档净化 " + WaterWorks.PurifyPerLevel + " 份雨水（没雨水时待机不耗电）。</color></size>");
+        _powerSummary.text = sb.ToString();
+
+        // 设备列表（加温器 / 降温器 / 水源净化器）
+        List<PowerNode> devs = new List<PowerNode>();
+        foreach (PowerNode p in PowerNode.All) if (p != null && p.IsDevice) devs.Add(p);
+        devs.Sort((a, b) => a.kind != b.kind ? a.kind.CompareTo(b.kind) : a.Cell.x != b.Cell.x ? a.Cell.x.CompareTo(b.Cell.x) : a.Cell.y.CompareTo(b.Cell.y));
+        _powerHeader.text = devs.Count == 0
+            ? (jp ? "電気を使う設備はまだない（ヒーター／クーラーは「生活」・端末 Lv1、浄水器は「生産」から）" : "还没有用电设备（加温器 / 降温器在「生活」里建，需要终端机 Lv1；水源净化器在「生产」里）")
+            : (jp ? "設備（段階 0＝オフ、最大 " : "设备（档位 0 = 关，最高 ") + PowerGrid.MaxLevel + (jp ? "）" + (devs.Count > MaxDevRows ? "　ほか " + (devs.Count - MaxDevRows) + " 台" : "") : "）" + (devs.Count > MaxDevRows ? "　还有 " + (devs.Count - MaxDevRows) + " 台没显示" : ""));
+
+        bool same = devs.Count == _devRows.Count || (devs.Count > MaxDevRows && _devRows.Count == MaxDevRows);
+        if (same) for (int i = 0; i < _devRows.Count; i++) if (_devRows[i].node != devs[i]) { same = false; break; }
+        if (!same) RebuildDevRows(devs);
+
+        foreach (DevRow r in _devRows)
+        {
+            if (r.node == null) continue;
+            PowerNode d = r.node;
+            r.label.text = d.DisplayName + (jp ? "　段階 " : "　档位 ") + "<color=#4EA8FF>" + d.level + "</color>";
+            string st;
+            if (!d.IsBuilt) st = jp ? "<color=#9AA5B8>建設中</color>" : "<color=#9AA5B8>施工中</color>";
+            else if (d.level == 0) st = jp ? "<color=#9AA5B8>オフ</color>" : "<color=#9AA5B8>关闭</color>";
+            else if (d.kind == PowerNodeKind.Purifier && d.powered) st = "<color=#5FD69A>" + (jp ? "浄化中 " : "净化中 ") + (d.level * WaterWorks.PurifyPerLevel) + (jp ? "杯/ターン" : "份/回合") + "</color>";
+            else if (d.kind == PowerNodeKind.Purifier && WaterWorks.RawTotal <= 0) st = jp ? "<color=#9AA5B8>待機（雨水なし）</color>" : "<color=#9AA5B8>待机（没有雨水）</color>";
+            else if (d.powered) st = "<color=#5FD69A>" + (jp ? "稼働中 " : "运行中 ") + (d.kind == PowerNodeKind.Heater ? "+" : "−") + (d.level * PowerGrid.DegreesPerLevel) + "℃</color>";
+            else if (d.network == null || d.network.Generators == 0) st = jp ? "<color=#FF6B6B>未接続</color>" : "<color=#FF6B6B>没接电</color>";
+            else st = jp ? "<color=#FF6B6B>電力不足</color>" : "<color=#FF6B6B>电力不足</color>";
+            r.status.text = st;
+        }
+    }
+
+    void RebuildDevRows(List<PowerNode> devs)
+    {
+        foreach (DevRow r in _devRows) if (r.root != null) Destroy(r.root);
+        _devRows.Clear();
+        for (int i = 0; i < devs.Count && i < MaxDevRows; i++)
+        {
+            PowerNode node = devs[i];
+            float y = 186 + i * 42;
+            GameObject root = new GameObject("Dev_" + i, typeof(RectTransform));
+            root.transform.SetParent(_powerRoot.transform, false);
+            Place((RectTransform)root.transform, 0, y, 852, 38);
+            Image bg = root.AddComponent<Image>();
+            bg.color = RowColor;
+
+            TMP_Text label = NewText(root.transform, "Label", "", 19, Color.white, TextAlignmentOptions.Left);
+            Place(label.rectTransform, 12, 0, 520, 38);
+            Button minus = NewButton(root.transform, "Minus", TabColor, out TMP_Text mt);
+            mt.text = "−";
+            Place((RectTransform)minus.transform, 540, 3, 44, 32);
+            minus.onClick.AddListener(() => { PowerGrid.SetLevel(node, node.level - 1); RefreshPower(); });
+            Button plus = NewButton(root.transform, "Plus", TabColor, out TMP_Text pt);
+            pt.text = "+";
+            Place((RectTransform)plus.transform, 592, 3, 44, 32);
+            plus.onClick.AddListener(() => { PowerGrid.SetLevel(node, node.level + 1); RefreshPower(); });
+            TMP_Text status = NewText(root.transform, "Status", "", 18, Color.white, TextAlignmentOptions.Left);
+            Place(status.rectTransform, 648, 0, 200, 38);
+
+            _devRows.Add(new DevRow { node = node, root = root, label = label, status = status });
+        }
     }
 
     void RebuildRows(List<(string id, string label, bool dim)> entries)

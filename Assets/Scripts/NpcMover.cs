@@ -13,6 +13,8 @@ public class NpcMover : MonoBehaviour
     private SpriteRenderer _sprite;
     private bool _hasTarget = false;
     private float _baseSpeed = 3f; // NavMeshAgent 上原本设置的速度（闲逛调慢后用它恢复）
+    private float _speedMult = 1f; // 行为给的倍率（闲逛慢走等）
+    private float _tempFactor = 1f; // 气温给的倍率（寒冷时变慢，ClimateSystem 设置）
 
     void Awake()
     {
@@ -54,8 +56,23 @@ public class NpcMover : MonoBehaviour
     // 外部调用：按倍率调整走路速度（闲逛时慢悠悠地走；用完调回 1）。
     public void SetSpeedMultiplier(float multiplier)
     {
+        _speedMult = Mathf.Max(0.05f, multiplier);
+        ApplySpeed();
+    }
+
+    // 外部调用：气温造成的速度倍率（寒冷时 < 1）。和上面的倍率相乘，互不覆盖。
+    public void SetTemperatureFactor(float factor)
+    {
+        factor = Mathf.Max(0.05f, factor);
+        if (Mathf.Approximately(factor, _tempFactor)) return;
+        _tempFactor = factor;
+        ApplySpeed();
+    }
+
+    void ApplySpeed()
+    {
         if (_agent == null) return;
-        _agent.speed = _baseSpeed * Mathf.Max(0.05f, multiplier);
+        _agent.speed = _baseSpeed * _speedMult * _tempFactor;
     }
 
     // 外部调用：原地转身面朝某个点（闲聊时面对面用）。左右翻转规则和走路时一致。

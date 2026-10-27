@@ -26,6 +26,7 @@ public static class PromptContext
         sb.AppendLine(jp
             ? $"・{w.day}日目。亜空間の異常度：{w.anomalyLevel:0}/100（高いほど危険）"
             : $"・第{w.day}天。亚空间异常度：{w.anomalyLevel:0}/100（越高越危险）");
+        if (ClimateSystem.Instance != null) sb.AppendLine(ClimateSystem.Instance.PromptLine(jp)); // 天气和气温
         int tier = ProgressionRules.Tier;
         sb.AppendLine(jp
             ? (tier > 0 ? $"・AI端末：Lv{tier}（稼働中）" : "・AI端末：まだ建っていない")

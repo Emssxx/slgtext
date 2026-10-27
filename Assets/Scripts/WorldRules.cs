@@ -102,6 +102,9 @@ public static class WorldRules
             // 崩解掉血
             if (npc.isBroken) delta -= 8f;
 
+            // 寒冷冻伤、在营地外被冰雹砸伤（ClimateSystem 本回合算好的）
+            delta += ClimateSystem.HealthDeltaFor(npc);
+
             // 安全区 + 不饿 + 没崩解 → 回血
             if (world.isSafeZone && npc.hunger < 50f && !npc.isBroken)
                 delta += 4f;

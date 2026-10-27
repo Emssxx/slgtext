@@ -95,11 +95,6 @@ public class LocalizationManager : MonoBehaviour
             { "build_wall", ("墙", "壁") },
             { "build_box", ("箱子", "箱") },
 
-            // —— 临时调试面板（EventDebugPanel，测试完记得连这几行一起删）——
-            { "debug_space_warp",     ("空间扭曲", "空間の歪み") },
-            { "debug_time_disorder",  ("时间失序", "時間の乱れ") },
-            { "debug_whisper_vision", ("低语与幻象", "囁きと幻影") },
-
             // —— AI模型调试UI（AIModelDebugUI，右下角展示当前模型）——
             { "ai_debug_label_local",   ("本地", "ローカル") },   // 用本地Ollama时的前缀
             { "ai_debug_label_cloud",   ("云端", "クラウド") },   // 用云端Claude时的前缀
@@ -108,6 +103,7 @@ public class LocalizationManager : MonoBehaviour
             { "event_banner_space_warp",     ("空间扭曲", "空間の歪み") },
             { "event_banner_time_disorder",  ("时间失序", "時間の乱れ") },
             { "event_banner_whisper_vision", ("低语与幻象", "囁きと幻影") },
+            { "event_banner_storm",          ("亚空间风暴", "亜空間の嵐") },
 
             // —— NPC行为日志（NpcDecisionRules.Execute写进日志栏，{0}=NPC名字）——
             { "log_eat_success", ("{0} 吃了{1}。", "{0}は{1}を口にした。") },
@@ -175,6 +171,8 @@ public class LocalizationManager : MonoBehaviour
             { "term_tab_upgrade",     ("升级", "アップグレード") },
             { "term_tab_craft",       ("合成", "合成") },
             { "term_tab_tech",        ("科技", "技術") },
+            { "term_tab_power",       ("能源", "エネルギー") },
+            { "build_wire",           ("电线（连线）", "電線（接続）") },
             { "term_status_online",   ("在线", "オンライン") },
             { "term_status_building", ("建造中", "建設中") },
             { "term_status_offline",  ("离线", "オフライン") },

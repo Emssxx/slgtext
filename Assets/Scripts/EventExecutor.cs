@@ -59,8 +59,11 @@ public class EventExecutor : MonoBehaviour
                 DoWhisperVision();
                 break;
 
+            case "storm":           // 亚空间风暴：天气变成暴雨 + 大风（风力发电机满负荷；天气系统也会在暴雨+大风时触发它）
+                ClimateSystem.Ensure().ForceStorm(2);
+                break;
+
             // —— 以下事件留位，等对应系统就绪再实现 ——
-            // case "storm":         DoStorm(); break;          // 依赖电力系统
             // case "causal_reversal": DoCausalReversal(); break; // 依赖建造材料系统
 
             default:

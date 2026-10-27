@@ -7,7 +7,7 @@ using TMPro;
 // HUD 布局（运行时整理主界面，不用改场景）：
 //   左上角：事件栏 + 日志栏收进一个抽屉，点右侧的小把手滑动展开 / 收起。幸存者列表按钮跟着抽屉走。
 //   右下角：建造按钮；进入建造模式时，建造菜单从屏幕右边滑出来（菜单本身仍由 BuildManager 生成）。
-//   顶部中间：天数（第 1 天显示 1，第 2 天显示 2……）。
+//   顶部中间：天数（第 1 天显示 1，第 2 天显示 2……），下面一行是天气和气温（ClimateSystem）。
 //   NPC 对话窗口在左下角（见 NpcChatWindow）。
 // 由 WorldManager.Start 调 HudLayout.Ensure() 创建。场景里原有的面板只是被"挪了位置"，各自的逻辑不变。
 public class HudLayout : MonoBehaviour
@@ -268,13 +268,28 @@ public class HudLayout : MonoBehaviour
         HudDayCounter counter = frame.gameObject.AddComponent<HudDayCounter>();
         counter.label = num;
 
+        // 天气 + 气温（天数下面一行）
+        RectTransform wx = NewRect("HudWeather", root);
+        wx.anchorMin = wx.anchorMax = new Vector2(0.5f, dayAnchorY);
+        wx.pivot = new Vector2(0.5f, top ? 1f : 0.5f);
+        wx.anchoredPosition = new Vector2(0f, top ? -(8f + frame.sizeDelta.y + 4f) : -(frame.sizeDelta.y * 0.5f + 18f));
+        wx.sizeDelta = new Vector2(440f, 28f);
+        Image wbg = wx.gameObject.AddComponent<Image>();
+        wbg.color = new Color(0.06f, 0.07f, 0.1f, 0.7f);
+        wbg.raycastTarget = false;
+        TextMeshProUGUI wt = NewText(wx, "Text", 17f);
+        Stretch(wt.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        HudWeather hw = wx.gameObject.AddComponent<HudWeather>();
+        hw.label = wt;
+        hw.background = wbg;
+
         // 顶部中间的状态卡区域往下让一让，别被天数挡住
         if (top && StatusPanelManager.Instance != null)
         {
             RectTransform sp = StatusPanelManager.Instance.transform as RectTransform;
             if (sp != null && sp.anchorMin.y > 0.99f)
             {
-                float y = -(8f + frame.sizeDelta.y + 6f);
+                float y = -(8f + frame.sizeDelta.y + 4f + 28f + 6f);
                 if (sp.anchoredPosition.y > y) sp.anchoredPosition = new Vector2(sp.anchoredPosition.x, y);
             }
         }
@@ -347,6 +362,35 @@ public class HudDayCounter : MonoBehaviour
             _pulse = Mathf.Max(0f, _pulse - Time.unscaledDeltaTime / 0.45f);
             float s = 1f + 0.35f * _pulse * _pulse;
             transform.localScale = new Vector3(s, s, 1f);
+        }
+    }
+}
+
+// 顶部的天气 + 气温：每半秒刷新；炎热 / 寒冷 / 异常气温时变色。
+public class HudWeather : MonoBehaviour
+{
+    public TMP_Text label;
+    public Image background;
+    float _timer;
+
+    void Update()
+    {
+        _timer -= Time.unscaledDeltaTime;
+        if (_timer > 0f || label == null) return;
+        _timer = 0.5f;
+        ClimateSystem cs = ClimateSystem.Instance;
+        bool show = cs != null;
+        label.enabled = show;
+        if (background != null) background.enabled = show;
+        if (!show) return;
+        label.text = cs.HudText(LanguageGuard.IsJp);
+        switch (cs.StateOf(cs.CampTemperature))
+        {
+            case TempState.Hot: label.color = new Color(1f, 0.62f, 0.32f); break;
+            case TempState.Cold: label.color = new Color(0.55f, 0.8f, 1f); break;
+            case TempState.ExtremeHot:
+            case TempState.ExtremeCold: label.color = new Color(0.9f, 0.45f, 1f); break;
+            default: label.color = Color.white; break;
         }
     }
 }

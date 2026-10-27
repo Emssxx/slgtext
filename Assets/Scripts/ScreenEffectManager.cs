@@ -160,6 +160,12 @@ public class ScreenEffectManager : MonoBehaviour
                 Banner(GetBannerText("event_banner_time_disorder"), new Color(0.31f, 0.66f, 1f));
                 break;
 
+            case "storm": // 亚空间风暴：铅灰闪 + 持续震动 + 横幅
+                Flash(new Color(0.35f, 0.4f, 0.45f), 0.9f, 0.5f);
+                Shake(0.18f, 1.2f);
+                Banner(GetBannerText("event_banner_storm"), new Color(0.75f, 0.85f, 0.95f));
+                break;
+
             case "whisper_vision": // 低语与幻象：暗紫黑雾 + 无震动 + 横幅
                 Flash(new Color(0.15f, 0.05f, 0.2f), 1.2f, 0.55f); // 暗紫
                 Banner(GetBannerText("event_banner_whisper_vision"), new Color(0.7f, 0.5f, 0.9f));
