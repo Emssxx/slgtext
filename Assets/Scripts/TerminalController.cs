@@ -57,6 +57,7 @@ public class TerminalController : MonoBehaviour
     void OnBuildComplete()
     {
         isBuilt = true;
+        isActive = true; // 建好就开机（预制体上 isActive 是关着的，以前没有任何地方把它打开，所以一直离线）
         if (WorldManager.Instance == null) return;
         WorldState w = WorldManager.Instance.world;
         if (w.terminalLevel < 1) w.terminalLevel = 1;
@@ -69,7 +70,9 @@ public class TerminalController : MonoBehaviour
     // MVP 阶段先空着，或只返回一句话。
     public string GetStatusInfo()
     {
-        return isActive ? $"{terminalName}：在线" : $"{terminalName}：离线";
+        if (!isBuilt) return LanguageGuard.Pick($"{terminalName}：施工中", "AI端末：建設中");
+        return IsOnline() ? LanguageGuard.Pick($"{terminalName}：在线", "AI端末：オンライン")
+                          : LanguageGuard.Pick($"{terminalName}：离线", "AI端末：オフライン");
     }
 
     // —— 扩展接口：以后加功能时用 ——

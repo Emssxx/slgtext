@@ -423,17 +423,17 @@ public class TerminalPanelUI : MonoBehaviour
             sb.AppendLine((jp ? "天気：" : "天气：") + cs.HudText(jp) +
                           (jp ? "　風力発電：1台 " : "　风力发电：每台 ") + cs.WindPowerPerTurn.ToString("0.#") + (jp ? " /ターン（AI端末にも内蔵）" : " /回合（终端机也自带一台）"));
         }
-        // 水源：收集器存的雨水 → 净化器
+        // 水源：收集器存的雨水 → 净化器 → 仓库 → 每日配给
         sb.AppendLine(jp
-            ? "水源：雨水タンク " + WaterWorks.CollectorCount + " 基（雨水 " + WaterWorks.RawTotal + "/" + WaterWorks.RawCapacity + "）　浄水器 " + WaterWorks.PurifierCount + " 台　前ターンの浄化 " + WaterWorks.PurifiedLastTurn
-            : "水源：雨水收集器 " + WaterWorks.CollectorCount + " 台（存雨水 " + WaterWorks.RawTotal + "/" + WaterWorks.RawCapacity + "）　净化器 " + WaterWorks.PurifierCount + " 台　上回合净化 " + WaterWorks.PurifiedLastTurn + " 份");
+            ? "水：浄化水 " + WaterWorks.StoredWater + "（1日 " + WaterWorks.DailyDemand.ToString("0.#") + " 消費）　雨水タンク " + WaterWorks.CollectorCount + " 基（雨水 " + WaterWorks.RawTotal + "/" + WaterWorks.RawCapacity + "）　浄水器 " + WaterWorks.PurifierCount + " 台（前ターン +" + WaterWorks.PurifiedLastTurn + "）"
+            : "水：净化水 " + WaterWorks.StoredWater + "（每天喝 " + WaterWorks.DailyDemand.ToString("0.#") + "）　雨水收集器 " + WaterWorks.CollectorCount + " 台（存雨水 " + WaterWorks.RawTotal + "/" + WaterWorks.RawCapacity + "）　净化器 " + WaterWorks.PurifierCount + " 台（上回合 +" + WaterWorks.PurifiedLastTurn + "）");
 
         List<string> unlinked = new List<string>();
         foreach (PowerGrid.Network n in PowerGrid.Networks)
         {
             int devices = 0;
             foreach (PowerNode p in n.nodes) if (p.IsDevice) devices++;
-            if (n.Generators == 0)
+            if (n.Generators == 0 && n.Batteries == 0)
             {
                 foreach (PowerNode p in n.nodes) if (p.IsDevice) unlinked.Add(p.DisplayName);
                 continue;
@@ -443,15 +443,17 @@ public class TerminalPanelUI : MonoBehaviour
                 unlinked.Add(n.nodes[0].DisplayName);
                 continue;
             }
+            string shed = n.Shed > 0 ? (jp ? "　<color=#FF6B6B>停止 " + n.Shed + " 台</color>" : "　<color=#FF6B6B>断电 " + n.Shed + " 台</color>") : "";
             sb.AppendLine((jp ? "電力網" : "电网") + n.id + "：" + (jp ? "発電 " : "发电 ") + n.Produced.ToString("0.#") +
+                          (jp ? "　消費 " : "　用电 ") + n.Consumed.ToString("0.#") + "/" + n.Demand.ToString("0.#") +
                           (jp ? "　蓄電 " : "　储电 ") + n.Stored.ToString("0.#") + "/" + n.Capacity.ToString("0") +
-                          (jp ? "　消費 " : "　用电 ") + n.Consumed.ToString("0.#") + (jp ? "（発電機 " : "（发电机 ") + n.Generators + (jp ? "台・設備 " : " 台、设备 ") + devices + (jp ? "台）" : " 台）"));
+                          (jp ? "（発電機 " : "（发电机 ") + n.Generators + (jp ? "・電池 " : "、电池 ") + n.Batteries + (jp ? "・設備 " : "、设备 ") + devices + (jp ? "）" : "）") + shed);
         }
         if (unlinked.Count > 0)
             sb.AppendLine((jp ? "<color=#FFB060>未接続：" : "<color=#FFB060>没接电线：") + string.Join("、", unlinked) + "</color>");
         sb.Append(jp
-            ? "<size=85%><color=#9AA5B8>建築モードの「電線」で発電機と設備をつなぐ。どの設備も1段階ごとに1ターン " + PowerGrid.ConsumptionPerLevel + " 消費。ヒーター／クーラー：1段階 ±" + PowerGrid.DegreesPerLevel + "℃（半径" + PowerGrid.Radius + "マス）。浄水器：1段階で雨水 " + WaterWorks.PurifyPerLevel + " 杯を浄化（雨水がない時は待機）。</color></size>"
-            : "<size=85%><color=#9AA5B8>在建造模式里用「电线」把发电机和设备连起来。每档每回合耗 " + PowerGrid.ConsumptionPerLevel + " 电。加温器/降温器：每档 ±" + PowerGrid.DegreesPerLevel + "℃（半径 " + PowerGrid.Radius + " 格）；净化器：每档净化 " + WaterWorks.PurifyPerLevel + " 份雨水（没雨水时待机不耗电）。</color></size>");
+            ? "<size=85%><color=#9AA5B8>「電線」で発電機・蓄電池・設備をつなぐ。余った電気は蓄電池へ（効率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%）。足りない時は浄水器から先に止まる。ヒーター／クーラー 1/2/3段階：消費 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "、±" + PowerGrid.DegreesPerLevel + "℃ずつ（半径" + PowerGrid.Radius + "マス）。浄水器：1段階で最大 " + WaterWorks.PurifyPerLevel + " 杯、浄化した分だけ消費。</color></size>"
+            : "<size=85%><color=#9AA5B8>用「电线」把发电机、蓄电池和设备连起来。多余的电充进电池（效率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%），电不够时先停净化器。加温器/降温器 1/2/3 档耗电 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "，每档 ±" + PowerGrid.DegreesPerLevel + "℃（半径 " + PowerGrid.Radius + " 格）；净化器每档最多净化 " + WaterWorks.PurifyPerLevel + " 份，按净化量耗电。</color></size>");
         _powerSummary.text = sb.ToString();
 
         // 设备列表（加温器 / 降温器 / 水源净化器）
@@ -474,10 +476,10 @@ public class TerminalPanelUI : MonoBehaviour
             string st;
             if (!d.IsBuilt) st = jp ? "<color=#9AA5B8>建設中</color>" : "<color=#9AA5B8>施工中</color>";
             else if (d.level == 0) st = jp ? "<color=#9AA5B8>オフ</color>" : "<color=#9AA5B8>关闭</color>";
-            else if (d.kind == PowerNodeKind.Purifier && d.powered) st = "<color=#5FD69A>" + (jp ? "浄化中 " : "净化中 ") + (d.level * WaterWorks.PurifyPerLevel) + (jp ? "杯/ターン" : "份/回合") + "</color>";
+            else if (d.kind == PowerNodeKind.Purifier && d.powered) st = "<color=#5FD69A>" + (jp ? "浄化中 " : "净化中 ") + d.workAmount + (jp ? "杯" : "份") + " −" + PowerGrid.PurifierPower(d.workAmount).ToString("0.#") + (jp ? "電" : "电") + "</color>";
             else if (d.kind == PowerNodeKind.Purifier && WaterWorks.RawTotal <= 0) st = jp ? "<color=#9AA5B8>待機（雨水なし）</color>" : "<color=#9AA5B8>待机（没有雨水）</color>";
-            else if (d.powered) st = "<color=#5FD69A>" + (jp ? "稼働中 " : "运行中 ") + (d.kind == PowerNodeKind.Heater ? "+" : "−") + (d.level * PowerGrid.DegreesPerLevel) + "℃</color>";
-            else if (d.network == null || d.network.Generators == 0) st = jp ? "<color=#FF6B6B>未接続</color>" : "<color=#FF6B6B>没接电</color>";
+            else if (d.powered) st = "<color=#5FD69A>" + (d.kind == PowerNodeKind.Heater ? "+" : "−") + (d.level * PowerGrid.DegreesPerLevel) + "℃ −" + PowerGrid.DemandOf(d).ToString("0.#") + (jp ? "電" : "电") + "</color>";
+            else if (d.network == null || (d.network.Generators == 0 && d.network.Batteries == 0)) st = jp ? "<color=#FF6B6B>未接続</color>" : "<color=#FF6B6B>没接电</color>";
             else st = jp ? "<color=#FF6B6B>電力不足</color>" : "<color=#FF6B6B>电力不足</color>";
             r.status.text = st;
         }

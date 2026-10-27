@@ -2,13 +2,14 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // 电力 / 气温 / 水源相关的建筑（运行时生成，不用在 Project 里建资产）：
-//   风力发电机（电力类，不需要终端机）、营地加温器、营地降温器（生活类，需要终端机 Lv1）、
+//   风力发电机（电力类，不需要终端机）、蓄电池（电力类，需要终端机 Lv1）、营地加温器、营地降温器（生活类，需要终端机 Lv1）、
 //   雨水收集器、水源净化器（生产类，不需要终端机；净化器要接电）。
 // 图片是代码画的像素图；以后有美术素材时，建同名的 BuildableData 资产拖进 BuildManager.buildables 即可
 // （id 相同的资产优先，这里就不再重复添加）。
 public static class PowerBuildings
 {
     public const string TurbineId = "wind_turbine";
+    public const string BatteryId = "power_battery";
     public const string HeaterId = "camp_heater";
     public const string CoolerId = "camp_cooler";
     public const string CollectorId = "rain_collector";
@@ -35,6 +36,7 @@ public static class PowerBuildings
     {
         List<BuildableData> list = new List<BuildableData>();
         list.Add(Get(TurbineId, "风力发电机", "風力発電機", PowerNodeKind.Turbine, BuildCategory.Power, 0, TurbineSprite()));
+        list.Add(Get(BatteryId, "蓄电池", "蓄電池", PowerNodeKind.Battery, BuildCategory.Power, 1, BatterySprite()));
         list.Add(Get(HeaterId, "营地加温器", "拠点ヒーター", PowerNodeKind.Heater, BuildCategory.Living, 1, BoxSprite(true)));
         list.Add(Get(CoolerId, "营地降温器", "拠点クーラー", PowerNodeKind.Cooler, BuildCategory.Living, 1, BoxSprite(false)));
         list.Add(Get(CollectorId, "雨水收集器", "雨水タンク", null, BuildCategory.Production, 0, CollectorSprite()));
@@ -81,6 +83,18 @@ public static class PowerBuildings
             node = go.AddComponent<PowerNode>();
             node.kind = kind.Value;
             if (kind.Value == PowerNodeKind.Purifier) node.level = 1; // 净化器建好就开 1 档
+        }
+
+        if (kind == PowerNodeKind.Battery)
+        {
+            // 电量条：底边对齐的绿色方块，按存电量拉高
+            GameObject g = new GameObject("Gauge");
+            g.transform.SetParent(go.transform, false);
+            SpriteRenderer gsr = g.AddComponent<SpriteRenderer>();
+            gsr.sprite = GaugeSprite();
+            gsr.sortingOrder = 1;
+            gsr.enabled = false;
+            node.gauge = gsr;
         }
 
         if (id == CollectorId)
@@ -189,6 +203,28 @@ public static class PowerBuildings
             for (int i = 0; i < 5; i++) { Rect(t, 11 + i, 19 - i, 11 + i, 19 - i, mark); Rect(t, 20 - i, 19 - i, 20 - i, 19 - i, mark); }
         }
         return Make(t, new Vector2(0.5f, 0.5f));
+    }
+
+    // 蓄电池：深色电池外壳 + 正极帽（电量条单独一张图）
+    static Sprite BatterySprite()
+    {
+        Texture2D t = NewTex();
+        Color edge = new Color(0.16f, 0.18f, 0.2f), body = new Color(0.1f, 0.11f, 0.13f), cap = new Color(0.75f, 0.62f, 0.2f);
+        Rect(t, 8, 2, 23, 25, edge);      // 外壳
+        Rect(t, 10, 4, 21, 23, body);     // 内部（空的部分）
+        Rect(t, 13, 26, 18, 28, cap);     // 正极帽
+        Rect(t, 10, 9, 21, 9, edge);      // 刻度线
+        Rect(t, 10, 14, 21, 14, edge);
+        Rect(t, 10, 19, 21, 19, edge);
+        return Make(t, new Vector2(0.5f, 0.5f));
+    }
+
+    // 电量条：只画电池内部，轴心放在底部，缩放 Y 时从下往上涨
+    static Sprite GaugeSprite()
+    {
+        Texture2D t = NewTex();
+        Rect(t, 11, 4, 20, 22, new Color(0.35f, 0.9f, 0.45f, 0.85f));
+        return Make(t, new Vector2(0.5f, 4f / 32f));
     }
 
     // 雨水收集器：上面一个漏斗，下面一个桶（水位单独一张图）

@@ -9,7 +9,8 @@ public enum TempState { Normal, Hot, Cold, ExtremeHot, ExtremeCold }
 // 天气 + 气温系统（纯规则，不走 LLM）。每回合（AIDirector 推进一天时）由 WorldManager.RunOneTurnResolve 调 OnTurn。
 //
 // 【天气】随机触发，每种天气持续 1~3 回合后重新掷骰。
-//   · 下雨：小雨 / 中雨 / 暴雨——为数不多的水源。要建「雨水收集器」接雨水，再用「水源净化器」（耗电）净化成净化水（见 WaterWorks）。
+//   · 下雨：小雨 / 中雨 / 暴雨——为数不多的水源。要建「雨水收集器」接雨水，再用「水源净化器」（耗电）净化成净化水；
+//     每人每天按配给喝水（见 WaterWorks）。
 //   · 风：微风 / 中风 / 大风，和下雨不冲突。暴雨 + 大风 = 「亚空间风暴」事件（走 EventExecutor，会记进事件编年史）。
 //   · 下雪：小雪 / 中雪 / 大雪——让气温变低，雨水收集器也能接到水（太冷时下的雨会变成雪）。
 //   · 冰雹：不分级；这时在营地外面的人会被砸伤（掉生命）。
@@ -90,7 +91,8 @@ public class ClimateSystem : MonoBehaviour
     float _baseline;
     int _waterThisSpell;          // 这一场雨雪里收集器接到的雨水
     bool _rainWasted;             // 这一场雨雪下的时候没有收集器
-    bool _fullWarned, _noPowerWarned;
+    bool _fullWarned, _noPowerWarned, _lowWaterWarned;
+    int _shedWarned;
     readonly Dictionary<string, float> _healthDelta = new Dictionary<string, float>();
     readonly HashSet<string> _hailHurt = new HashSet<string>();
     float _speedTimer;
@@ -111,6 +113,7 @@ public class ClimateSystem : MonoBehaviour
         _windTurns = 2;
         _precipTurns = 1;
         PowerGrid.Clear();
+        WaterWorks.Reset();
     }
 
     void OnDestroy() { if (Instance == this) Instance = null; }
@@ -171,12 +174,14 @@ public class ClimateSystem : MonoBehaviour
         // 5. 电力（风力发电 → 设备耗电；净化器只有在收集器里有雨水时才用电）
         PowerGrid.Tick(WindPowerPerTurn);
 
-        // 6. 净化：通电的净化器把雨水变成净化水，放进仓库
+        // 6. 净化：通电的净化器把雨水变成净化水，放进仓库；然后每日配给（每人喝水）
         WaterWorks.Purify();
+        List<NpcData> missed = WaterWorks.ConsumeRations(w);
 
         // 7. 天气 / 水源的提示
         AnnounceWeather(w, oldRain, oldSnow, oldWind, oldHail);
-        AnnounceWater(w, overflow);
+        AnnounceWater(w, overflow, missed);
+        AnnouncePower(w);
 
         // 8. 每个人：冻伤、冰雹（体力消耗交给 NPC 健康系统，它读 EnergyFactor）
         if (!Hail) _hailHurt.Clear();
@@ -429,11 +434,36 @@ public class ClimateSystem : MonoBehaviour
         EventLogManager.Instance.AddEvent(w.day, string.Join(" ", msgs));
     }
 
-    // 收集器装满 / 净化器没电：各提示一次，情况变了再提示。
-    void AnnounceWater(WorldState w, int overflow)
+    // 电不够、有设备被拉闸：断电台数变多时提示一次。
+    void AnnouncePower(WorldState w)
+    {
+        PowerGrid.Summary ps = PowerGrid.Total();
+        if (ps.shed > _shedWarned && EventLogManager.Instance != null)
+            EventLogManager.Instance.AddEvent(w.day, LanguageGuard.IsJp
+                ? "電力不足：優先度の低い設備から " + ps.shed + " 台が停止した。風力発電機か蓄電池を増やそう。"
+                : "电力不足：按优先级先停掉了 " + ps.shed + " 台设备。多建风力发电机或蓄电池。");
+        _shedWarned = ps.shed;
+    }
+
+    // 收集器装满 / 净化器没电 / 水快喝完：各提示一次，情况变了再提示。没喝上水的人每回合都提示。
+    void AnnounceWater(WorldState w, int overflow, List<NpcData> missed)
     {
         if (EventLogManager.Instance == null) return;
         bool jp = LanguageGuard.IsJp;
+        if (missed != null && missed.Count > 0)
+        {
+            List<string> names = new List<string>();
+            int worst = 0;
+            foreach (NpcData n in missed) { names.Add(n.npcName); worst = Mathf.Max(worst, WaterWorks.ThirstDays(n.id)); }
+            EventLogManager.Instance.AddEvent(w.day, jp
+                ? "浄化水が足りない：" + string.Join("、", names) + " は今日水を飲めなかった（最長 " + worst + " 日間水なし）。"
+                : "净化水不够了：" + string.Join("、", names) + " 今天没喝上水（最久的已经缺水 " + worst + " 天）。");
+        }
+        float days = WaterWorks.DaysLeft;
+        bool low = days < 2f && WaterWorks.StoredWater > 0;
+        if (low && !_lowWaterWarned)
+            EventLogManager.Instance.AddEvent(w.day, jp ? "浄化水の残りがわずか（あと約 " + days.ToString("0.#") + " 日分）。" : "净化水快喝完了（只够大约 " + days.ToString("0.#") + " 天）。");
+        _lowWaterWarned = low;
         if (overflow > 0 && !_fullWarned)
         {
             _fullWarned = true;

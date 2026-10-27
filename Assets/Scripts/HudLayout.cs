@@ -7,7 +7,8 @@ using TMPro;
 // HUD 布局（运行时整理主界面，不用改场景）：
 //   左上角：事件栏 + 日志栏收进一个抽屉，点右侧的小把手滑动展开 / 收起。幸存者列表按钮跟着抽屉走。
 //   右下角：建造按钮；进入建造模式时，建造菜单从屏幕右边滑出来（菜单本身仍由 BuildManager 生成）。
-//   顶部中间：天数（第 1 天显示 1，第 2 天显示 2……），下面一行是天气和气温（ClimateSystem）。
+//   顶部中间：天数（第 1 天显示 1，第 2 天显示 2……），下面一行是天气和气温（ClimateSystem）；
+//             天数左边是电力、右边是净化水和「终端机」按钮（ResourceHud）。
 //   NPC 对话窗口在左下角（见 NpcChatWindow）。
 // 由 WorldManager.Start 调 HudLayout.Ensure() 创建。场景里原有的面板只是被"挪了位置"，各自的逻辑不变。
 public class HudLayout : MonoBehaviour
@@ -77,6 +78,8 @@ public class HudLayout : MonoBehaviour
         BuildLogDrawer(root.transform);
         PlaceBuildButton();
         BuildDayCounter(root.transform);
+        ResourceHud.Create(root.transform, _font); // 天数两边：电力 / 净化水 + 终端机按钮
+        HoverInfo.Ensure();                        // 鼠标悬停在 NPC / 建筑上的信息框
     }
 
     // ============ 左上角：事件 / 日志抽屉 ============
