@@ -232,8 +232,7 @@ public class NpcIdleManager : MonoBehaviour
             NpcData other = b.Data;
             if (other == null) continue;
 
-            Relationship rel = RelationshipManager.Get(me, other.id);
-            float aff = rel != null ? rel.affinity : 0f;
+            float aff = RelationshipManager.AffinityOf(me, other.id); // 饥饿等状态会让好感暂时变低
             float w = Mathf.Clamp(1f + aff / 40f, 0.25f, 3f);              // 关系越好越想聊
             w *= 0.6f + other.personality.sociability / 100f * 0.8f;       // 对方外向更好搭话
             w *= Mathf.Lerp(1.2f, 0.7f, d / Mathf.Max(0.01f, maxDist));   // 近的优先

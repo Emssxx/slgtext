@@ -34,10 +34,12 @@ public class LocalizationManager : MonoBehaviour
         {
             // —— NPC 状态卡 ——
             { "stat_health",  ("生命", "生命") },
-            { "stat_hunger",  ("饥饿", "空腹") },
+            { "stat_hunger",  ("饥饿", "満腹") }, // 饥饿值：100 = 不饿
             { "stat_energy",  ("体力", "体力") },
             { "stat_sanity",  ("理智", "正気") },
             { "stat_trust",   ("信任", "信頼") },
+            { "stat_water",   ("水分", "水分") },
+            { "stat_healthy", ("健康", "健康") },
             { "gender_male",  ("男", "男性") },
             { "gender_female",("女", "女性") },
             // 由 5 维性格数值推出的词条（≥70 / ≤30 时显示在对话窗口的词条区）

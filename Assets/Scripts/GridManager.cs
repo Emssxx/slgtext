@@ -40,27 +40,37 @@ public class GridManager : MonoBehaviour
     }
     public Vector3 CellToWorld(Vector2Int cell) => CellToWorld(cell.x, cell.y);
 
-    // —— 格子坐标 → 编号（如 (6,7) → "G7"）。列用字母，行用数字。——
+    // —— 格子坐标 → 坐标文字（如 (6,7) → "6,7"）。x = 列（从左往右），y = 行（从下往上），都从 0 开始。——
+    // 建筑名后面的位置（"风力发电机（6,7）"）、NPC 指令的目的地都用这个写法。
     public string CellToLabel(int x, int y)
     {
-        // 列：0→A,1→B...（超过26用 AA 之类，简单起见先支持到 Z）
-        char col = (char)('A' + Mathf.Clamp(x, 0, 25));
-        return $"{col}{y}";
+        return x + "," + y;
     }
 
-    // —— 编号 → 格子坐标（如 "G7" → (6,7)）。解析失败返回 false。——
+    // 坐标的各种写法："6,7" "(6,7)" "（6，7）" "6 7" "x6 y7" "x6y7" "X:6 Y:7"；也认旧的字母编号 "G7"（= 6,7）。
+    static readonly System.Text.RegularExpressions.Regex CoordPattern = new System.Text.RegularExpressions.Regex(
+        @"^[\(（\[]?\s*[xX]?\s*[:：=]?\s*(\d{1,3})(?:\s*[,，、]\s*[yY]?|\s+[yY]?|\s*[yY])\s*[:：=]?\s*(\d{1,3})\s*[\)）\]]?$");
+
+    // —— 坐标文字 → 格子坐标。解析失败返回 false。——
     public bool LabelToCell(string label, out Vector2Int cell)
     {
         cell = Vector2Int.zero;
-        if (string.IsNullOrEmpty(label) || label.Length < 2) return false;
+        if (string.IsNullOrEmpty(label)) return false;
+        string t = label.Trim();
 
-        char col = char.ToUpper(label[0]);
+        System.Text.RegularExpressions.Match m = CoordPattern.Match(t);
+        if (m.Success)
+        {
+            cell = new Vector2Int(int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value));
+            return true;
+        }
+
+        // 旧写法：字母 + 数字（G7）
+        if (t.Length < 2) return false;
+        char col = char.ToUpper(t[0]);
         if (col < 'A' || col > 'Z') return false;
-        int x = col - 'A';
-
-        if (!int.TryParse(label.Substring(1), out int y)) return false;
-
-        cell = new Vector2Int(x, y);
+        if (!int.TryParse(t.Substring(1), out int y)) return false;
+        cell = new Vector2Int(col - 'A', y);
         return true;
     }
 

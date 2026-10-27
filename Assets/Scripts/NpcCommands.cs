@@ -10,7 +10,7 @@ public class NpcCommand
     public CmdIntent intent;
     public string itemId;        // UseItem / Fetch：物品 id（来自词库）
     public string targetNpcId;   // UseItem：用在谁身上（来自名册；null = 自己）
-    public string destination;   // Go / Push：地点记号（"@camp" "@storage" "@terminal" "@npc:id"）、网格编号（"G7"）或场景地点名
+    public string destination;   // Go / Push：地点记号（"@camp" "@storage" "@terminal" "@npc:id"）、坐标（"6,7"）或场景地点名
     public string boxName;       // Push：要推的物体名
 }
 
@@ -37,7 +37,9 @@ public static class NpcCommands
                                          "行って", "行け", "向かって", "移動", "来て", "進んで", "行く" };
     static readonly string[] PushWords = { "推", "挪", "押して", "運んで", "動かして" };
 
-    // 网格编号（G7、B12…）：前后不能紧挨着别的英文字母/数字。
+    // 坐标（x,y）：6,7 / (6,7) / （6，7） / x6 y7 / X:6 Y:7 …（鼠标在地图上停半秒能看到格子的坐标）
+    static readonly Regex GridCoord = new Regex(@"(?<![\d.])[\(（\[]?\s*[xX]?\s*[:：=]?\s*(\d{1,2})(?:\s*[,，、]\s*[yY]?|\s+[yY]|\s*[yY])\s*[:：=]?\s*(\d{1,2})(?![\d.])\s*[\)）\]]?");
+    // 旧的网格编号（G7、B12…）也还认：前后不能紧挨着别的英文字母/数字。
     static readonly Regex GridLabel = new Regex(@"(?<![A-Za-z0-9])([A-Za-z])(\d{1,2})(?![0-9])");
 
     // ============ 解析 ============
@@ -96,10 +98,15 @@ public static class NpcCommands
         return false;
     }
 
+    // 找出话里的坐标，统一写成 "x,y"（GridManager.LabelToCell 认得）。
     static string FindGrid(string t)
     {
+        Match c = GridCoord.Match(t);
+        if (c.Success) return c.Groups[1].Value + "," + c.Groups[2].Value;
         Match m = GridLabel.Match(t);
-        return m.Success ? m.Groups[1].Value.ToUpperInvariant() + m.Groups[2].Value : null;
+        if (!m.Success) return null;
+        int x = char.ToUpperInvariant(m.Groups[1].Value[0]) - 'A';
+        return x + "," + m.Groups[2].Value; // 旧编号 G7 → 6,7
     }
 
     // ============ 排任务 ============
@@ -216,7 +223,8 @@ public static class NpcCommands
             return LF("dest_npc", n != null ? n.npcName : "?");
         }
         if (dest[0] == '@') return GameLexicon.NameOf(dest);
-        return dest; // 网格编号或场景地点名，原样显示
+        if (Regex.IsMatch(dest, @"^\d+,\d+$")) return "(" + dest + ")"; // 坐标
+        return dest; // 场景地点名，原样显示
     }
 
     static bool Carries(NpcData npc, string itemId)

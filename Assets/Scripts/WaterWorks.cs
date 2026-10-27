@@ -10,11 +10,9 @@ using UnityEngine;
 //     （收集器和净化器之间当作有水管连着，不用拉线），净化成「净化水」放进公共仓库。
 //     档位 1~3（AI 终端机「能源」页调）：每档每回合最多净化 PurifyPerLevel 份；
 //     耗电按实际净化量折算（见 PowerGrid.PurifierPower），没有雨水时待机不耗电。
-//   【消耗】每日配给：每个活着（没崩解）的人每天喝 RationPerPerson 份净化水，炎热时按 ClimateSystem.EnergyFactor 加量。
-//     小数部分记在每个人身上慢慢累积（0.5 份/天 = 两天喝 1 份）。最缺水的人先喝。
-//     轮到某人却没水 → 他的「缺水天数」+1；喝上了 → 清零。
-//     缺水的后果（掉血、掉体力等）交给 NPC 健康系统：读 WaterWorks.ThirstDays(npcId)。
-// 每回合顺序（ClimateSystem.OnTurn）：收集器接雨 → 电网结算（净化器按要处理的水量用电）→ 净化 → 配给。
+//   【消耗】每个人有自己的「水分」（NpcData.water，NPC 健康系统 NpcHealth 每秒扣）。水分低于 NpcHealth.drinkBelow 时
+//     自动从仓库喝一份净化水（TryDrink）；仓库没水就会口渴 → 口渴难耐 → 掉血，后果都在 NpcHealth 里。
+// 每回合顺序（ClimateSystem.OnTurn）：收集器接雨 → 电网结算（净化器按要处理的水量用电）→ 净化。
 // ============================================================================
 public static class WaterWorks
 {
@@ -23,15 +21,9 @@ public static class WaterWorks
     public static int CollectorCapacity = 10;    // 每台收集器最多存多少份雨水
     public static int PurifyPerLevel = 2;        // 净化器每档每回合最多净化多少份
 
-    public static bool RationsEnabled = true;    // 每日配给开关
-    public static float RationPerPerson = 0.5f;  // 每人每天喝多少份净化水（正常气温下）
-
     public static int PurifiedLastTurn { get; private set; }  // 上回合净化了多少
     public static int DrunkLastTurn { get; private set; }     // 上回合大家一共喝了多少
-    public static int ShortLastTurn { get; private set; }     // 上回合有几个人没喝上水
-
-    static readonly Dictionary<string, float> _owed = new Dictionary<string, float>();   // 每个人"该喝还没喝"的量
-    static readonly Dictionary<string, int> _thirstDays = new Dictionary<string, int>(); // 每个人连续缺水几天
+    static int _drunkThisTurn;
 
     // ============ 查询 ============
 
@@ -64,15 +56,16 @@ public static class WaterWorks
         }
     }
 
-    // 全营地每天要喝多少（按现在的气温估算）。
+    // 全营地每天大约要喝几份净化水（按现在的气温和 NpcHealth 的水分消耗估算）。
     public static float DailyDemand
     {
         get
         {
-            if (!RationsEnabled || WorldManager.Instance == null || WorldManager.Instance.world == null) return 0f;
+            NpcHealth h = NpcHealth.Instance;
+            if (h == null || h.waterPerDrink <= 0f || WorldManager.Instance == null || WorldManager.Instance.world == null) return 0f;
             float d = 0f;
             foreach (NpcData n in WorldManager.Instance.world.npcs)
-                if (Drinks(n)) d += RationPerPerson * ClimateSystem.EnergyFactor(n);
+                if (n != null && !n.IsDead) d += h.waterPerSecond * ClimateSystem.EnergyFactor(n) * h.secondsPerDay / h.waterPerDrink;
             return d;
         }
     }
@@ -83,15 +76,34 @@ public static class WaterWorks
         get { float d = DailyDemand; return d > 0.001f ? StoredWater / d : float.PositiveInfinity; }
     }
 
-    // 某人连续缺水几天（0 = 不缺水）。给 NPC 健康系统用。
-    public static int ThirstDays(string npcId)
+    // 现在口渴（口渴 / 口渴难耐 / 饥渴难耐）的人数。
+    public static int ThirstyCount
     {
-        return !string.IsNullOrEmpty(npcId) && _thirstDays.TryGetValue(npcId, out int d) ? d : 0;
+        get
+        {
+            if (WorldManager.Instance == null || WorldManager.Instance.world == null) return 0;
+            int c = 0;
+            foreach (NpcData n in WorldManager.Instance.world.npcs)
+                if (n != null && !n.IsDead && (NpcHealth.Has(n, HealthTag.Thirsty) || NpcHealth.Has(n, HealthTag.VeryThirsty) || NpcHealth.Has(n, HealthTag.Parched))) c++;
+            return c;
+        }
     }
 
-    public static bool IsThirsty(NpcData n) => n != null && ThirstDays(n.id) > 0;
+    // 从仓库喝一份净化水（NpcHealth 在水分偏低时调用；水分由调用方加）。仓库没水返回 false。
+    public static bool TryDrink(NpcData n)
+    {
+        if (n == null || n.IsDead || WorldManager.Instance == null) return false;
+        if (!WorldManager.Instance.ConsumeFromStorage(WaterItem, 1)) return false;
+        _drunkThisTurn++;
+        return true;
+    }
 
-    static bool Drinks(NpcData n) => n != null && !n.IsDead && !n.isBroken;
+    // 新的一回合（ClimateSystem.OnTurn 开头调用）：记下上回合喝了多少。
+    public static void BeginTurn()
+    {
+        DrunkLastTurn = _drunkThisTurn;
+        _drunkThisTurn = 0;
+    }
 
     // ============ 每回合 ============
 
@@ -127,53 +139,6 @@ public static class WaterWorks
         return done;
     }
 
-    // 每日配给。返回这一回合没喝上水的人。
-    public static List<NpcData> ConsumeRations(WorldState w)
-    {
-        List<NpcData> missed = new List<NpcData>();
-        DrunkLastTurn = 0;
-        ShortLastTurn = 0;
-        if (w == null || !RationsEnabled) return missed;
-
-        List<NpcData> drinkers = new List<NpcData>();
-        foreach (NpcData n in w.npcs)
-        {
-            if (!Drinks(n)) { _thirstDays.Remove(n.id); _owed.Remove(n.id); continue; }
-            _owed.TryGetValue(n.id, out float owed);
-            _owed[n.id] = owed + RationPerPerson * ClimateSystem.EnergyFactor(n);
-            drinkers.Add(n);
-        }
-        // 最缺水的人先喝
-        drinkers.Sort((a, b) => ThirstDays(b.id).CompareTo(ThirstDays(a.id)));
-
-        foreach (NpcData n in drinkers)
-        {
-            float owed = _owed[n.id];
-            bool missedToday = false;
-            int drank = 0;
-            while (owed >= 1f)
-            {
-                if (WorldManager.Instance != null && WorldManager.Instance.ConsumeFromStorage(WaterItem, 1))
-                {
-                    owed -= 1f;
-                    drank++;
-                    DrunkLastTurn++;
-                }
-                else { missedToday = true; break; }
-            }
-            if (missedToday)
-            {
-                owed = Mathf.Min(owed, 1f); // 欠的水不累积成"一口气喝好几份"
-                _thirstDays[n.id] = ThirstDays(n.id) + 1;
-                missed.Add(n);
-            }
-            else if (drank > 0) _thirstDays.Remove(n.id); // 今天喝上了：缺水清零
-            _owed[n.id] = owed;
-        }
-        ShortLastTurn = missed.Count;
-        return missed;
-    }
-
     // 从收集器里抽雨水（先抽存得多的）。
     static int TakeRaw(int amount)
     {
@@ -191,12 +156,10 @@ public static class WaterWorks
         return taken;
     }
 
-    // 新的一局：清空配给记录。
+    // 新的一局：清空统计。
     public static void Reset()
     {
-        _owed.Clear();
-        _thirstDays.Clear();
-        PurifiedLastTurn = DrunkLastTurn = ShortLastTurn = 0;
+        PurifiedLastTurn = DrunkLastTurn = _drunkThisTurn = 0;
     }
 }
 

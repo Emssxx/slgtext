@@ -41,6 +41,23 @@ public static class RelationshipManager
         r.affinity = Mathf.Clamp(r.affinity + delta, -100f, 100f);
     }
 
+    // —— 考虑健康状态后的"此刻"好感 / 信任（关系本身不改，状态消失就恢复）——
+    // 饥饿 / 饥渴难耐：好感 -20（NpcHealth.affinityPenalty）。
+    public static float AffinityOf(NpcData from, string toId)
+    {
+        Relationship r = Get(from, toId);
+        float a = r != null ? r.affinity : 0f;
+        return Mathf.Clamp(a - NpcHealth.AffinityPenalty(from), -100f, 100f);
+    }
+
+    // 精神病：对营地里的人信任降为 0。
+    public static float TrustOf(NpcData from, string toId)
+    {
+        if (NpcHealth.DistrustsEveryone(from)) return 0f;
+        Relationship r = Get(from, toId);
+        return r != null ? r.trust : 50f;
+    }
+
     // 为世界里所有 NPC 互相建立初始关系（两两之间，单向各一条）。
     // 在 WorldManager 创建完世界、NPC 都就位后调用一次。
     public static void InitAllRelationships(WorldState world)

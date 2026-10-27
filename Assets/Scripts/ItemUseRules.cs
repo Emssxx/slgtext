@@ -43,6 +43,11 @@ public static class ItemUseRules
         // 理智回到幻觉线以上，就不再处于幻觉状态（阈值与 MentalState 的"幻觉 <30"一致）。
         if (npc.sanity >= 30f) npc.isHallucinating = false;
 
+        // 净化水：补水分；急救包：治好受伤 / 生病（NpcHealth）
+        if (itemId == WaterWorks.WaterItem && NpcHealth.Instance != null)
+            npc.water = Mathf.Clamp(npc.water + NpcHealth.Instance.waterPerDrink, 0f, 100f);
+        NpcHealth.OnItemUsed(npc, itemId);
+
         // 写进记忆（喂 AI 时它会"记得"被用过什么）和日志栏。
         if (record)
         {

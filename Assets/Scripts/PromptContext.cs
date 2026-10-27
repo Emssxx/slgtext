@@ -38,9 +38,10 @@ public static class PromptContext
         {
             string me = (self != null && n.id == self.id) ? (jp ? "（あなた）" : "（你自己）") : "";
             if (n.IsDead) { sb.AppendLine($"・{n.npcName}{me}：" + (jp ? "死亡" : "已死亡")); continue; }
+            // 饥饿值 / 水分：100 = 饱 / 不渴（写成"満腹""饱腹"，免得模型以为数字越大越饿）
             sb.AppendLine(jp
-                ? $"・{n.npcName}{me}：生命{n.health:0} 空腹{n.hunger:0} 体力{n.energy:0} 正気{n.sanity:0}（{MentalLabel(n, true)}）"
-                : $"・{n.npcName}{me}：生命{n.health:0} 饥饿{n.hunger:0} 体力{n.energy:0} 理智{n.sanity:0}（{MentalLabel(n, false)}）");
+                ? $"・{n.npcName}{me}：生命{n.health:0} 満腹{n.satiety:0} 水分{n.water:0} 体力{n.energy:0} 正気{n.sanity:0}（{MentalLabel(n, true)}／{NpcHealth.BriefLine(n, true)}）"
+                : $"・{n.npcName}{me}：生命{n.health:0} 饱腹{n.satiety:0} 水分{n.water:0} 体力{n.energy:0} 理智{n.sanity:0}（{MentalLabel(n, false)}／{NpcHealth.BriefLine(n, false)}）");
         }
 
         // —— 仓库 ——

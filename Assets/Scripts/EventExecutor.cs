@@ -146,6 +146,7 @@ public class EventExecutor : MonoBehaviour
             // 复用"跑一回合结算"的公共方法（由 WorldManager 提供，AIDirector 也调它）。
             // 这样时间真的前进、消耗（饥饿/SAN/异常度）也一并结算，逻辑只有一份。
             WorldManager.Instance.RunOneTurnResolve();
+            NpcHealth.Advance(world, NpcHealth.Instance != null ? NpcHealth.Instance.secondsPerDay : 20f); // 跳过的这一天里的饥饿、口渴、体力也一起结算
         }
 
         // 记录这个事件的客观后果到日志。

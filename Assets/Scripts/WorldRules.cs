@@ -92,9 +92,7 @@ public static class WorldRules
 
             float delta = 0f;
 
-            // 饥饿掉血
-            if (npc.hunger >= 90f) delta -= 6f;
-            else if (npc.hunger >= 70f) delta -= 2f;
+            // 饥饿 / 缺水掉血：改由 NpcHealth 每秒结算（饥饿值或水分为 0 时每秒 -0.5）
 
             // 体力耗尽掉血
             if (npc.energy <= 0f) delta -= 3f;
@@ -112,25 +110,25 @@ public static class WorldRules
             npc.health = Mathf.Clamp(npc.health + delta, 0f, 100f);
 
             // 死亡判定
-            if (npc.health <= 0f)
-            {
-                if (npc.isBroken)
-                {
-                    npc.currentAction = "已死亡";
-                    world.eventLog.Add(new MemoryEntry { day = world.day,
-                        content = LanguageGuard.Pick(npc.npcName + " 在彻底异变后死去，化作了亚空间的一部分。",
-                                                     npc.npcName + "は完全に変異したあと息絶え、亜空間の一部になった。") });
-                }
-                else
-                {
-                    npc.currentAction = "已死亡";
-                    world.eventLog.Add(new MemoryEntry { day = world.day,
-                        content = LanguageGuard.Pick(npc.npcName + " 没能撑下去，倒下了。",
-                                                     npc.npcName + "は力尽きて倒れた。") });
-                }
-                EventChronicle.Record("death", null, npc.id); // 朋友死了 / 陌生人死了，各人按演员提示词的态度记住
-            }
+            if (npc.health <= 0f) Die(world, npc);
         }
+    }
+
+    // 记下一个人的死亡（每回合结算和 NpcHealth 的每秒结算都走这里，只记一次）。
+    static readonly HashSet<string> _deathRecorded = new HashSet<string>();
+    public static void Die(WorldState world, NpcData npc)
+    {
+        if (world == null || npc == null || !_deathRecorded.Add(world.GetHashCode() + "|" + npc.id)) return;
+        npc.currentAction = "已死亡";
+        if (npc.isBroken)
+            world.eventLog.Add(new MemoryEntry { day = world.day,
+                content = LanguageGuard.Pick(npc.npcName + " 在彻底异变后死去，化作了亚空间的一部分。",
+                                             npc.npcName + "は完全に変異したあと息絶え、亜空間の一部になった。") });
+        else
+            world.eventLog.Add(new MemoryEntry { day = world.day,
+                content = LanguageGuard.Pick(npc.npcName + " 没能撑下去，倒下了。",
+                                             npc.npcName + "は力尽きて倒れた。") });
+        EventChronicle.Record("death", null, npc.id); // 朋友死了 / 陌生人死了，各人按演员提示词的态度记住
     }
 
     // 异常度 → 亚空间"情绪"（导演定基调用）。

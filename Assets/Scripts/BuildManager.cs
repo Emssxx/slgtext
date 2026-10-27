@@ -8,7 +8,8 @@ using NavMeshPlus.Components;
 using UnityEngine.AI;
 
 // 建造管理器：完整流程版（阶段A-E）。
-// 流程：B键进入 → 绿红覆盖层 → 菜单选类型 → 连点格子生成半透明预览 → NPC逐个走过去把预览变实体。
+// 流程：B键进入 → 绿红覆盖层 → 菜单选类型 → 连点格子放下蓝图（规划区，不会自动开工；右键取消）
+//       → 退出建造模式后点蓝图，指派一名或多名 NPC 去施工（见 Construction.cs 的 ConstructionManager）。
 // 纯规则代码，不走 AI。
 public class BuildManager : MonoBehaviour
 {
@@ -33,17 +34,7 @@ public class BuildManager : MonoBehaviour
     // ——阶段B：建造菜单UI——
     private GameObject _buildMenuUI; // 运行时生成的Canvas
 
-    // ——阶段C/D：预览队列——
-    private class BuildTask
-    {
-        public Vector2Int cell;        // 目标格子坐标
-        public string buildingName;    // 建筑名（用于 GridManager 占用记录）
-        public GameObject previewGO;   // 半透明预览实例（NPC到达后alpha改为1）
-        public float buildTime;        // NPC到达后需等待的建造耗时（秒）
-        public bool blocksMovement;    // 是否阻挡移动（决定挂NavMeshModifier + 是否重新烘焙）
-    }
-    private List<BuildTask> _buildQueue = new List<BuildTask>(); // 待施工队列
-    private bool _isProcessingQueue = false; // 是否有协程在处理队列
+    private bool _bakePending = false; // 是否已经安排了 NavMesh 重新烘焙（同一时间建成好几座只烘焙一次）
 
     void Awake()
     {
@@ -51,6 +42,7 @@ public class BuildManager : MonoBehaviour
         Instance = this;
         if (mainCamera == null) mainCamera = Camera.main;
         buildables = PowerBuildings.AppendTo(buildables); // 追加风力发电机、营地加温器、营地降温器（运行时生成）
+        ConstructionManager.Ensure();                      // 规划区施工
     }
 
     void Update()
@@ -68,6 +60,20 @@ public class BuildManager : MonoBehaviour
             mouseWorld.z = 0;
             Vector2Int cell = GridManager.Instance.WorldToCell(mouseWorld);
             HandleCellClick(cell);
+        }
+
+        // 右键：取消这一格的规划（蓝图）
+        if (Mouse.current.rightButton.wasPressedThisFrame && GridManager.Instance != null)
+        {
+            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()) return;
+            Vector2 ms = Mouse.current.position.ReadValue();
+            Vector3 mw = mainCamera.ScreenToWorldPoint(new Vector3(ms.x, ms.y, 0));
+            ConstructionSite site = ConstructionSite.At(GridManager.Instance.WorldToCell(mw));
+            if (site != null && ConstructionManager.Instance != null)
+            {
+                ConstructionManager.Instance.Cancel(site);
+                if (_overlayCells.TryGetValue(site.cell, out SpriteRenderer osr)) osr.color = new Color(0f, 1f, 0f, 0.4f); // 格子空出来了：变回绿色
+            }
         }
 
         // Esc退出建造模式
@@ -94,9 +100,13 @@ public class BuildManager : MonoBehaviour
         HideGridOverlay();
         HideBuildMenu();
         Time.timeScale = 1f;     // 恢复游戏时间
-        // 时间恢复后启动施工，NPC 开始逐个去建蓝图
-        if (_buildQueue.Count > 0 && !_isProcessingQueue)
-            StartCoroutine(ProcessBuildQueue());
+        // 规划区不会自动开工：提醒玩家去点蓝图指派施工的人
+        int unassigned = 0;
+        foreach (ConstructionSite s in ConstructionSite.All) if (s != null && s.builders.Count == 0) unassigned++;
+        if (unassigned > 0 && EventLogManager.Instance != null && WorldManager.Instance != null)
+            EventLogManager.Instance.AddEvent(WorldManager.Instance.world.day, LanguageGuard.Pick(
+                "有 " + unassigned + " 处规划还没人施工：点一下蓝图，指派一名或多名幸存者去建。",
+                unassigned + " か所の計画がまだ手つかず：青図をクリックして、建てる人を割り当てよう。"));
     }
 
     public bool IsBuildMode => _buildMode;
@@ -323,97 +333,46 @@ public class BuildManager : MonoBehaviour
             Debug.LogWarning($"[BuildManager] {_selectedData.displayName} 的 prefab 未赋值，跳过预览实例化。");
         }
 
-        // 加入待建队列（把数据驱动的字段一并存入，施工时直接读 task）
-        _buildQueue.Add(new BuildTask
-        {
-            cell            = cell,
-            buildingName    = _selectedData.displayName,
-            previewGO       = previewGO,
-            buildTime       = _selectedData.buildTime,
-            blocksMovement  = _selectedData.blocksMovement
-        });
+        // 变成一块规划区（蓝图）：不自动开工，等玩家点它指派施工的人
+        ConstructionManager.Ensure().CreateSite(_selectedData, cell, previewGO);
 
-        Debug.Log($"[BuildManager] 排队：{_selectedData.displayName} @ {grid.CellToLabel(cell.x, cell.y)}（队列共 {_buildQueue.Count} 个）");
+        Debug.Log($"[BuildManager] 规划：{_selectedData.displayName} @ {grid.CellToLabel(cell.x, cell.y)}");
         ProgressionRules.NotifyPlaced(_selectedData);           // 唯一建筑记一笔
         if (_selectedData.uniqueBuild) _selectedData = null;    // 唯一建筑放一次就取消选中
-        // 点格子只入队，不派NPC——退出建造模式后才施工
     }
 
-    // ——阶段D：NPC逐个施工协程——————————————————————————————
+    // ——阶段D：施工完成（ConstructionManager 调）——————————————————————
 
-    IEnumerator ProcessBuildQueue()
+    // 蓝图建成：变成实体、通知建筑自己（终端机上线、发电机开始发电…）；阻挡移动的建筑重新烘焙 NavMesh。
+    public void FinishConstruction(GameObject go, bool blocksMovement)
     {
-        _isProcessingQueue = true;
-        bool needsNavBake = false; // 本批次是否有阻挡移动的建筑，决定完成后是否重新烘焙
+        if (go == null) return;
+        SetSpriteAlpha(go, 1f);
+        go.SendMessage("OnBuildComplete", SendMessageOptions.DontRequireReceiver); // 通知：施工完成
 
-        while (_buildQueue.Count > 0)
+        // 阻挡移动的建筑（如墙）：挂 NavMeshModifier 标记为 Not Walkable，烘焙后 NPC 绕开
+        if (blocksMovement)
         {
-            BuildTask task = _buildQueue[0];
-            _buildQueue.RemoveAt(0);
-
-            // 找一个可用的NPC
-            NpcData builder = FindAvailableBuilder();
-            if (builder == null)
-            {
-                // 暂时没NPC，把任务放回去，等1秒再试
-                _buildQueue.Insert(0, task);
-                yield return new WaitForSeconds(1f);
-                continue;
-            }
-
-            // 登记占用：施工期间闲置行为（闲逛/闲聊）不会来抢这个 NPC 的移动
-            NpcBusy.Claim(builder.id, "build");
-
-            // 让NPC走到目标格子
-            NpcMover mover = NpcView.GetMover(builder.id);
-            if (mover != null)
-            {
-                mover.MoveTo(GridManager.Instance.CellToWorld(task.cell));
-                yield return null; // 等一帧让MoveTo生效
-                while (mover.IsMoving) yield return null; // 等它到达
-            }
-
-            // NPC到达后等待建造耗时（模拟施工过程，时间来自 BuildableData.buildTime）
-            if (task.buildTime > 0f)
-                yield return new WaitForSeconds(task.buildTime);
-
-            // 把半透明预览变成实体（alpha → 1）
-            if (task.previewGO != null)
-            {
-                SetSpriteAlpha(task.previewGO, 1f);
-                task.previewGO.SendMessage("OnBuildComplete", SendMessageOptions.DontRequireReceiver); // 通知：施工完成
-            }
-
-            // 阻挡移动的建筑（如墙）：挂 NavMeshModifier 标记为 Not Walkable，烘焙后 NPC 绕开
-            if (task.blocksMovement && task.previewGO != null)
-            {
-                NavMeshModifier mod = task.previewGO.AddComponent<NavMeshModifier>();
-                mod.overrideArea = true;
-                mod.area = 1; // 1 = Not Walkable
-                needsNavBake = true; // 本批次有阻挡建筑，需要重新烘焙
-            }
-
-            NpcBusy.Release(builder.id, "build"); // 施工完成，交还给闲置行为
-            Debug.Log($"[BuildManager] {builder.npcName} 完成：{task.buildingName} @ "
-                + GridManager.Instance.CellToLabel(task.cell.x, task.cell.y));
+            NavMeshModifier mod = go.AddComponent<NavMeshModifier>();
+            mod.overrideArea = true;
+            mod.area = 1; // 1 = Not Walkable
+            if (!_bakePending) StartCoroutine(BakeSoon());
         }
+    }
 
-        _isProcessingQueue = false;
-
-        // 只有 blocksMovement=true 的建筑才需要重新烘焙（箱子等可穿过的跳过，省性能）
-        if (needsNavBake)
+    // 稍等一下再烘焙：同一时间建成好几座只烘焙一次。
+    IEnumerator BakeSoon()
+    {
+        _bakePending = true;
+        yield return new WaitForSeconds(0.3f);
+        _bakePending = false;
+        if (navMeshSurface != null)
         {
-            if (navMeshSurface != null)
-            {
-                Physics2D.SyncTransforms(); // 确保新碰撞体已注册到物理系统，烘焙结果才准确
-                navMeshSurface.BuildNavMeshAsync();
-                Debug.Log("[BuildManager] 有阻挡建筑施工完成，已触发 NavMesh 重新烘焙。");
-            }
-            else
-            {
-                Debug.LogWarning("[BuildManager] navMeshSurface 未赋值，跳过 NavMesh 烘焙。");
-            }
+            Physics2D.SyncTransforms(); // 确保新碰撞体已注册到物理系统，烘焙结果才准确
+            navMeshSurface.BuildNavMeshAsync();
+            Debug.Log("[BuildManager] 有阻挡建筑施工完成，已触发 NavMesh 重新烘焙。");
         }
+        else Debug.LogWarning("[BuildManager] navMeshSurface 未赋值，跳过 NavMesh 烘焙。");
     }
 
     // ——阶段E：点击格子短暂高亮—————————————————————————————
@@ -442,24 +401,6 @@ public class BuildManager : MonoBehaviour
         Color c = sr.color;
         c.a = alpha;
         sr.color = c;
-    }
-
-    // 找一个健康、没崩解的NPC作为建造者：优先找手上没事的（没在执行玩家指令、没被别的系统占用），
-    // 大家都在忙时沿用原来的做法，找第一个能动的。
-    NpcData FindAvailableBuilder()
-    {
-        WorldState world = WorldManager.Instance.world;
-        NpcData fallback = null;
-        foreach (NpcData npc in world.npcs)
-        {
-            if (npc.health <= 0f || npc.isBroken) continue;
-            if (fallback == null) fallback = npc;
-            NpcMover m = NpcView.GetMover(npc.id);
-            NpcTaskRunner runner = m != null ? m.GetComponent<NpcTaskRunner>() : null;
-            if ((runner == null || !runner.IsBusy) && !NpcBusy.IsBusy(npc.id))
-                return npc;
-        }
-        return fallback;
     }
 
     // 运行时生成Text标签（供ShowBuildMenu用）

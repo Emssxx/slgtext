@@ -130,7 +130,8 @@ public class ResourceHud : MonoBehaviour
         string daysText = float.IsInfinity(days) ? "—" : days.ToString("0.#");
         string wsub = (jp ? "1日 −" : "每天 −") + demand.ToString("0.#") + (jp ? "　残り " : "　够 ") + daysText + (jp ? " 日" : " 天");
         if (WaterWorks.CollectorCount > 0) wsub += (jp ? "　雨水 " : "　雨水 ") + WaterWorks.RawTotal + "/" + WaterWorks.RawCapacity;
-        if (WaterWorks.ShortLastTurn > 0) wsub = "<color=#FF6B6B>" + (jp ? WaterWorks.ShortLastTurn + "人が水不足" : WaterWorks.ShortLastTurn + " 人缺水") + "</color>　" + wsub;
+        int thirsty = WaterWorks.ThirstyCount;
+        if (thirsty > 0) wsub = "<color=#FF6B6B>" + (jp ? thirsty + "人が渇き" : thirsty + " 人口渴") + "</color>　" + wsub;
         _waterSub.text = wsub;
         float ratio = float.IsInfinity(days) ? (water > 0 ? 1f : 0f) : Mathf.Clamp01(days / 10f); // 够 10 天算满格
         SetFill(_waterFill, ratio);

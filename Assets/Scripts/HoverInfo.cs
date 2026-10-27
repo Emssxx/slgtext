@@ -8,6 +8,8 @@ using TMPro;
 // 鼠标悬停信息框：鼠标停在 NPC / 建筑上一小会儿，就在它头顶弹出一个半透明方框：
 //   NPC：姓名、职业、正在做什么、生命 / 饥饿 / 体力（缺水时多一行）。
 //   建筑：名称、是否在工作（发电 / 储电 / 加温 / 净化 / 接雨水 / 施工中……）。
+// 另外：鼠标在地图上停够半秒，鼠标左上方弹出这一格的坐标浮窗（内容由 CellInfo 的各个提供者写，以后加地形信息就加提供者）；
+// 同时悬停在 NPC / 建筑上时，坐标浮窗改为显示在它们的信息框正下方。
 // 鼠标在 UI 上时不显示。用不受暂停影响的时间（建造模式会暂停游戏）。
 // 由 HudLayout 调 HoverInfo.Ensure() 创建，自带一个最上层的 Canvas。
 public class HoverInfo : MonoBehaviour
@@ -18,6 +20,8 @@ public class HoverInfo : MonoBehaviour
     public float delay = 0.25f;
     [Tooltip("信息框最宽多少（1920×1080 下的像素）")]
     public float maxWidth = 300f;
+    [Tooltip("鼠标在同一格停多久才弹出坐标浮窗（秒）")]
+    public float cellDelay = 0.5f;
 
     const float Pad = 10f;
     const float MinSize = 150f; // 最小宽度：短内容也是一个方块，不会缩成一条
@@ -34,6 +38,13 @@ public class HoverInfo : MonoBehaviour
     string _cellName;
     Vector2Int _cell = new Vector2Int(int.MinValue, int.MinValue);
     GameObject _cellObj;
+
+    // —— 坐标浮窗 ——
+    RectTransform _cellBox;
+    TextMeshProUGUI _cellText;
+    bool _cellShown;
+    float _cellHover, _cellRefresh;
+    Vector2Int _cellCur = new Vector2Int(int.MinValue, int.MinValue);
 
     public static HoverInfo Ensure()
     {
@@ -99,21 +110,57 @@ public class HoverInfo : MonoBehaviour
         tailImg.raycastTarget = false;
 
         _box.gameObject.SetActive(false);
+
+        // 坐标浮窗：同样的半透明方框，没有尖角
+        _cellBox = NewRect("CellBox", transform);
+        _cellBox.anchorMin = _cellBox.anchorMax = new Vector2(0.5f, 0.5f);
+        Image cborder = _cellBox.gameObject.AddComponent<Image>();
+        cborder.color = new Color(1f, 1f, 1f, 0.22f);
+        cborder.raycastTarget = false;
+        RectTransform cbg = NewRect("Bg", _cellBox);
+        cbg.anchorMin = Vector2.zero; cbg.anchorMax = Vector2.one;
+        cbg.offsetMin = new Vector2(1f, 1f); cbg.offsetMax = new Vector2(-1f, -1f);
+        Image cbgImg = cbg.gameObject.AddComponent<Image>();
+        cbgImg.color = new Color(0.04f, 0.05f, 0.08f, 0.62f);
+        cbgImg.raycastTarget = false;
+        RectTransform ctr = NewRect("Text", _cellBox);
+        ctr.anchorMin = Vector2.zero; ctr.anchorMax = Vector2.one;
+        ctr.offsetMin = new Vector2(CellPad, CellPad - 2f); ctr.offsetMax = new Vector2(-CellPad, -(CellPad - 2f));
+        _cellText = ctr.gameObject.AddComponent<TextMeshProUGUI>();
+        if (font != null) _cellText.font = font;
+        _cellText.fontSize = 15f;
+        _cellText.color = Color.white;
+        _cellText.alignment = TextAlignmentOptions.TopLeft;
+        _cellText.textWrappingMode = TextWrappingModes.Normal;
+        _cellText.raycastTarget = false;
+        _cellBox.gameObject.SetActive(false);
     }
+
+    const float CellPad = 8f;
 
     void Update()
     {
         if (_cam == null) _cam = Camera.main;
         GameObject t = null;
         NpcView npc = null;
+        bool onMap = false;
+        Vector2 sp = Vector2.zero;
+        Vector3 wp = Vector3.zero;
         if (_cam != null && Mouse.current != null && !PointerOverUI())
         {
-            Vector2 sp = Mouse.current.position.ReadValue();
-            Vector3 wp = _cam.ScreenToWorldPoint(new Vector3(sp.x, sp.y, -_cam.transform.position.z));
+            sp = Mouse.current.position.ReadValue();
+            wp = _cam.ScreenToWorldPoint(new Vector3(sp.x, sp.y, -_cam.transform.position.z));
             wp.z = 0f;
+            onMap = true;
             FindTarget(wp, out t, out npc);
         }
+        UpdateTarget(t, npc);
+        UpdateCell(onMap, sp, wp); // 放在后面：要读 NPC / 建筑信息框这一帧的位置
+    }
 
+    // NPC / 建筑的信息框。
+    void UpdateTarget(GameObject t, NpcView npc)
+    {
         if (t != _target)
         {
             _target = t;
@@ -135,6 +182,77 @@ public class HoverInfo : MonoBehaviour
             SetText(text);
         }
         Place(_target);
+    }
+
+    // ============ 坐标浮窗 ============
+
+    void UpdateCell(bool onMap, Vector2 sp, Vector3 wp)
+    {
+        GridManager g = GridManager.Instance;
+        Vector2Int cell = g != null ? g.WorldToCell(wp) : Vector2Int.zero;
+        if (!onMap || g == null || !g.InBounds(cell.x, cell.y))
+        {
+            _cellCur = new Vector2Int(int.MinValue, int.MinValue);
+            _cellHover = 0f;
+            HideCell();
+            return;
+        }
+        if (cell != _cellCur) // 换了一格：重新计时（一定要在同一格停满半秒）
+        {
+            _cellCur = cell;
+            _cellHover = 0f;
+            HideCell();
+        }
+        _cellHover += Time.unscaledDeltaTime;
+        if (_cellHover < cellDelay) return;
+
+        _cellRefresh -= Time.unscaledDeltaTime;
+        if (!_cellShown || _cellRefresh <= 0f)
+        {
+            _cellRefresh = 0.25f;
+            string text = CellInfo.Describe(cell, LanguageGuard.IsJp);
+            if (string.IsNullOrEmpty(text)) { HideCell(); return; }
+            _cellText.text = text;
+            Vector2 pref = _cellText.GetPreferredValues(text, maxWidth - CellPad * 2f, 0f);
+            _cellBox.sizeDelta = new Vector2(Mathf.Min(pref.x, maxWidth - CellPad * 2f) + CellPad * 2f, pref.y + (CellPad - 2f) * 2f);
+            if (!_cellShown) { _cellBox.gameObject.SetActive(true); _cellShown = true; }
+        }
+        PlaceCell(sp);
+    }
+
+    void HideCell()
+    {
+        if (!_cellShown) return;
+        _cellShown = false;
+        _cellBox.gameObject.SetActive(false);
+    }
+
+    // 有 NPC / 建筑信息框时：放在它正下方；没有时：鼠标左上方。都不超出屏幕。
+    void PlaceCell(Vector2 sp)
+    {
+        Rect r = _canvasRt.rect;
+        Vector2 size = _cellBox.sizeDelta;
+        Vector2 pos;
+        if (_shown)
+        {
+            Vector2 bp = _box.anchoredPosition, bs = _box.sizeDelta;
+            float bottom = bp.y - _box.pivot.y * bs.y;
+            float gap = _box.pivot.y < 0.5f ? 12f : 4f; // 信息框在物体上方时，下面挂着尖角：多空一点
+            _cellBox.pivot = new Vector2(0.5f, 1f);
+            pos = new Vector2(bp.x, bottom - gap);
+            pos.x = Mathf.Clamp(pos.x, r.xMin + size.x * 0.5f + 4f, r.xMax - size.x * 0.5f - 4f);
+            pos.y = Mathf.Max(pos.y, r.yMin + size.y + 4f);
+        }
+        else
+        {
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRt, sp, null, out Vector2 local)) return;
+            const float off = 14f;
+            bool flipX = local.x - off - size.x < r.xMin; // 左边放不下：放到鼠标右边
+            bool flipY = local.y + off + size.y > r.yMax; // 上面放不下：放到鼠标下面
+            _cellBox.pivot = new Vector2(flipX ? 0f : 1f, flipY ? 1f : 0f);
+            pos = new Vector2(local.x + (flipX ? off : -off), local.y + (flipY ? -off : off));
+        }
+        _cellBox.anchoredPosition = pos;
     }
 
     // ============ 找悬停的对象 ============
@@ -161,6 +279,8 @@ public class HoverInfo : MonoBehaviour
         if (!g.InBounds(cell.x, cell.y)) return;
         string occ = g.GetOccupied(cell.x, cell.y);
         if (string.IsNullOrEmpty(occ)) return;
+        ConstructionSite site = ConstructionSite.At(cell);
+        if (site != null) { target = site.gameObject; return; }
         if (cell != _cell) { _cell = cell; _cellObj = FindObjectAtCell(cell); }
         if (_cellObj != null) { target = _cellObj; return; }
         _cellName = occ;
@@ -215,7 +335,6 @@ public class HoverInfo : MonoBehaviour
         string doing;
         if (n.IsDead) doing = "<color=#FF6B6B>" + (jp ? "死亡" : "已死亡") + "</color>";
         else if (n.isBroken) doing = "<color=#C77DFF>" + (jp ? "人格崩壊" : "人格崩解") + "</color>";
-        else if (NpcBusy.IsHeldBy(n.id, NpcBusy.Build)) doing = jp ? "建設中" : "在施工";
         else if (!string.IsNullOrEmpty(n.currentAction)) doing = n.currentAction;
         else doing = jp ? "待機中" : "空闲";
 
@@ -224,11 +343,20 @@ public class HoverInfo : MonoBehaviour
         s += "\n" + (jp ? "行動：" : "正在：") + doing;
         if (!n.IsDead)
         {
+            // 饥饿值 / 水分：100 = 不饿 / 不渴
             s += "\n<size=82%><color=#C8CFDC>" + (jp ? "生命 " : "生命 ") + Mathf.RoundToInt(n.health) +
-                 (jp ? "　空腹 " : "　饥饿 ") + Mathf.RoundToInt(n.hunger) +
+                 (jp ? "　満腹 " : "　饥饿 ") + Mathf.RoundToInt(n.satiety) +
+                 (jp ? "　水分 " : "　水分 ") + Mathf.RoundToInt(n.water) +
                  (jp ? "　体力 " : "　体力 ") + Mathf.RoundToInt(n.energy) + "</color></size>";
-            int thirst = WaterWorks.ThirstDays(n.id);
-            if (thirst > 0) s += "\n<size=82%><color=#FF6B6B>" + (jp ? "水不足 " + thirst + " 日目" : "缺水第 " + thirst + " 天") + "</color></size>";
+            // 状态词条（濒死 / 受伤 / 生病 / 饥饿 / 口渴 / 疲惫……）
+            List<HealthTag> tags = NpcHealth.Tags(n);
+            if (tags.Count == 0) s += "\n<size=82%>" + Good(jp ? "健康" : "健康") + "</size>";
+            else
+            {
+                List<string> names = new List<string>();
+                foreach (HealthTag t in tags) names.Add("<color=#" + ColorUtility.ToHtmlStringRGB(Color.Lerp(NpcHealth.TagColor(t), Color.white, 0.35f)) + ">" + NpcHealth.TagName(n, t, jp) + "</color>");
+                s += "\n<size=82%>" + string.Join("・", names) + "</size>";
+            }
         }
         return s;
     }
@@ -237,6 +365,10 @@ public class HoverInfo : MonoBehaviour
     {
         bool jp = LanguageGuard.IsJp;
         if (go == _cellAnchor) return "<b>" + LocalizedBuildingName(_cellName) + "</b>\n" + Grey(jp ? "設置済み" : "已建成");
+
+        // 规划区（蓝图）：进度和施工的人
+        ConstructionSite site = go.GetComponent<ConstructionSite>();
+        if (site != null) return SiteText(site, jp);
 
         TerminalController term = go.GetComponent<TerminalController>();
         PowerNode pn = go.GetComponent<PowerNode>();
@@ -280,6 +412,28 @@ public class HoverInfo : MonoBehaviour
         }
 
         return s + Grey(jp ? "設置済み" : "已建成");
+    }
+
+    static string SiteText(ConstructionSite site, bool jp)
+    {
+        string s = "<b>" + site.DisplayName + "</b>\n";
+        int pct = Mathf.RoundToInt(site.Ratio * 100f);
+        if (site.builders.Count == 0)
+            return s + Grey((jp ? "計画中（進捗 " : "规划中（进度 ") + pct + "%）") + "\n" + Sub(jp ? "クリックで建てる人を割り当てる" : "点击指派施工的人");
+        List<string> names = new List<string>();
+        bool anyWorking = false;
+        ConstructionManager cm = ConstructionManager.Instance;
+        foreach (string id in site.builders)
+        {
+            NpcData n = FindNpc(id);
+            if (n == null) continue;
+            string st = cm != null ? cm.BuilderState(id, jp) : null;
+            bool working = st != null && (st == "施工中" || st == "建設中");
+            anyWorking |= working;
+            names.Add(n.npcName + (working ? "" : "（" + st + "）"));
+        }
+        s += (anyWorking ? Good((jp ? "建設中 " : "施工中 ") + pct + "%") : Bad((jp ? "中断中 " : "暂停 ") + pct + "%")) + "\n";
+        return s + Sub((jp ? "担当：" : "施工：") + string.Join("、", names));
     }
 
     static string PowerStatus(PowerNode pn, bool jp)

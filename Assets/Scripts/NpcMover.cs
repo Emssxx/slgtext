@@ -15,6 +15,9 @@ public class NpcMover : MonoBehaviour
     private float _baseSpeed = 3f; // NavMeshAgent 上原本设置的速度（闲逛调慢后用它恢复）
     private float _speedMult = 1f; // 行为给的倍率（闲逛慢走等）
     private float _tempFactor = 1f; // 气温给的倍率（寒冷时变慢，ClimateSystem 设置）
+    private float _healthFactor = 1f; // 健康状态给的倍率（疲惫 / 受伤 / 生病…，NpcHealth 设置；濒死 = 0 走不动）
+    private NpcView _view;
+    private Vector3 _lastPos;
 
     void Awake()
     {
@@ -30,6 +33,8 @@ public class NpcMover : MonoBehaviour
 
         _sprite = GetComponent<SpriteRenderer>();
         if (_sprite == null) _sprite = GetComponentInChildren<SpriteRenderer>();
+        _view = GetComponent<NpcView>();
+        _lastPos = transform.position;
     }
 
     // 外部调用：立刻停止移动（清除路径、重置标志、停走路动画）。
@@ -69,10 +74,28 @@ public class NpcMover : MonoBehaviour
         ApplySpeed();
     }
 
+    // 外部调用：健康状态造成的速度倍率（NpcHealth 每 0.25 秒设置一次）。0 = 走不动（濒死）。
+    public void SetHealthFactor(float factor)
+    {
+        factor = Mathf.Max(0f, factor);
+        if (Mathf.Approximately(factor, _healthFactor)) return;
+        _healthFactor = factor;
+        ApplySpeed();
+    }
+
     void ApplySpeed()
     {
         if (_agent == null) return;
-        _agent.speed = _baseSpeed * _speedMult * _tempFactor;
+        _agent.speed = _baseSpeed * _speedMult * _tempFactor * _healthFactor;
+    }
+
+    // 走了多远就扣多少体力（每格 1 点，NpcHealth 结算）。瞬移（空间扭曲）一帧跳很远，不算。
+    void TrackMovement()
+    {
+        Vector3 p = transform.position;
+        float d = Vector2.Distance(p, _lastPos);
+        _lastPos = p;
+        if (d > 0.0001f && d < 2f && _view != null) NpcHealth.OnMoved(_view.npcId, d);
     }
 
     // 外部调用：原地转身面朝某个点（闲聊时面对面用）。左右翻转规则和走路时一致。
@@ -87,6 +110,7 @@ public class NpcMover : MonoBehaviour
 
     void Update()
     {
+        TrackMovement();
         if (!_hasTarget)
         {
             SetMovingAnim(false);

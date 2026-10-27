@@ -161,6 +161,7 @@ public class NpcAgent : MonoBehaviour
         string recent = FormatRecent(npc, jp);
         string recalled = FormatRecalled(npc, playerText, jp);
         string mental = MentalState.GetInjection(npc, world);
+        string body = NpcHealth.ActorBlock(npc, jp); // 身体状况词条（饥饿、受伤、生病……）：台词必须体现
         string langRule = LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "";
 
         StringBuilder sb = new StringBuilder();
@@ -182,6 +183,7 @@ public class NpcAgent : MonoBehaviour
             if (recent.Length > 0) { sb.AppendLine("【最近の会話】"); sb.Append(recent); }
             if (!string.IsNullOrEmpty(situation)) { sb.AppendLine("【今この瞬間】"); sb.AppendLine(situation); }
             sb.AppendLine(mental);
+            if (body.Length > 0) sb.AppendLine(body);
             sb.AppendLine();
             sb.AppendLine(WorldLore.SpeakingRules);
             sb.AppendLine();
@@ -206,6 +208,7 @@ public class NpcAgent : MonoBehaviour
             if (recent.Length > 0) { sb.AppendLine("【最近的对话】"); sb.Append(recent); }
             if (!string.IsNullOrEmpty(situation)) { sb.AppendLine("【此刻】"); sb.AppendLine(situation); }
             sb.AppendLine(mental);
+            if (body.Length > 0) sb.AppendLine(body);
             sb.AppendLine();
             sb.AppendLine(WorldLore.SpeakingRules);
             sb.AppendLine();

@@ -130,7 +130,8 @@ public class StoragePanelUI : MonoBehaviour
     {
         if (!item.IsUsable) return "<color=#9AA5B8>" + L("item_cat_" + item.category.ToString().ToLower()) + "</color>";
         string s = "";
-        s += Part("stat_hunger", item.hungerDelta, true);  // 饥饿：减少是好事 → 负数显示绿色
+        s += Part("stat_hunger", -item.hungerDelta, false); // 饥饿值（100 = 不饿）：增加是好事
+        if (item.id == WaterWorks.WaterItem && NpcHealth.Instance != null) s += Part("stat_water", NpcHealth.Instance.waterPerDrink, false); // 净化水补水分
         s += Part("stat_energy", item.energyDelta, false);
         s += Part("stat_sanity", item.sanityDelta, false);
         s += Part("stat_health", item.healthDelta, false);

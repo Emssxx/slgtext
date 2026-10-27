@@ -79,7 +79,8 @@ public class HudLayout : MonoBehaviour
         PlaceBuildButton();
         BuildDayCounter(root.transform);
         ResourceHud.Create(root.transform, _font); // 天数两边：电力 / 净化水 + 终端机按钮
-        HoverInfo.Ensure();                        // 鼠标悬停在 NPC / 建筑上的信息框
+        HoverInfo.Ensure();                        // 鼠标悬停在 NPC / 建筑上的信息框 + 地图坐标浮窗
+        CameraController.Ensure();                 // 滚轮缩放 + 中键拖动画面
     }
 
     // ============ 左上角：事件 / 日志抽屉 ============

@@ -39,6 +39,7 @@ public class NpcTaskRunner : MonoBehaviour
     // 取消所有任务并立刻停止移动（被事件打断时调用）。
     public void CancelAll()
     {
+        NpcHealth.SetResting(CurrentId, false);
         _queue.Clear();          // 清空待执行队列
         _running = false;        // 重置运行标志
         StopAllCoroutines();     // 停止正在跑的任务协程（DoGo/DoAct/DoPush）
@@ -83,6 +84,19 @@ public class NpcTaskRunner : MonoBehaviour
 
     IEnumerator DoOneTask(NpcTask task)
     {
+        // 健康状态：濒死什么都做不了；受伤 / 致命伤干不了活（搜寻、推箱子、互动）
+        NpcData me = Self;
+        if (me != null && !NpcHealth.CanMove(me) && task.action != "use_item")
+        {
+            Report(me, null, LanguageGuard.Pick(me.npcName + " 动不了了（" + NpcHealth.TagName(HealthTag.Dying, false) + "）。", me.npcName + "はもう動けない（" + NpcHealth.TagName(HealthTag.Dying, true) + "）。"));
+            yield break;
+        }
+        if (me != null && (task.action == "search_item" || task.action == "push" || task.action == "act") && !NpcHealth.CanWork(me))
+        {
+            bool jp = LanguageGuard.IsJp;
+            Report(me, null, jp ? me.npcName + "は" + NpcHealth.CannotWorkReason(me, true) + "で作業できない。" : me.npcName + " " + NpcHealth.CannotWorkReason(me, false) + "，干不了活。");
+            yield break;
+        }
         switch (task.action)
         {
             case "go":
@@ -216,10 +230,12 @@ public class NpcTaskRunner : MonoBehaviour
         WorldState w = WorldManager.Instance.world;
         if (string.IsNullOrEmpty(itemId))
         {
-            NpcDecisionRules.Execute(self, NpcDecisionRules.Behavior.Gather, w); // 仓库 +1 营养块、体力 -15、写日志
+            NpcDecisionRules.Execute(self, NpcDecisionRules.Behavior.Gather, w); // 仓库 +1 营养块、写日志、可能受伤
             yield break;
         }
-        self.energy = Mathf.Clamp(self.energy - 15f * ClimateSystem.EnergyFactor(self), 0f, 100f); // 炎热时消耗更多
+        // 体力按走路距离扣（NpcHealth）；外面危险，有概率受伤
+        if (NpcHealth.RollFieldInjury(self))
+            Report(self, null, LanguageGuard.Pick(self.npcName + " 在外面受了伤（" + NpcHealth.InjuryPart(self, false) + "）。", self.npcName + "は外で怪我をした（" + NpcHealth.InjuryPart(self, true) + "）。"));
         string itemName = GameLexicon.NameOf(itemId);
         if (Random.value < FindChance(itemId))
         {
@@ -247,12 +263,22 @@ public class NpcTaskRunner : MonoBehaviour
         }
     }
 
-    // rest：原地歇一会儿，再按需求规则结算（体力回复）。
+    // rest：原地休息（每秒回体力，消耗饥饿值，NpcHealth 结算），歇到不疲惫为止（最多 60 秒）。
     IEnumerator DoRest()
     {
         _mover.Stop();
-        yield return new WaitForSeconds(6f);
-        if (Self != null) NpcDecisionRules.Execute(Self, NpcDecisionRules.Behavior.Rest, WorldManager.Instance.world);
+        NpcData self = Self;
+        if (self == null) yield break;
+        NpcHealth.SetResting(CurrentId, true);
+        NpcDecisionRules.Execute(self, NpcDecisionRules.Behavior.Rest, WorldManager.Instance.world); // 日志
+        float target = NpcHealth.Instance != null ? NpcHealth.Instance.fatigueClearAt : 60f;
+        float t = 0f;
+        while (t < 60f && (t < 6f || self.energy < target) && self.satiety > 0f && !self.IsDead)
+        {
+            t += Time.deltaTime;
+            yield return null;
+        }
+        NpcHealth.SetResting(CurrentId, false);
     }
 
     static bool TakeFromInventory(NpcData npc, string itemId)

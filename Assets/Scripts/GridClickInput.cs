@@ -3,14 +3,17 @@ using UnityEngine.InputSystem;
 using UnityEngine.EventSystems;
 using System.Collections.Generic; // RaycastAll 结果列表用
 
-// 网格点击输入：鼠标点击地图格子 → 把格子编号（如 "G7"）追加到聊天输入栏。
-// 不触发任何移动，只插入编号，让玩家自己组织指令。
-// 点在 UI 上时不处理（让 UI 正常响应自己的点击事件）。
+// 网格点击输入（旧功能，默认关闭）：鼠标点击地图格子 → 把格子坐标（如 "6,7"）追加到聊天输入栏。
+// 现在看坐标改成"鼠标在地图上停半秒，左上方弹出 xy 坐标浮窗"（HoverInfo + CellInfo），点地图不再往输入栏塞东西。
+// 想恢复旧的点击插入，把 Inspector 里的 insertCoordOnClick 勾上即可。
 public class GridClickInput : MonoBehaviour
 {
     [Header("引用（Inspector 拖入）")]
     public Camera mainCamera;
     public ChatManager chatManager;
+
+    [Tooltip("点地图格子时，把坐标插进聊天输入栏（旧功能，默认关）")]
+    public bool insertCoordOnClick = false;
 
     void Awake()
     {
@@ -33,7 +36,7 @@ public class GridClickInput : MonoBehaviour
 
     void Update()
     {
-        if (Mouse.current == null) return;
+        if (!insertCoordOnClick || Mouse.current == null) return;
         if (!Mouse.current.leftButton.wasPressedThisFrame) return;
 
         // 点在 UI 上时不处理，让按钮/输入框正常响应
@@ -57,6 +60,9 @@ public class GridClickInput : MonoBehaviour
 
         // 超出地图范围不处理
         if (!GridManager.Instance.InBounds(cell.x, cell.y)) return;
+
+        // 点的是规划区（蓝图）：弹施工指派面板（ConstructionManager 处理），不往聊天栏插编号
+        if (ConstructionSite.At(cell) != null) return;
 
         // 格子坐标 → 编号（如 "G7"）
         string label = GridManager.Instance.CellToLabel(cell.x, cell.y);

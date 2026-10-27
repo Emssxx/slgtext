@@ -118,6 +118,8 @@ public class WanderActivity : IdleActivity
         if (ctx.need == NpcDecisionRules.Behavior.Gather) s *= 1.3f;     // 缺物资：四处张罗
         if (ctx.mental == SanityLevel.Hallucinating) s *= 1.4f;          // 幻觉：坐立不安
         if (ctx.npc.energy < 40f) s *= 0.5f;
+        if (NpcHealth.Has(ctx.npc, HealthTag.Hungry) || NpcHealth.Has(ctx.npc, HealthTag.Sick)) s *= 0.5f; // 饿了 / 病了：懒得走动
+        if (NpcHealth.Has(ctx.npc, HealthTag.Psychosis)) s *= 1.8f;      // 精神病：坐立不安
         if (ctx.holding) s *= 0.6f;                                      // 在指令终点：少走动
         return s;
     }
@@ -163,6 +165,8 @@ public class ChatActivity : IdleActivity
         if (ctx.mental == SanityLevel.Dazed) s *= 0.6f;
         if (ctx.mental == SanityLevel.Hallucinating) s *= 0.6f;
         if (ctx.holding) s *= 0.5f;
+        if (NpcHealth.Has(ctx.npc, HealthTag.Fatigued) || NpcHealth.Has(ctx.npc, HealthTag.Hungry)) s *= 0.5f; // 累了 / 饿了：不想说话
+        if (NpcHealth.DistrustsEveryone(ctx.npc)) return 0f;            // 精神病：谁也不想搭理
         return s;
     }
 

@@ -173,7 +173,7 @@ public class NpcIdleBrain : MonoBehaviour
         StartCooldown(act);
         NpcIdleManager mgr = NpcIdleManager.Instance;
         Vector2 gap = mgr != null ? mgr.gapSeconds : new Vector2(0.5f, 1.5f);
-        _nextPickTime = Time.time + Random.Range(gap.x, gap.y);
+        _nextPickTime = Time.time + Random.Range(gap.x, gap.y) * NpcHealth.IdleGapMultiplier(Data); // 累了、饿了：活动没那么频繁
     }
 
     // 打断当前活动。stopMover：是否顺便停下脚步（被玩家指令/施工接管时不能停，否则会取消它们的移动）。

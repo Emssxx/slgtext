@@ -68,9 +68,17 @@ public class NpcData
     public string currentGoal;   // 当前目标（喂 AI）
 
     // —— 生存数值（范围 0~100）——
-    public float health = 100f; // 生命
-    public float hunger = 0f;   // 饥饿度，越高越饿
-    public float energy = 100f; // 精力/体力
+    public float health = 100f;  // 生命
+    public float satiety = 100f; // 饥饿值：100 = 不饿，0 = 饿坏了（NPC 健康系统 NpcHealth 每秒结算）
+    public float water = 100f;   // 水分：100 = 不渴，0 = 渴坏了
+    public float energy = 100f;  // 精力/体力
+
+    // 旧代码用的"饥饿度"（越高越饿）= 100 - 饥饿值。保留成属性，老逻辑不用改；新代码请直接用 satiety。
+    [Newtonsoft.Json.JsonIgnore]
+    public float hunger { get { return 100f - satiety; } set { satiety = 100f - value; } }
+
+    // 状态词条（疲惫、饥饿、口渴、受伤、生病……），存的是英文 id，见 NpcHealth.TagId。
+    public List<string> conditions = new List<string>();
     public float sanity = 100f; // 精神/理智（亚空间会侵蚀理智，本作特色数值）
 
     // 是否已死亡（只读，统一用这个判断，不要各处自己写 health<=0）。

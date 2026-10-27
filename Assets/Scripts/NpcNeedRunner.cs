@@ -7,7 +7,7 @@ using UnityEngine.AI;
 // NpcDecisionRules 决定"该吃饭/休息/搜寻/逃跑"后，由它让 NPC 真的走过去做，做完再结算数值
 // （结算仍然是 NpcDecisionRules.Execute，数值和日志都没变，只是从"瞬间完成"变成"走过去做完才算"）。
 //   吃饭：走到营地（仓库）→ 吃 → 结算。仓库空了 20 秒内不再白跑。
-//   休息：回营地找个空位 → 歇一会儿 → 结算。
+//   休息：原地坐下，每秒回 0.3 体力（消耗饥饿值，NpcHealth 结算），歇到「疲惫」消失或饿得歇不下去为止。
 //   搜寻：走到营地外（优先迷雾里看不清的地方，顺便揭开迷雾）→ 翻找 → 带回营地 → 结算。
 //   逃跑：慌张地跑回营地中心 → 缩一会儿 → 结算。30 秒内不重复逃。
 // 执行期间在 NpcBusy 登记占用（Need，优先级 50）：闲置行为会让路；
@@ -20,7 +20,8 @@ public class NpcNeedRunner : MonoBehaviour
 
     [Header("各动作持续时间（秒）")]
     public float eatSeconds = 2.5f;
-    public float restSeconds = 8f;
+    public float restSeconds = 8f;      // 休息最少坐多久
+    public float restMaxSeconds = 150f; // 休息最多坐多久（防止一直坐着）
     public float searchSeconds = 4f;
     public float cowerSeconds = 4f;
 
@@ -111,6 +112,7 @@ public class NpcNeedRunner : MonoBehaviour
     {
         StopAllCoroutines();
         IsRunning = false;
+        NpcHealth.SetResting(NpcId, false);
         ReleaseClaim();
         if (_mover != null)
         {
@@ -152,15 +154,22 @@ public class NpcNeedRunner : MonoBehaviour
         }
     }
 
-    // 休息：回营地找个空位 → 歇一会儿 → 结算（体力回复）。
+    // 休息：原地坐下 → 每秒回体力（NpcHealth）→ 歇到疲惫消失（或饿得没法再歇）→ 记日志。
     IEnumerator DoRest(NpcData npc, WorldState world)
     {
         SetAction("need_act_rest");
-        yield return WalkTo(NearCamp(2f), 0.8f, 15f);
         StopMoving();
         Say(LanguageGuard.Pick("（坐下歇口气）", "（腰を下ろして一息つく）"), 2.5f);
-        yield return new WaitForSeconds(restSeconds);
-        NpcDecisionRules.Execute(npc, NpcDecisionRules.Behavior.Rest, world);
+        NpcDecisionRules.Execute(npc, NpcDecisionRules.Behavior.Rest, world); // 日志
+        float target = NpcHealth.Instance != null ? NpcHealth.Instance.fatigueClearAt : 60f;
+        NpcHealth.SetResting(NpcId, true);
+        float t = 0f;
+        while (t < restMaxSeconds && (t < restSeconds || npc.energy < target) && npc.satiety > 0f && !npc.IsDead)
+        {
+            t += Time.deltaTime;
+            yield return null;
+        }
+        NpcHealth.SetResting(NpcId, false);
     }
 
     // 搜寻：走到营地外（优先迷雾里看不清的地方）→ 翻找 → 带回营地 → 结算（仓库 +1、体力 -15）。
@@ -269,6 +278,7 @@ public class NpcNeedRunner : MonoBehaviour
     void Finish()
     {
         IsRunning = false;
+        NpcHealth.SetResting(NpcId, false);
         ReleaseClaim();
         if (_mover != null) _mover.SetSpeedMultiplier(1f);
     }

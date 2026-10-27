@@ -91,7 +91,7 @@ public class ClimateSystem : MonoBehaviour
     float _baseline;
     int _waterThisSpell;          // 这一场雨雪里收集器接到的雨水
     bool _rainWasted;             // 这一场雨雪下的时候没有收集器
-    bool _fullWarned, _noPowerWarned, _lowWaterWarned;
+    bool _fullWarned, _noPowerWarned, _lowWaterWarned, _dryWarned;
     int _shedWarned;
     readonly Dictionary<string, float> _healthDelta = new Dictionary<string, float>();
     readonly HashSet<string> _hailHurt = new HashSet<string>();
@@ -122,6 +122,7 @@ public class ClimateSystem : MonoBehaviour
     public void OnTurn(WorldState w)
     {
         if (w == null) return;
+        WaterWorks.BeginTurn();
         float a = Mathf.Clamp01(w.anomalyLevel / 100f);
         PrecipLevel oldRain = Rain, oldSnow = Snow;
         WindLevel oldWind = Wind;
@@ -174,13 +175,12 @@ public class ClimateSystem : MonoBehaviour
         // 5. 电力（风力发电 → 设备耗电；净化器只有在收集器里有雨水时才用电）
         PowerGrid.Tick(WindPowerPerTurn);
 
-        // 6. 净化：通电的净化器把雨水变成净化水，放进仓库；然后每日配给（每人喝水）
+        // 6. 净化：通电的净化器把雨水变成净化水，放进仓库（喝水由 NpcHealth 按每个人的水分自动进行）
         WaterWorks.Purify();
-        List<NpcData> missed = WaterWorks.ConsumeRations(w);
 
         // 7. 天气 / 水源的提示
         AnnounceWeather(w, oldRain, oldSnow, oldWind, oldHail);
-        AnnounceWater(w, overflow, missed);
+        AnnounceWater(w, overflow);
         AnnouncePower(w);
 
         // 8. 每个人：冻伤、冰雹（体力消耗交给 NPC 健康系统，它读 EnergyFactor）
@@ -203,6 +203,7 @@ public class ClimateSystem : MonoBehaviour
                 if (m != null && Vector2.Distance(m.transform.position, camp) > campR)
                 {
                     dh -= hailDamagePerTurn;
+                    NpcHealth.MarkInjured(n, InjuryCause.Hail); // 「受伤」词条（伤在头 / 肩膀 / 后背）
                     if (_hailHurt.Add(n.id) && LogManager.Instance != null)
                         LogManager.Instance.AddLog(n.npcName, LanguageGuard.Pick(n.npcName + " 在营地外被冰雹砸伤了。", n.npcName + "は拠点の外で雹に打たれて怪我をした。"), n.id);
                 }
@@ -445,20 +446,16 @@ public class ClimateSystem : MonoBehaviour
         _shedWarned = ps.shed;
     }
 
-    // 收集器装满 / 净化器没电 / 水快喝完：各提示一次，情况变了再提示。没喝上水的人每回合都提示。
-    void AnnounceWater(WorldState w, int overflow, List<NpcData> missed)
+    // 收集器装满 / 净化器没电 / 水快喝完 / 没水喝：各提示一次，情况变了再提示。
+    void AnnounceWater(WorldState w, int overflow)
     {
         if (EventLogManager.Instance == null) return;
         bool jp = LanguageGuard.IsJp;
-        if (missed != null && missed.Count > 0)
-        {
-            List<string> names = new List<string>();
-            int worst = 0;
-            foreach (NpcData n in missed) { names.Add(n.npcName); worst = Mathf.Max(worst, WaterWorks.ThirstDays(n.id)); }
-            EventLogManager.Instance.AddEvent(w.day, jp
-                ? "浄化水が足りない：" + string.Join("、", names) + " は今日水を飲めなかった（最長 " + worst + " 日間水なし）。"
-                : "净化水不够了：" + string.Join("、", names) + " 今天没喝上水（最久的已经缺水 " + worst + " 天）。");
-        }
+        int thirsty = WaterWorks.ThirstyCount;
+        bool dry = WaterWorks.StoredWater <= 0 && thirsty > 0;
+        if (dry && !_dryWarned)
+            EventLogManager.Instance.AddEvent(w.day, jp ? "浄化水が尽きた。" + thirsty + " 人が喉の渇きに苦しんでいる。" : "净化水喝光了，" + thirsty + " 个人正在口渴。");
+        _dryWarned = dry;
         float days = WaterWorks.DaysLeft;
         bool low = days < 2f && WaterWorks.StoredWater > 0;
         if (low && !_lowWaterWarned)

@@ -223,8 +223,7 @@ public static class IdleChatRules
 
     static float Affinity(NpcData from, NpcData to)
     {
-        Relationship r = RelationshipManager.Get(from, to.id);
-        return r != null ? r.affinity : 0f;
+        return RelationshipManager.AffinityOf(from, to.id); // 饥饿等状态会让好感暂时变低
     }
 
     static bool FoodLow(WorldState w)

@@ -40,9 +40,9 @@ public static class NpcDecisionRules
             return Behavior.Eat;
         }
 
-        // 4. 太累 → 休息。
-        float energyThreshold = 20f;
-        if (npc.energy <= energyThreshold)
+        // 4. 太累（疲惫）→ 原地休息，一直歇到疲惫消失（NpcNeedRunner 里判断）。
+        float energyThreshold = NpcHealth.Instance != null ? NpcHealth.Instance.fatigueBelow : 20f;
+        if (npc.energy <= energyThreshold || NpcHealth.Has(npc, HealthTag.Fatigued) && npc.energy < energyThreshold + 10f)
             return Behavior.Rest;
 
         // 5. 物资不足 → 搜寻（利他高的人更愿意为集体去搜寻）。
@@ -71,6 +71,9 @@ public static class NpcDecisionRules
     // （这是规则执行，不是 LLM。）
     public static void Execute(NpcData npc, Behavior behavior, WorldState world)
     {
+        // 正在施工 / 执行指令的人并没有真的去休息 / 搜寻：不结算、不写日志（免得每 5 秒刷一条"在休息"）
+        if (behavior == Behavior.Rest && NpcBusy.IsBusy(npc.id) && !NpcBusy.IsHeldBy(npc.id, NpcBusy.Need) && !NpcHealth.IsResting(npc.id)) return;
+        if (behavior == Behavior.Gather && NpcBusy.IsHeldBy(npc.id, NpcBusy.Build)) return;
         string log;
         switch (behavior)
         {
@@ -89,17 +92,18 @@ public static class NpcDecisionRules
             }
 
             case Behavior.Rest:
-                npc.energy = Mathf.Clamp(npc.energy + 20f, 0f, 100f);
-                npc.hunger = Mathf.Clamp(npc.hunger + 8f, 0f, 100f);
-                npc.currentAction = "休息中";
+                // 体力不在这里一次性加：原地休息期间由 NpcHealth 每秒 +0.3（消耗饥饿值），这里只记日志。
+                npc.currentAction = LanguageGuard.Pick("休息中", "休憩中");
                 log = Loc("log_rest", npc.npcName);
                 break;
 
             case Behavior.Gather:
-                npc.energy = Mathf.Clamp(npc.energy - 15f * ClimateSystem.EnergyFactor(npc), 0f, 100f); // 炎热时消耗更多
+                // 体力不再一次扣 15：来回走路时按距离扣（NpcHealth，每格 1 点）。外面危险，有概率受伤。
                 WorldManager.Instance.AddToStorage("ration", 1); // 搜寻带回 1 份蛋白营养块
-                npc.currentAction = "外出搜寻物资";
+                npc.currentAction = LanguageGuard.Pick("外出搜寻物资", "物資探し");
                 log = Loc("log_gather", npc.npcName);
+                if (NpcHealth.RollFieldInjury(npc))
+                    log += LanguageGuard.Pick("（在外面受了伤：" + NpcHealth.InjuryPart(npc, false) + "）", "（外で怪我をした：" + NpcHealth.InjuryPart(npc, true) + "）");
                 break;
 
             case Behavior.Flee:

@@ -31,6 +31,8 @@ public class WorldManager : MonoBehaviour
         NpcMemory.BeginSession(world);                   // 4. 建本局的 NPC 档案文件夹（名册、AI 词库、每人的档案和聊天记录）
         HudLayout.Ensure();                              // 5. 整理主界面布局（左上事件/日志抽屉、右下建造、顶部天数）
         ClimateSystem.Ensure();                          // 6. 天气 + 气温 + 电力（每回合在 RunOneTurnResolve 里结算）
+        NpcHealth.Ensure();                              // 7. NPC 健康系统（饥饿值 / 水分 / 体力 / 状态词条，每秒结算）
+        ConstructionManager.Ensure();                    // 8. 规划区施工（点蓝图指派施工的人）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
     }
 

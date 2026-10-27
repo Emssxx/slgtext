@@ -60,7 +60,7 @@ public class NpcChatWindow : MonoBehaviour
         public RectTransform fill;
         public Image fillImage;
     }
-    Bar _hp, _hunger, _energy, _sanity, _trust;
+    Bar _hp, _hunger, _water, _energy, _sanity, _trust;
 
     // —— 中间：词条 ——
     RectTransform _chips;
@@ -68,7 +68,7 @@ public class NpcChatWindow : MonoBehaviour
 
     const float Pad = 12f;
     const float PortraitSize = 116f;
-    const float HeaderH = 160f;
+    const float HeaderH = 172f;
     const float ChipH = 24f;
 
     static readonly Color PanelColor = new Color(0.08f, 0.09f, 0.12f, 0.95f);
@@ -255,7 +255,8 @@ public class NpcChatWindow : MonoBehaviour
         _name.text = npc.npcName;
         _sub.text = GenderName(npc.gender) + "  ·  " + MentalTag(npc);
         SetBar(_hp, npc.health, false);
-        SetBar(_hunger, npc.hunger, true);   // 饥饿：越高越糟
+        SetBar(_hunger, npc.satiety, false); // 饥饿值：100 = 不饿
+        SetBar(_water, npc.water, false);    // 水分：100 = 不渴
         SetBar(_energy, npc.energy, false);
         SetBar(_sanity, npc.sanity, false);
         SetBar(_trust, npc.playerTrust, TrustColor);
@@ -303,6 +304,13 @@ public class NpcChatWindow : MonoBehaviour
     {
         List<KeyValuePair<string, Color>> list = new List<KeyValuePair<string, Color>>();
         HashSet<string> seen = new HashSet<string>();
+        // 状态词条（健康系统）放最前面：濒死 / 受伤 / 生病 / 饥饿 / 口渴 / 疲惫……没有生命类词条时显示「健康」
+        if (!npc.IsDead)
+        {
+            if (NpcHealth.IsHealthy(npc)) AddChip(list, seen, L("stat_healthy"), NpcHealth.HealthyColor);
+            bool jp = LanguageGuard.IsJp;
+            foreach (HealthTag t in NpcHealth.Tags(npc)) AddChip(list, seen, NpcHealth.TagName(npc, t, jp), NpcHealth.TagColor(t));
+        }
         AddChip(list, seen, npc.profession, ChipProfession);
         if (npc.traits != null) foreach (string t in npc.traits) AddChip(list, seen, t, ChipTrait);
         Personality p = npc.personality;
@@ -337,6 +345,7 @@ public class NpcChatWindow : MonoBehaviour
         return npc.profession + "|" + (npc.traits != null ? string.Join(",", npc.traits) : "") + "|" +
                (p != null ? p.bravery + "," + p.altruism + "," + p.caution + "," + p.sociability + "," + p.optimism : "") + "|" +
                npc.isBroken + "|" + (npc.mutations != null ? string.Join(",", npc.mutations) : "") + "|" +
+               NpcHealth.BriefLine(npc, false) + "|" +
                (LanguageGuard.IsJp ? "ja" : "zh");
     }
 
@@ -467,7 +476,7 @@ public class NpcChatWindow : MonoBehaviour
     {
         if (_sendLabel != null) _sendLabel.text = L("chat_send");
         if (_placeholder != null) _placeholder.text = L("chatwin_placeholder");
-        foreach (Bar b in new[] { _hp, _hunger, _energy, _sanity, _trust })
+        foreach (Bar b in new[] { _hp, _hunger, _water, _energy, _sanity, _trust })
             if (b != null) b.label.text = L(b.key);
         if (IsOpen) { _chipSignature = null; RefreshHeader(); RefreshThinking(); }
     }
@@ -649,11 +658,12 @@ public class NpcChatWindow : MonoBehaviour
         _sub.textWrappingMode = TextWrappingModes.NoWrap;
         TopRow(_sub.rectTransform, colX, 38f, 18f, -Pad);
 
-        float y = 62f;
-        _hp = NewBar(header, "stat_health", colX, y); y += 19f;
-        _hunger = NewBar(header, "stat_hunger", colX, y); y += 19f;
-        _energy = NewBar(header, "stat_energy", colX, y); y += 19f;
-        _sanity = NewBar(header, "stat_sanity", colX, y); y += 19f;
+        float y = 60f;
+        _hp = NewBar(header, "stat_health", colX, y); y += 18f;
+        _hunger = NewBar(header, "stat_hunger", colX, y); y += 18f;
+        _water = NewBar(header, "stat_water", colX, y); y += 18f;
+        _energy = NewBar(header, "stat_energy", colX, y); y += 18f;
+        _sanity = NewBar(header, "stat_sanity", colX, y); y += 18f;
         _trust = NewBar(header, "stat_trust", colX, y);
 
         Button close = NewButton(header, "Close", "×", 22f, new Color(0f, 0f, 0f, 0f), out _);

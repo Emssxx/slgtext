@@ -102,12 +102,16 @@ public class ScreenEffectManager : MonoBehaviour
         _flashImage.color = new Color(color.r, color.g, color.b, 0);
     }
 
-    // 相机震动。
+    // 相机震动：只算一个偏移量。有 CameraController（缩放 / 拖动）时由它叠加到镜头上；
+    // 没有时这里直接加减偏移——都不会把镜头"复位"到开局位置（否则缩放、拖动过的画面会被拉回去）。
+    public static Vector3 ShakeOffset { get; private set; }
+
     public void Shake(float strength = 0.15f, float duration = 0.4f)
     {
         if (_cam == null) _cam = Camera.main;
         if (_cam == null) return;
         if (_shakeCo != null) StopCoroutine(_shakeCo);
+        SetShake(Vector3.zero);
         _shakeCo = StartCoroutine(ShakeCo(strength, duration));
     }
     IEnumerator ShakeCo(float strength, float duration)
@@ -116,10 +120,18 @@ public class ScreenEffectManager : MonoBehaviour
         {
             float damper = 1f - (t / duration); // 逐渐减弱
             Vector2 off = Random.insideUnitCircle * strength * damper;
-            _cam.transform.localPosition = _camBasePos + new Vector3(off.x, off.y, 0);
+            SetShake(new Vector3(off.x, off.y, 0));
             yield return null;
         }
-        _cam.transform.localPosition = _camBasePos; // 复位
+        SetShake(Vector3.zero); // 复位（只去掉偏移）
+        _shakeCo = null;
+    }
+
+    void SetShake(Vector3 off)
+    {
+        if (CameraController.Instance == null && _cam != null)
+            _cam.transform.localPosition += off - ShakeOffset;
+        ShakeOffset = off;
     }
 
     // 横幅文字：短暂显示一行大字。

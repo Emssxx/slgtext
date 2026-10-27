@@ -111,12 +111,14 @@ public class LlmIdleChatVoice : IIdleChatVoice
                    "・性格：" + traits + "\n" +
                    "・話し方：" + style + "\n" +
                    "・精神状態：" + Mental(n, true) + "\n" +
+                   "・体の状態：" + NpcHealth.BriefLine(n, true) + "（会話ににじませる）\n" +
                    "・" + other.npcName + "への気持ち：" + Relation(n, other, true);
         return "【人物" + tag + "】" + n.npcName + "（" + (male ? "男" : "女") + "，以前是" + job + "）\n" +
                (brief.Length > 0 ? "・背景：" + brief + "\n" : "") +
                "・性格：" + traits + "\n" +
                "・说话风格：" + style + "\n" +
                "・精神状态：" + Mental(n, false) + "\n" +
+               "・身体状况：" + NpcHealth.BriefLine(n, false) + "（聊天时要体现出来）\n" +
                "・对" + other.npcName + "的感觉：" + Relation(n, other, false);
     }
 
@@ -135,8 +137,8 @@ public class LlmIdleChatVoice : IIdleChatVoice
 
     static string Relation(NpcData from, NpcData to, bool jp)
     {
-        Relationship r = RelationshipManager.Get(from, to.id);
-        float aff = r != null ? r.affinity : 0f;
+        if (NpcHealth.DistrustsEveryone(from)) return jp ? "誰も信じられず、相手が自分を陥れようとしていると疑っている" : "谁也不信，怀疑对方想害自己";
+        float aff = RelationshipManager.AffinityOf(from, to.id); // 饥饿等状态会让好感暂时变低
         if (aff >= 40f) return jp ? "とても信頼していて、親しい" : "非常信赖、很亲近";
         if (aff >= 15f) return jp ? "仲が良い" : "关系不错";
         if (aff > -15f) return "普通";
