@@ -11,6 +11,8 @@ using TMPro;
 //   天然资源（树 / 石头 / 矿石）：名称、采集可得什么、采集进度（草太多了不弹框，坐标浮窗里有）。
 // 另外：鼠标在地图上停够半秒，鼠标左上方弹出这一格的坐标浮窗（内容由 CellInfo 的各个提供者写，以后加地形信息就加提供者）；
 // 同时悬停在 NPC / 建筑上时，坐标浮窗改为显示在它们的信息框下方（左边对齐）。
+// NPC 的信息改成"锁定框"样式：四个角框住 NPC（淡绿色微光，和天数数字同色），信息写在左上角外面，透明底；
+//   出现时四个角从中间展开（expandTime 秒）。建筑 / 资源仍用原来的方框。
 // 鼠标在 UI 上时不显示。用不受暂停影响的时间（建造模式会暂停游戏）。
 // 由 HudLayout 调 HoverInfo.Ensure() 创建，自带一个最上层的 Canvas。
 public class HoverInfo : MonoBehaviour
@@ -23,6 +25,14 @@ public class HoverInfo : MonoBehaviour
     public float maxWidth = 300f;
     [Tooltip("鼠标在同一格停多久才弹出坐标浮窗（秒）")]
     public float cellDelay = 0.5f;
+
+    [Header("NPC 锁定框")]
+    [Tooltip("四个角从中间展开用多久（秒）")]
+    public float expandTime = 0.1f;
+    [Tooltip("四个角离 NPC 图片边缘留多少（像素）")]
+    public float framePadding = 6f;
+    [Tooltip("文字微光（关掉 = 纯色文字）")]
+    public bool textGlow = true;
 
     const float Pad = 10f;
     const float MinSize = 150f; // 最小宽度：短内容也是一个方块，不会缩成一条
@@ -39,6 +49,15 @@ public class HoverInfo : MonoBehaviour
     string _cellName;
     Vector2Int _cell = new Vector2Int(int.MinValue, int.MinValue);
     GameObject _cellObj;
+
+    // —— NPC 锁定框 ——
+    RectTransform _npcRoot, _npcTextRt;
+    readonly RectTransform[] _corners = new RectTransform[4]; // 左上 / 右上 / 左下 / 右下
+    TextMeshProUGUI _npcText;
+    bool _npcShown;
+    float _npcAnim;
+    float _npcStackBottom;  // 锁定框（含文字）最下沿，坐标浮窗挂在它下面
+    float _npcLeft;
 
     // —— 坐标浮窗 ——
     RectTransform _cellBox;
@@ -112,6 +131,8 @@ public class HoverInfo : MonoBehaviour
 
         _box.gameObject.SetActive(false);
 
+        BuildNpcFrame(font);
+
         // 坐标浮窗：同样的半透明方框，没有尖角
         _cellBox = NewRect("CellBox", transform);
         _cellBox.anchorMin = _cellBox.anchorMax = new Vector2(0.5f, 0.5f);
@@ -138,6 +159,157 @@ public class HoverInfo : MonoBehaviour
     }
 
     const float CellPad = 8f;
+
+    // NPC 锁定框：四个发光的角 + 左上角的文字（透明底、淡绿色微光）。
+    void BuildNpcFrame(TMP_FontAsset font)
+    {
+        _npcRoot = NewRect("NpcFrame", transform);
+        _npcRoot.anchorMin = _npcRoot.anchorMax = new Vector2(0.5f, 0.5f);
+        _npcRoot.sizeDelta = Vector2.zero;
+        Texture2D tex = CornerTexture();
+        Vector2[] flips = { new Vector2(1f, 1f), new Vector2(-1f, 1f), new Vector2(1f, -1f), new Vector2(-1f, -1f) };
+        for (int i = 0; i < 4; i++)
+        {
+            RectTransform c = NewRect("Corner" + i, _npcRoot);
+            c.anchorMin = c.anchorMax = new Vector2(0.5f, 0.5f);
+            c.sizeDelta = new Vector2(CornerSize, CornerSize);
+            c.pivot = new Vector2(CornerPad / CornerSize, 1f - CornerPad / CornerSize); // 轴心 = 角的拐点
+            c.localScale = new Vector3(flips[i].x, flips[i].y, 1f);                      // 翻转出另外三个角
+            RawImage img = c.gameObject.AddComponent<RawImage>();
+            img.texture = tex;
+            img.raycastTarget = false;
+            _corners[i] = c;
+        }
+
+        _npcTextRt = NewRect("Text", _npcRoot);
+        _npcTextRt.anchorMin = _npcTextRt.anchorMax = new Vector2(0.5f, 0.5f);
+        _npcTextRt.pivot = new Vector2(0f, 0f);
+        _npcText = _npcTextRt.gameObject.AddComponent<TextMeshProUGUI>();
+        if (font != null) _npcText.font = font;
+        _npcText.fontSize = 17f;
+        _npcText.color = HudGlow.Green;
+        _npcText.alignment = TextAlignmentOptions.BottomLeft;
+        _npcText.textWrappingMode = TextWrappingModes.Normal;
+        _npcText.raycastTarget = false;
+        // 微光：TMP 的 Underlay（柔和的同色阴影，不偏移）。
+        // 改完材质要让 TMP 重算每个字的网格边距，否则光晕被字块边缘切掉，变成一块块半透明底色。
+        Material m = textGlow ? _npcText.fontMaterial : null;
+        if (m != null)
+        {
+            m.EnableKeyword("UNDERLAY_ON");
+            m.SetColor("_UnderlayColor", new Color(HudGlow.GreenGlow.r, HudGlow.GreenGlow.g, HudGlow.GreenGlow.b, 0.4f));
+            m.SetFloat("_UnderlayOffsetX", 0f);
+            m.SetFloat("_UnderlayOffsetY", 0f);
+            m.SetFloat("_UnderlayDilate", 0f);
+            m.SetFloat("_UnderlaySoftness", 0.45f);
+            _npcText.extraPadding = true;
+            _npcText.UpdateMeshPadding();
+        }
+        _npcRoot.gameObject.SetActive(false);
+    }
+
+    const float CornerSize = 32f, CornerPad = 9f, CornerArm = 14f, CornerThick = 2.5f;
+
+    // 一个左上角的角框（┌），四周留出发光的位置；颜色和天数数字一样（淡绿 + 微光）。
+    static Texture2D _cornerTex;
+    static Texture2D CornerTexture()
+    {
+        if (_cornerTex != null) return _cornerTex;
+        const int S = 2;                                        // 2 倍分辨率
+        int N = (int)(CornerSize * S);
+        float pad = CornerPad * S, arm = CornerArm * S, th = CornerThick * S;
+        float top = N - pad;                                    // 贴图 y 向上：拐点在 (pad, N - pad)
+        float[] cov = new float[N * N];
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float h = Overlap(x, x + 1, pad, pad + arm) * Overlap(y, y + 1, top - th, top);   // 横
+                float v = Overlap(x, x + 1, pad, pad + th) * Overlap(y, y + 1, top - arm, top);   // 竖
+                cov[y * N + x] = Mathf.Min(1f, Mathf.Max(h, v));
+            }
+        SegmentPainter.Style st = new SegmentPainter.Style
+        {
+            r = HudGlow.Green.r, g = HudGlow.Green.g, b = HudGlow.Green.b,
+            gr = HudGlow.GreenGlow.r, gg = HudGlow.GreenGlow.g, gb = HudGlow.GreenGlow.b,
+            glow = 0.85f, glowRadius = 6f * S,
+        };
+        byte[] px = SegmentPainter.Compose(cov, null, N, N, st);
+        Color32[] cols = new Color32[N * N];
+        for (int i = 0; i < cols.Length; i++) cols[i] = new Color32(px[i * 4], px[i * 4 + 1], px[i * 4 + 2], px[i * 4 + 3]);
+        Texture2D t = new Texture2D(N, N, TextureFormat.RGBA32, false);
+        t.name = "HoverCorner";
+        t.filterMode = FilterMode.Bilinear;
+        t.wrapMode = TextureWrapMode.Clamp;
+        t.SetPixels32(cols);
+        t.Apply(false);
+        return _cornerTex = t;
+    }
+
+    static float Overlap(float a0, float a1, float b0, float b1) => Mathf.Clamp01(Mathf.Min(a1, b1) - Mathf.Max(a0, b0));
+
+    // NPC 文字：去掉原来各行的颜色，统一淡绿色；原来的灰色副信息改成稍淡一点（保留层次）。
+    static readonly System.Text.RegularExpressions.Regex ColorOpen = new System.Text.RegularExpressions.Regex("<color=#?[0-9A-Fa-f]{6,8}>");
+    static string GreenText(string s)
+    {
+        s = ColorOpen.Replace(s, "<alpha=#B8>");
+        return s.Replace("</color>", "<alpha=#FF>");
+    }
+
+    void SetNpcText(string text)
+    {
+        _npcText.text = GreenText(text);
+        Vector2 pref = _npcText.GetPreferredValues(_npcText.text, maxWidth, 0f);
+        _npcTextRt.sizeDelta = new Vector2(Mathf.Min(pref.x, maxWidth) + 2f, pref.y);
+        if (!_npcShown)
+        {
+            _npcShown = true;
+            _npcAnim = 0f;
+            _npcRoot.gameObject.SetActive(true);
+        }
+    }
+
+    // 四个角框住 NPC 图片（屏幕上的范围），文字放在左上角外面；刚出现时从中间展开。
+    void PlaceNpc(GameObject go)
+    {
+        if (!_npcShown || go == null || _cam == null) return;
+        SpriteRenderer sr = go.GetComponentInChildren<SpriteRenderer>();
+        Bounds b;
+        if (sr != null) b = sr.bounds;
+        else b = new Bounds(go.transform.position, new Vector3(0.6f, 0.9f, 0f));
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRt, _cam.WorldToScreenPoint(b.min), null, out Vector2 lo)) return;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRt, _cam.WorldToScreenPoint(b.max), null, out Vector2 hi)) return;
+        lo -= new Vector2(framePadding, framePadding);
+        hi += new Vector2(framePadding, framePadding);
+        Vector2 center = (lo + hi) * 0.5f;
+
+        _npcAnim = Mathf.Min(1f, _npcAnim + (expandTime > 0f ? Time.unscaledDeltaTime / expandTime : 1f));
+        float e = 1f - (1f - _npcAnim) * (1f - _npcAnim) * (1f - _npcAnim); // 缓出：先快后慢
+        Vector2[] pts = { new Vector2(lo.x, hi.y), new Vector2(hi.x, hi.y), new Vector2(lo.x, lo.y), new Vector2(hi.x, lo.y) };
+        for (int i = 0; i < 4; i++) _corners[i].anchoredPosition = Vector2.LerpUnclamped(center, pts[i], e);
+
+        // 文字：左上角外面；顶上放不下就放到框的下面
+        Rect r = _canvasRt.rect;
+        Vector2 size = _npcTextRt.sizeDelta;
+        float left = Mathf.Lerp(center.x, lo.x, e);
+        float topY = Mathf.Lerp(center.y, hi.y, e);
+        float botY = Mathf.Lerp(center.y, lo.y, e);
+        bool below = hi.y + 4f + size.y > r.yMax;
+        _npcTextRt.pivot = new Vector2(0f, below ? 1f : 0f);
+        _npcText.alignment = below ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.BottomLeft;
+        float x = Mathf.Clamp(left, r.xMin + 4f, r.xMax - size.x - 4f);
+        _npcTextRt.anchoredPosition = new Vector2(x, below ? botY - 4f : topY + 4f);
+        _npcText.alpha = e;
+
+        _npcLeft = x;
+        _npcStackBottom = below ? lo.y - 4f - size.y : lo.y;
+    }
+
+    void HideNpc()
+    {
+        if (!_npcShown) return;
+        _npcShown = false;
+        _npcRoot.gameObject.SetActive(false);
+    }
 
     void Update()
     {
@@ -175,14 +347,16 @@ public class HoverInfo : MonoBehaviour
         if (_hover < delay) return;
 
         _refresh -= Time.unscaledDeltaTime;
-        if (!_shown || _refresh <= 0f)
+        if (!(_shown || _npcShown) || _refresh <= 0f)
         {
             _refresh = 0.25f;
             string text = _npc != null ? NpcText(_npc) : BuildingText(_target);
             if (string.IsNullOrEmpty(text)) { Hide(); return; }
-            SetText(text);
+            if (_npc != null) SetNpcText(text);   // NPC：锁定框样式
+            else SetText(text);
         }
-        Place(_target);
+        if (_npc != null) PlaceNpc(_target);
+        else Place(_target);
     }
 
     // ============ 坐标浮窗 ============
@@ -234,7 +408,14 @@ public class HoverInfo : MonoBehaviour
         Rect r = _canvasRt.rect;
         Vector2 size = _cellBox.sizeDelta;
         Vector2 pos;
-        if (_shown)
+        if (_npcShown)
+        {
+            // NPC 锁定框：挂在框（或框下面的文字）下方，左边对齐
+            _cellBox.pivot = new Vector2(0f, 1f);
+            pos = new Vector2(Mathf.Clamp(_npcLeft, r.xMin + 4f, r.xMax - size.x - 4f), _npcStackBottom - 6f);
+            pos.y = Mathf.Max(pos.y, r.yMin + size.y + 4f);
+        }
+        else if (_shown)
         {
             Vector2 bp = _box.anchoredPosition, bs = _box.sizeDelta;
             float bottom = bp.y - _box.pivot.y * bs.y;
@@ -531,6 +712,7 @@ public class HoverInfo : MonoBehaviour
 
     void Hide()
     {
+        HideNpc();
         if (!_shown) return;
         _shown = false;
         _box.gameObject.SetActive(false);
