@@ -7,6 +7,9 @@ using System.Collections.Generic;
 //   （默认 3 → 一格变 9 格，每小格 1/3 单位）。之后所有格子坐标、建造占地、坐标浮窗都按小格算。
 //   建筑占几个小格由它的图片大小自动决定（1 单位的图 = 3×3 小格），也可以在 BuildableData 里手动指定，做出不同体积、形状的建筑。
 //   想恢复原来的大格：把 subdivision 改成 1。
+// 【地图大小】mapSize（大格）不为 0 时，运行时用它代替上面的 gridWidth / gridHeight，并以 mapCenter 为中心铺开
+//   （默认 72×33，是场景里那块 24×11 测试地图的 9 倍）。想回到测试地图：mapSize 填 0, 0。
+//   地图变大后，场景里原来那圈测试墙由 TerrainSystem 自动换成新地图四周的围墙。
 public class GridManager : MonoBehaviour
 {
     public static GridManager Instance;
@@ -19,6 +22,12 @@ public class GridManager : MonoBehaviour
     [Tooltip("运行时把每格再细分成 N×N 小格（3 = 一格变 9 格；1 = 不细分）。上面的宽高和格子大小按细分前填。")]
     [Range(1, 6)] public int subdivision = 3;
 
+    [Header("地图大小（运行时）")]
+    [Tooltip("游戏里实际的地图大小（大格，1 大格 = 1 世界单位）。0, 0 = 用上面的 Grid Width / Height（场景里那块测试地图）。")]
+    public Vector2Int mapSize = new Vector2Int(72, 33);
+    [Tooltip("地图以哪个世界坐标为中心铺开（营地 / NPC 生成点在 0, 0）。左下角会对齐到整数格，和场景里的 Tilemap 对齐。")]
+    public Vector2 mapCenter = Vector2.zero;
+
     // 实际生效的细分倍数（别的系统把"以前按大格填的数值"换算成小格时用，比如视野半径 ×Subdivision）。
     public static int Subdivision { get; private set; } = 1;
 
@@ -29,6 +38,12 @@ public class GridManager : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+        if (mapSize.x > 0 && mapSize.y > 0)
+        {
+            gridWidth = mapSize.x;
+            gridHeight = mapSize.y;
+            origin = new Vector2(Mathf.Round(mapCenter.x - mapSize.x * cellSize * 0.5f), Mathf.Round(mapCenter.y - mapSize.y * cellSize * 0.5f));
+        }
         int n = Mathf.Max(1, subdivision);
         gridWidth *= n;          // 细分：格子数 ×N、每格边长 ÷N，地图在世界里的大小不变
         gridHeight *= n;
@@ -94,10 +109,11 @@ public class GridManager : MonoBehaviour
         return x >= 0 && x < gridWidth && y >= 0 && y < gridHeight;
     }
 
-    // —— 这个格子能不能建造（在范围内 且 没被占用）——
+    // —— 这个格子能不能建造（在范围内 且 地形允许 且 没被占用）——
     public bool IsBuildable(int x, int y)
     {
         if (!InBounds(x, y)) return false;
+        if (TerrainSystem.BlocksBuilding(x, y)) return false; // 墙、水面、沼泽、树 / 石头 / 矿石占着的格（TerrainSystem）
         return _occupied[x, y] == null;
     }
 

@@ -8,6 +8,7 @@ using TMPro;
 // 鼠标悬停信息框：鼠标停在 NPC / 建筑上一小会儿，就在它头顶弹出一个半透明方框：
 //   NPC：姓名、职业、正在做什么、生命 / 饥饿 / 体力（缺水时多一行）。
 //   建筑：名称、是否在工作（发电 / 储电 / 加温 / 净化 / 接雨水 / 施工中……）。
+//   天然资源（树 / 石头 / 矿石）：名称、采集可得什么、采集进度（草太多了不弹框，坐标浮窗里有）。
 // 另外：鼠标在地图上停够半秒，鼠标左上方弹出这一格的坐标浮窗（内容由 CellInfo 的各个提供者写，以后加地形信息就加提供者）；
 // 同时悬停在 NPC / 建筑上时，坐标浮窗改为显示在它们的信息框下方（左边对齐）。
 // 鼠标在 UI 上时不显示。用不受暂停影响的时间（建造模式会暂停游戏）。
@@ -278,6 +279,9 @@ public class HoverInfo : MonoBehaviour
         if (g == null) return;
         Vector2Int cell = g.WorldToCell(wp);
         if (!g.InBounds(cell.x, cell.y)) return;
+        // 天然资源（地形系统）：树 / 石头 / 矿石
+        ResourceNode res = ResourceNode.At(cell);
+        if (res != null && res.kind != ResourceKind.Grass) { target = res.gameObject; return; }
         string occ = g.GetOccupied(cell.x, cell.y);
         if (string.IsNullOrEmpty(occ)) return;
         ConstructionSite site = ConstructionSite.At(cell);
@@ -368,6 +372,9 @@ public class HoverInfo : MonoBehaviour
     {
         bool jp = LanguageGuard.IsJp;
         if (go == _cellAnchor) return "<b>" + LocalizedBuildingName(_cellName) + "</b>\n" + Grey(jp ? "設置済み" : "已建成");
+
+        ResourceNode res = go.GetComponent<ResourceNode>();
+        if (res != null) return res.depleted ? null : res.HoverText(jp);
 
         // 规划区（蓝图）：进度和施工的人
         ConstructionSite site = go.GetComponent<ConstructionSite>();

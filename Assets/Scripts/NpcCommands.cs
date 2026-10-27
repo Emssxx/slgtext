@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 // 指令的种类。
-public enum CmdIntent { Go, Return, UseItem, Fetch, Gather, Rest, Eat, Push }
+public enum CmdIntent { Go, Return, UseItem, Fetch, Gather, Rest, Eat, Push, Harvest }
 
 // 解析出来的一条指令（由代码从玩家的话里提取，不靠 LLM）。
 public class NpcCommand
@@ -12,6 +12,7 @@ public class NpcCommand
     public string targetNpcId;   // UseItem：用在谁身上（来自名册；null = 自己）
     public string destination;   // Go / Push：地点记号（"@camp" "@storage" "@terminal" "@npc:id"）、坐标（"6,7"）或场景地点名
     public string boxName;       // Push：要推的物体名
+    public string resource;      // Harvest：要采什么（"wood" 砍树 / "stone" 采石 / "ore" 挖矿 / "fiber" 割草 / "fish" 钓鱼 / "water" 打水）
 }
 
 // 指令系统（纯规则，"代码做决定"）：
@@ -23,7 +24,8 @@ public static class NpcCommands
 {
     static readonly string[] ReturnWords = { "回来", "回营地", "回去", "停下", "停止", "别去了", "不用去了", "算了", "撤回", "收工",
                                              "戻って", "戻れ", "帰って", "帰れ", "止まって", "止まれ", "やめて", "中止", "引き返" };
-    static readonly string[] NegWords = { "不要", "别去", "别拿", "别用", "别动", "别走", "别吃", "不用", "不必", "不许", "不准", "ないで", "するな" };
+    static readonly string[] NegWords = { "不要", "别去", "别拿", "别用", "别动", "别走", "别吃", "不用", "不必", "不许", "不准", "ないで", "するな",
+                                          "别砍", "别挖", "别采", "别钓", "别割", "别打水" };
     static readonly string[] UseWords = { "用", "使用", "吃", "喝", "服用", "注射", "打一针", "包扎", "治疗", "敷",
                                           "使って", "使え", "使用", "飲んで", "飲ませ", "食べて", "食べさせ", "手当て", "治療", "打って" };
     static readonly string[] FetchWords = { "拿", "取", "找", "带", "搬", "领", "弄", "捡",
@@ -36,9 +38,18 @@ public static class NpcCommands
     static readonly string[] GoWords = { "去", "到", "前往", "过去", "走到", "过来", "来", "移动", "跑",
                                          "行って", "行け", "向かって", "移動", "来て", "進んで", "行く" };
     static readonly string[] PushWords = { "推", "挪", "押して", "運んで", "動かして" };
+    // 采集（地形系统）：砍树 / 采石 / 挖矿 / 割草 / 钓鱼 / 打水。可以带坐标（"去 30,12 砍树"）。
+    static readonly string[] WoodWords = { "砍树", "伐木", "砍柴", "砍木", "砍伐", "砍几棵", "砍棵", "砍一棵", "木を切", "木を伐", "伐採", "薪を集", "薪割" };
+    static readonly string[] StoneWords = { "采石", "挖石", "敲石", "凿石", "砸石", "搬石", "捡石", "石を掘", "石を割", "採石", "石を集", "石を砕", "石を採" };
+    static readonly string[] OreWords = { "挖矿", "采矿", "开矿", "挖点矿", "鉱石を掘", "採掘", "鉱石を集", "鉱石を採" };
+    static readonly string[] GrassWords = { "割草", "除草", "拔草", "草を刈", "草刈", "草むしり" };
+    static readonly string[] FishWords = { "钓鱼", "捕鱼", "抓鱼", "打鱼", "捞鱼", "钓点鱼", "釣り", "釣って", "魚を捕", "魚を獲", "魚を取", "魚を釣" };
+    static readonly string[] WaterFetchWords = { "打水", "取水", "挑水", "汲水", "提水", "打点水", "水を汲", "汲んで", "水汲み", "水を取りに" };
+    static readonly string[] DrinkWaterWords = { "净化水", "饮用水", "浄化水", "飲み水", "喝" };
+    static readonly string[] HarvestVerbs = { "砍", "采", "挖", "割", "钓", "凿", "伐", "掘", "刈", "釣", "採" };
 
     // 坐标（x,y）：6,7 / (6,7) / （6，7） / x6 y7 / X:6 Y:7 …（鼠标在地图上停半秒能看到格子的坐标）
-    static readonly Regex GridCoord = new Regex(@"(?<![\d.])[\(（\[]?\s*[xX]?\s*[:：=]?\s*(\d{1,2})(?:\s*[,，、]\s*[yY]?|\s+[yY]|\s*[yY])\s*[:：=]?\s*(\d{1,2})(?![\d.])\s*[\)）\]]?");
+    static readonly Regex GridCoord = new Regex(@"(?<![\d.])[\(（\[]?\s*[xX]?\s*[:：=]?\s*(\d{1,3})(?:\s*[,，、]\s*[yY]?|\s+[yY]|\s*[yY])\s*[:：=]?\s*(\d{1,3})(?![\d.])\s*[\)）\]]?");
     // 旧的网格编号（G7、B12…）也还认：前后不能紧挨着别的英文字母/数字。
     static readonly Regex GridLabel = new Regex(@"(?<![A-Za-z0-9])([A-Za-z])(\d{1,2})(?![0-9])");
 
@@ -61,6 +72,10 @@ public static class NpcCommands
 
         // 2. 否定句（"别担心""不要去"）当聊天
         if (Has(t, NegWords)) return null;
+
+        // 2.5 采集：砍树 / 采石 / 挖矿 / 割草 / 钓鱼 / 打水（可以带坐标："去 30,12 砍树"）
+        string harvest = HarvestKind(t, item, world);
+        if (harvest != null) return new NpcCommand { intent = CmdIntent.Harvest, resource = harvest, destination = grid };
 
         // 3. 提到了物品：用 / 拿 / 给别人用
         if (item != null)
@@ -89,6 +104,25 @@ public static class NpcCommands
         if (go && place != null) return new NpcCommand { intent = CmdIntent.Go, destination = place.id };
         if (go && others.Count > 0) return new NpcCommand { intent = CmdIntent.Go, destination = "@npc:" + others[0] };
 
+        return null;
+    }
+
+    // 话里要采什么（不是采集返回 null）。
+    static string HarvestKind(string t, LexEntry item, WorldState world)
+    {
+        if (Has(t, OreWords)) return ResourceInfo.OreItem;
+        if (Has(t, WoodWords)) return ResourceInfo.WoodItem;
+        if (Has(t, StoneWords)) return ResourceInfo.StoneItem;
+        if (Has(t, FishWords)) return "fish";
+        if (Has(t, GrassWords)) return ResourceInfo.FiberItem;
+        if (Has(t, WaterFetchWords) && !Has(t, DrinkWaterWords)) return "water";
+        // "去弄点木材""收集石材""采些矿石"：提到原材料 + 采 / 收集 → 去采；只说"拿"且仓库里有的，照旧当拿东西
+        if (item == null) return null;
+        string kind = item.id == ResourceInfo.WoodItem || item.id == ResourceInfo.StoneItem || item.id == ResourceInfo.OreItem || item.id == ResourceInfo.FiberItem ? item.id
+                    : item.id == ResourceInfo.FishItem ? "fish" : null;
+        if (kind == null) return null;
+        if (Has(t, GatherWords) || Has(t, HarvestVerbs)) return kind;
+        if ((Has(t, FetchWords) || Has(t, GoWords)) && world != null && ItemUseRules.GetCount(item.id, world) <= 0) return kind;
         return null;
     }
 
@@ -197,6 +231,16 @@ public static class NpcCommands
                 tasks.Add(new NpcTask { action = "go", destination = "@storage" });
                 tasks.Add(new NpcTask { action = "eat" });
                 return true;
+
+            case CmdIntent.Harvest:
+            {
+                bool jp = LanguageGuard.IsJp;
+                orderText = TerrainSystem.HarvestOrder(cmd.resource, cmd.destination, jp);
+                failText = TerrainSystem.HarvestProblem(actor, cmd.resource, cmd.destination, jp);
+                if (failText != null) return false;
+                tasks.Add(new NpcTask { action = "harvest", target = cmd.resource, destination = cmd.destination });
+                return true;
+            }
 
             case CmdIntent.Push:
             {

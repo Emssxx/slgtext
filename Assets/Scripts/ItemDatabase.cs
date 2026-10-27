@@ -16,13 +16,26 @@ public class ItemDatabase : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         if (items == null || items.Count == 0) FillDefaults();
+        else AddMissingDefaults(); // Inspector 里改过列表的：后来新加的默认物品（木材、石材……）也补进来
     }
 
     // 默认物品（呼应《资源与材料设定》：亚空间没有传统资源，物资来自终端机重构或现实传送）。
     [ContextMenu("填入默认物品")]
     public void FillDefaults()
     {
-        items = new List<ItemData>
+        items = Defaults();
+    }
+
+    // 列表里没有的默认物品补上（按 id；已有的不动，保留 Inspector 里改的数值）。
+    void AddMissingDefaults()
+    {
+        foreach (ItemData d in Defaults())
+            if (Get(d.id) == null) items.Add(d);
+    }
+
+    static List<ItemData> Defaults()
+    {
+        return new List<ItemData>
         {
             // —— 食物：NPC 饿了会自己吃 ——
             ItemData.Make("ration", "蛋白营养块", "タンパク栄養ブロック", ItemCategory.Food,
@@ -57,6 +70,28 @@ public class ItemDatabase : MonoBehaviour
                 0f, 0f, 0f, 0f,
                 "亚空间特有的发光结晶。蕴含能量，用途尚不明确。",
                 "亜空間特有の発光する結晶。エネルギーを秘めているが、用途はまだ分からない。"),
+
+            // —— 地形资源（地形系统：对 NPC 说"去砍树 / 采石头 / 挖矿 / 割草 / 钓鱼"）——
+            ItemData.Make("wood", "木材", "木材", ItemCategory.Material,
+                0f, 0f, 0f, 0f,
+                "从营地周围的树上砍下的木材。亚空间的树摸起来有点凉。用于建造。",
+                "拠点の周りの木から切り出した木材。亜空間の木は触るとひんやりする。建築に使う。"),
+            ItemData.Make("stone", "石材", "石材", ItemCategory.Material,
+                0f, 0f, 0f, 0f,
+                "从石头上凿下的石块。用于建造。",
+                "岩から切り出した石。建築に使う。"),
+            ItemData.Make("ore", "矿石", "鉱石", ItemCategory.Material,
+                0f, 0f, 0f, 0f,
+                "亚空间矿石，夹着发光的结晶。以后可以冶炼。",
+                "亜空間の鉱石。光る結晶が混じっている。いずれ精錬できる。"),
+            ItemData.Make("fiber", "植物纤维", "植物繊維", ItemCategory.Material,
+                0f, 0f, 0f, 0f,
+                "割下的草晒干搓成的纤维。可以编绳、做简单的东西。",
+                "刈った草を干して撚った繊維。縄や簡単な道具になる。"),
+            ItemData.Make("subspace_protein", "亚空间蛋白质", "亜空間タンパク質", ItemCategory.Food,
+                -20f, 0f, -2f, 0f,
+                "从湖里钓上来的亚空间鱼处理成的蛋白质。能填饱肚子，但味道让人不安。",
+                "湖で釣れた亜空間の魚から取ったタンパク質。腹は満たせるが、味がどこか不穏だ。"),
         };
     }
 

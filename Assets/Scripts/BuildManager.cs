@@ -389,6 +389,7 @@ public class BuildManager : MonoBehaviour
 
         // 先标记占用，防止连点同一处；覆盖层这些格子变红
         grid.SetAreaOccupied(origin, size, _selectedData.displayName);
+        TerrainSystem.ClearGrass(origin, size); // 地上的草清掉（树 / 石头 / 矿石占着的格本来就放不下）
         RefreshOverlayArea(origin, size);
         Vector3 center = grid.AreaCenter(origin, size);
 

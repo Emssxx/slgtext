@@ -2,8 +2,10 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.EventSystems;
+using TMPro;
 
-// 摄像机：滚轮缩放（以鼠标所指的位置为中心放大 / 缩小）+ 按住鼠标中键拖动画面。
+// 摄像机：滚轮缩放（以鼠标所指的位置为中心放大 / 缩小）+ 按住鼠标中键拖动画面 + WASD / 方向键移动 + H 回营地。
+// 在输入框里打字时（对话窗口等）键盘不会移动镜头。
 // 画面不会拖出地图外；缩到比地图还大时自动居中。用不受暂停影响的时间（建造模式也能缩放）。
 // 鼠标在界面（对话窗口、日志、建造菜单……）上时滚轮不缩放，留给界面自己滚动。
 // 由 HudLayout 调 CameraController.Ensure() 挂到主摄像机上，不用改场景。
@@ -16,8 +18,8 @@ public class CameraController : MonoBehaviour
     [Header("缩放")]
     [Tooltip("最多放大到开局画面的几倍（2.5 = 放大 2.5 倍）")]
     public float maxZoomIn = 2.5f;
-    [Tooltip("最多缩小到开局画面的几倍（1.3 = 看到的范围变成 1.3 倍）")]
-    public float maxZoomOut = 1.3f;
+    [Tooltip("最多缩小到开局画面的几倍（2.5 = 看到的范围变成 2.5 倍；地图大了要能看远一点）")]
+    public float maxZoomOut = 2.5f;
     [Tooltip("滚轮每格缩放多少（0.15 = 15%）")]
     [Range(0.02f, 0.5f)] public float zoomStep = 0.15f;
     [Tooltip("缩放跟手程度：越大越快到位")]
@@ -26,6 +28,14 @@ public class CameraController : MonoBehaviour
 
     [Header("拖动")]
     public bool middleMouseDrag = true;
+
+    [Header("键盘")]
+    [Tooltip("WASD / 方向键移动镜头")]
+    public bool keyboardPan = true;
+    [Tooltip("键盘移动速度（世界单位 / 秒，开局缩放下；缩小视野时自动变快）")]
+    public float panSpeed = 10f;
+    [Tooltip("按 H 镜头回到营地")]
+    public bool homeKey = true;
     [Tooltip("画面边缘最多露出地图外多少格")]
     public float edgeMargin = 1f;
 
@@ -109,7 +119,28 @@ public class CameraController : MonoBehaviour
             }
         }
 
-        // 4. 不拖出地图；震动只叠加偏移
+        // 4. 键盘：WASD / 方向键移动，H 回营地（在输入框里打字时不动）
+        Keyboard kb = Keyboard.current;
+        if (kb != null && (keyboardPan || homeKey) && !TypingInInputField())
+        {
+            if (keyboardPan)
+            {
+                Vector2 dir = Vector2.zero;
+                if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) dir.x -= 1f;
+                if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) dir.x += 1f;
+                if (kb.sKey.isPressed || kb.downArrowKey.isPressed) dir.y -= 1f;
+                if (kb.wKey.isPressed || kb.upArrowKey.isPressed) dir.y += 1f;
+                if (dir.sqrMagnitude > 0f)
+                {
+                    float speed = panSpeed * (_cam.orthographicSize / Mathf.Max(0.01f, _baseSize));
+                    Vector2 step = dir.normalized * speed * dt;
+                    _pos += new Vector3(step.x, step.y, 0f);
+                }
+            }
+            if (homeKey && kb.hKey.wasPressedThisFrame) LookAt(NpcNav.CampCenter(_pos));
+        }
+
+        // 5. 不拖出地图；震动只叠加偏移
         _pos = ClampToMap(_pos);
         transform.position = _pos + ScreenEffectManager.ShakeOffset;
     }
@@ -155,6 +186,18 @@ public class CameraController : MonoBehaviour
         Vector3 w = _cam.ScreenToWorldPoint(new Vector3(sp.x, sp.y, -transform.position.z));
         w.z = 0f;
         return w;
+    }
+
+    // 正在输入框里打字（对话窗口、种子输入框……）：这时键盘不动镜头。
+    static bool TypingInInputField()
+    {
+        EventSystem es = EventSystem.current;
+        GameObject sel = es != null ? es.currentSelectedGameObject : null;
+        if (sel == null) return false;
+        TMP_InputField tmp = sel.GetComponent<TMP_InputField>();
+        if (tmp != null && tmp.isFocused) return true;
+        UnityEngine.UI.InputField legacy = sel.GetComponent<UnityEngine.UI.InputField>();
+        return legacy != null && legacy.isFocused;
     }
 
     static bool MouseInView(Mouse mouse)

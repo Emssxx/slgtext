@@ -17,6 +17,10 @@ using System.Collections.Generic;
 //
 // 【用法】場面に空物体を作り本スクリプトを付ける。ParticleSystem は自動生成。
 //   既存の FogRenderer / FogParticleRenderer(旧) は外す。
+//
+// 【大きいマップ（followCamera）】霧の粒はカメラの周り（＋viewMargin）にだけ置く。
+//   カメラの外に出た粒は反対側へ回り込ませるので、地図が何倍になっても粒の数・密度は変わらない。
+//   ズームアウトして粒が足りないときは、粒を大きくして同じ面積を覆う。
 public class FogParticleRenderer : MonoBehaviour
 {
     [Header("霧の外観")]
@@ -41,9 +45,20 @@ public class FogParticleRenderer : MonoBehaviour
     public int maxParticles = 4000;
     public int sortingOrder = 100;
 
+    [Header("大きいマップ：カメラの周りにだけ霧を置く（粒の数が地図の大きさに比例しない）")]
+    public bool followCamera = true;
+    [Tooltip("カメラの外側にどれだけ余分に霧を置くか（世界単位）。カメラを動かしても端が欠けない")]
+    public float viewMargin = 2f;
+
     private ParticleSystem _ps;
     private ParticleSystem.Particle[] _buffer;
     private GridManager _grid;
+
+    // —— カメラ追従 ——
+    private GameObject _psGo;
+    private float _boxX, _boxY, _boxW, _boxH;
+    private int _target;
+    private float _sizeMul = 1f;
 
     // NPC位置を毎フレーム集める用。
     private readonly List<Vector3> _npcPositions = new List<Vector3>();
@@ -59,6 +74,7 @@ public class FogParticleRenderer : MonoBehaviour
     {
         GameObject go = new GameObject("FogParticles");
         go.transform.parent = transform;
+        _psGo = go;
 
         float w = _grid.gridWidth * _grid.cellSize;
         float h = _grid.gridHeight * _grid.cellSize;
@@ -71,7 +87,8 @@ public class FogParticleRenderer : MonoBehaviour
         main.startLifetime = lifetime;
         main.startSpeed = 0f;
         main.startSize = particleSize;
-        main.startColor = fogColor;
+        // カメラ追従：新しい粒は最初から「濃い霧」の濃さ（1フレームだけ真っ黒に光るのを防ぐ）
+        main.startColor = followCamera ? new Color(fogColor.r, fogColor.g, fogColor.b, fogAlpha) : fogColor;
         main.maxParticles = maxParticles;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
         main.playOnAwake = true;
@@ -85,6 +102,12 @@ public class FogParticleRenderer : MonoBehaviour
         // 按地图面积（世界单位²，= 细分前的格数）算发射量：格子细分后雾的浓度不变
         float area = w * h;
         emission.rateOverTime = area * emissionPerCell;
+        if (followCamera)
+        {
+            // カメラ追従：自動発生はやめて、LateUpdate で必要な数だけ Emit。粒は死なせず、カメラの周りで回り込ませる。
+            emission.rateOverTime = 0f;
+            main.startLifetime = 100000f;
+        }
 
         var vel = _ps.velocityOverLifetime;
         vel.enabled = true;
@@ -174,9 +197,44 @@ public class FogParticleRenderer : MonoBehaviour
         return tex;
     }
 
+    // カメラの周り（地図からはみ出さない範囲）に霧を置く箱を更新。必要な粒の数と大きさもここで決める。
+    bool UpdateViewBox()
+    {
+        Camera cam = Camera.main;
+        if (cam == null || !cam.orthographic || _psGo == null) return false;
+        float halfH = cam.orthographicSize + viewMargin, halfW = cam.orthographicSize * cam.aspect + viewMargin;
+        Vector3 c = cam.transform.position;
+        float mapX0 = _grid.origin.x - 1f, mapY0 = _grid.origin.y - 1f;
+        float mapX1 = _grid.origin.x + _grid.gridWidth * _grid.cellSize + 1f, mapY1 = _grid.origin.y + _grid.gridHeight * _grid.cellSize + 1f;
+        float x0 = Mathf.Max(c.x - halfW, mapX0), x1 = Mathf.Min(c.x + halfW, mapX1);
+        float y0 = Mathf.Max(c.y - halfH, mapY0), y1 = Mathf.Min(c.y + halfH, mapY1);
+        if (x1 - x0 < 0.5f || y1 - y0 < 0.5f) return false;
+        _boxX = x0; _boxY = y0; _boxW = x1 - x0; _boxH = y1 - y0;
+        _psGo.transform.position = new Vector3(x0 + _boxW * 0.5f, y0 + _boxH * 0.5f, 0f);
+        var shape = _ps.shape;
+        shape.scale = new Vector3(_boxW, _boxH, 0.1f);
+        // 元の密度 = 1平方単位あたり emissionPerCell × lifetime 粒。上限を超えるときは粒を大きくして同じ面積を覆う。
+        float needed = _boxW * _boxH * emissionPerCell * lifetime;
+        _target = Mathf.Max(1, Mathf.Min(maxParticles, Mathf.CeilToInt(needed)));
+        _sizeMul = needed > _target ? Mathf.Sqrt(needed / _target) : 1f;
+        var main = _ps.main;
+        main.startSize = particleSize * _sizeMul;
+        return true;
+    }
+
+    // 箱の外に出た値を反対側へ回り込ませる。
+    static float Wrap(float v, float min, float size)
+    {
+        if (v >= min && v < min + size) return v;
+        float t = (v - min) % size;
+        if (t < 0f) t += size;
+        return min + t;
+    }
+
     void LateUpdate()
     {
         if (_ps == null) return;
+        bool follow = followCamera && UpdateViewBox();
 
         // 1. すべてのNPCの現在位置を集める。
         _npcPositions.Clear();
@@ -206,6 +264,13 @@ public class FogParticleRenderer : MonoBehaviour
         int count = _ps.GetParticles(_buffer);
         for (int i = 0; i < count; i++)
         {
+            if (follow)
+            {
+                if (i >= _target) { _buffer[i].remainingLifetime = 0f; continue; } // 多すぎる分は消す（ズームインしたとき）
+                Vector3 p0 = _buffer[i].position;
+                _buffer[i].position = new Vector3(Wrap(p0.x, _boxX, _boxW), Wrap(p0.y, _boxY, _boxH), p0.z);
+                _buffer[i].startSize = particleSize * _sizeMul;
+            }
             Vector3 pos = _buffer[i].position;
             bool revealed = false;
 
@@ -230,5 +295,6 @@ public class FogParticleRenderer : MonoBehaviour
             _buffer[i].startColor = c;
         }
         _ps.SetParticles(_buffer, count);
+        if (follow && count < _target) _ps.Emit(Mathf.Min(_target - count, 2000)); // 足りない分を箱の中に追加（1フレーム最大2000）
     }
 }

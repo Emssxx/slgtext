@@ -7,6 +7,7 @@ using UnityEngine.SceneManagement;
 //   - ゲーム開始（ゲームシーンをロード）
 //   - AIプロバイダー選択（本地Ollama / Claude / OpenAI / Gemini）
 //   - 言語切替（中/日）
+//   - マップシード（地图种子）：入力 / ランダム / おすすめ、右側にミニマップのプレビュー（MapSeed / TerrainGenerator）
 //   - 終了
 //
 // UIは実行時に自動生成する（あとで自由に美術差し替え可能）。
@@ -42,6 +43,15 @@ public class MainMenuController : MonoBehaviour
 
     // AIClientHub がまだ無い場合に備え、選択を覚えておく。
     private AIProvider _selectedProvider = AIProvider.LocalOllama;
+
+    // —— 地图种子（マップシード）——
+    private InputField _seedInput;
+    private RawImage _seedPreview;
+    private AspectRatioFitter _seedFit;
+    private Text _seedInfo;
+    private Texture2D _seedTex;
+    private string _seedText;          // 切语言重建界面时保留
+    private float _previewDelay = -1f; // 打字时等一会儿再刷新预览
 
     void Start()
     {
@@ -102,7 +112,135 @@ public class MainMenuController : MonoBehaviour
                 "使用云端AI需要各自的API key。"),
             15, SUB, TextAnchor.LowerLeft, FontStyle.Normal);
         SetRect(hint.rectTransform, new Vector2(0.1f, 0.05f), new Vector2(0.9f, 0.12f));
+
+        // 地图种子（右侧）
+        BuildSeedPanel(canvasGo.transform);
     }
+
+    // ============ 地图种子（マップシード）============
+    // 同じシード → 同じ地形（湖・沼・木・石・鉱石の配置）。ゲーム開始時に MapSeed.Set() で保存し、ゲームシーンの TerrainSystem が読む。
+
+    void BuildSeedPanel(Transform root)
+    {
+        if (string.IsNullOrEmpty(_seedText)) _seedText = MapSeed.NewRandom(); // 毎回新しいランダムシードから
+
+        Image panel = NewImage(root, "SeedPanel", new Color(0.07f, 0.09f, 0.15f, 0.88f));
+        SetRect(panel.rectTransform, new Vector2(0.50f, 0.16f), new Vector2(0.92f, 0.64f));
+        Transform p = panel.transform;
+
+        Text title = NewText(p, "SeedTitle", GetLoc("seed_title", "マップシード", "地图种子"), 22, ACCENT, TextAnchor.MiddleLeft, FontStyle.Bold);
+        SetRect(title.rectTransform, new Vector2(0.05f, 0.87f), new Vector2(0.95f, 0.97f));
+
+        // 入力欄 + ランダム
+        _seedInput = MakeInput(p, _seedText, new Vector2(0.05f, 0.72f), new Vector2(0.68f, 0.84f));
+        _seedInput.onValueChanged.AddListener(v => { _seedText = v; _previewDelay = 0.3f; });
+        Text rnd = MakeButton(p, "btn_seed_random", GetLoc("seed_random", "ランダム", "随机"),
+            new Vector2(0.70f, 0.72f), new Vector2(0.95f, 0.84f), ACCENT2, () => SetSeed(MapSeed.NewRandom()));
+        rnd.fontSize = 18;
+
+        // おすすめ / 前回のシード
+        string last = MapSeed.Last;
+        bool hasLast = !string.IsNullOrEmpty(last);
+        int n = 4;
+        string[] chips = new string[n];
+        string[] labels = new string[n];
+        int k = 0;
+        if (hasLast) { chips[k] = last; labels[k] = GetLoc("seed_last", "前回", "上次"); k++; }
+        for (int i = 0; k < n && i < MapSeed.Presets.Length; i++) { chips[k] = MapSeed.Presets[i]; labels[k] = MapSeed.Presets[i]; k++; }
+        float x0 = 0.05f, w = 0.90f / n;
+        for (int i = 0; i < k; i++)
+        {
+            string seed = chips[i];
+            Color c = hasLast && i == 0 ? new Color(0.35f, 0.3f, 0.5f) : new Color(0.22f, 0.27f, 0.38f);
+            Text chip = MakeButton(p, "btn_seed_" + i, labels[i], new Vector2(x0 + i * w + 0.006f, 0.60f), new Vector2(x0 + (i + 1) * w - 0.006f, 0.69f), c, () => SetSeed(seed));
+            chip.fontSize = 14;
+        }
+
+        // ミニマップ（1 マス = 1 ピクセル）
+        Image frame = NewImage(p, "PreviewFrame", new Color(1f, 1f, 1f, 0.10f));
+        SetRect(frame.rectTransform, new Vector2(0.05f, 0.16f), new Vector2(0.95f, 0.57f));
+        GameObject pv = new GameObject("Preview");
+        pv.transform.SetParent(frame.transform, false);
+        _seedPreview = pv.AddComponent<RawImage>();
+        _seedPreview.raycastTarget = false;
+        RectTransform prt = _seedPreview.rectTransform;
+        prt.anchorMin = Vector2.zero; prt.anchorMax = Vector2.one;
+        prt.offsetMin = new Vector2(3f, 3f); prt.offsetMax = new Vector2(-3f, -3f);
+        _seedFit = pv.AddComponent<AspectRatioFitter>();
+        _seedFit.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+        _seedFit.aspectRatio = 72f / 33f;
+
+        _seedInfo = NewText(p, "SeedInfo", "", 14, SUB, TextAnchor.MiddleLeft, FontStyle.Normal);
+        SetRect(_seedInfo.rectTransform, new Vector2(0.05f, 0.02f), new Vector2(0.95f, 0.15f));
+
+        RefreshSeedPreview();
+    }
+
+    InputField MakeInput(Transform parent, string value, Vector2 anchorMin, Vector2 anchorMax)
+    {
+        GameObject go = new GameObject("SeedInput");
+        go.transform.SetParent(parent, false);
+        Image bg = go.AddComponent<Image>();
+        bg.color = new Color(0.02f, 0.03f, 0.06f, 0.95f);
+        SetRect(bg.rectTransform, anchorMin, anchorMax);
+        InputField f = go.AddComponent<InputField>();
+
+        Text txt = NewText(go.transform, "Text", "", 20, TEXT, TextAnchor.MiddleLeft, FontStyle.Normal);
+        txt.supportRichText = false;
+        txt.horizontalOverflow = HorizontalWrapMode.Wrap; // 入力欄の文字は InputField が自分でスクロールさせる
+        Stretch(txt.rectTransform);
+        txt.rectTransform.offsetMin = new Vector2(10f, 2f); txt.rectTransform.offsetMax = new Vector2(-10f, -2f);
+
+        Text ph = NewText(go.transform, "Placeholder", GetLoc("seed_placeholder", "シードを入力（空欄＝ランダム）", "输入种子（留空 = 随机）"), 16, SUB, TextAnchor.MiddleLeft, FontStyle.Italic);
+        Stretch(ph.rectTransform);
+        ph.rectTransform.offsetMin = new Vector2(10f, 2f); ph.rectTransform.offsetMax = new Vector2(-10f, -2f);
+
+        f.targetGraphic = bg;
+        f.textComponent = txt;
+        f.placeholder = ph;
+        f.lineType = InputField.LineType.SingleLine;
+        f.characterLimit = 32;
+        f.text = value;
+        return f;
+    }
+
+    void SetSeed(string seed)
+    {
+        _seedText = seed;
+        if (_seedInput != null) _seedInput.text = seed; // onValueChanged でもう一度予約されるが、すぐ描き直しておく
+        RefreshSeedPreview();
+    }
+
+    void Update()
+    {
+        if (_previewDelay < 0f) return;
+        _previewDelay -= Time.unscaledDeltaTime;
+        if (_previewDelay <= 0f) { _previewDelay = -1f; RefreshSeedPreview(); }
+    }
+
+    void RefreshSeedPreview()
+    {
+        if (_seedPreview == null || _seedInfo == null) return;
+        try
+        {
+            string seed = MapSeed.Normalize(_seedText);
+            if (string.IsNullOrEmpty(seed))
+            {
+                _seedPreview.enabled = false;
+                _seedInfo.text = GetLoc("seed_empty", "空欄のまま始めるとランダムなマップになる。", "留空开始 = 随机地图。");
+                return;
+            }
+            TerrainMap map = MapSeed.Preview(seed);
+            _seedTex = TerrainArt.Preview(map, _seedTex);
+            _seedPreview.texture = _seedTex;
+            _seedPreview.enabled = true;
+            if (_seedFit != null) _seedFit.aspectRatio = map.width / (float)Mathf.Max(1, map.height);
+            _seedInfo.text = TerrainArt.Summary(map, IsJp);
+        }
+        catch (System.Exception e) { Debug.LogWarning("[MainMenu] シードのプレビューに失敗：" + e.Message); }
+    }
+
+    bool IsJp => LocalizationManager.Instance != null && LocalizationManager.Instance.current == Language.Japanese;
 
     // ============ ボタンのアクション ============
 
@@ -111,6 +249,9 @@ public class MainMenuController : MonoBehaviour
         // 選んだ provider を Hub に反映（Hubは DontDestroyOnLoad なのでゲームへ引き継がれる）。
         if (AIClientHub.Instance != null)
             AIClientHub.Instance.SetProvider(_selectedProvider);
+
+        // マップシードを保存（空欄ならランダム）→ ゲームシーンの TerrainSystem がこれで地形を作る
+        MapSeed.Set(_seedInput != null ? _seedInput.text : _seedText);
 
         if (string.IsNullOrEmpty(gameSceneName))
         { Debug.LogError("[MainMenu] gameSceneName が未設定"); return; }

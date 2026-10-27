@@ -23,8 +23,8 @@ public class WorldManager : MonoBehaviour
     void Start()
     {
         CreateWorld();                                  // 1. 造世界 + 随机生成 NPC
-        // NavMesh 是编辑器里预烘焙好的（随场景加载就绪，不是运行时烘焙），
-        // 所以 world.npcs 数据一生成好，马上就能按数据在场景里生成 NPC 物体。
+        GenerateTerrain();                              // 1.2 按地图种子生成地形 + 天然资源，并重新烘焙 NavMesh（水、沼泽、挡路的树石）
+        // NavMesh 在上一步已经按新地形烘焙好了，所以 world.npcs 数据一生成好，马上就能按数据在场景里生成 NPC 物体。
         FindFirstObjectByType<NpcSpawner>()?.SpawnAll(); // 1.5 按 world.npcs 数据自动生成场景 NPC
         RegisterAllMarkers();                            // 2. 登记场景里的地点/物品标记
         RelationshipManager.InitAllRelationships(world); // 3. 初始化 NPC 间关系
@@ -34,6 +34,13 @@ public class WorldManager : MonoBehaviour
         NpcHealth.Ensure();                              // 7. NPC 健康系统（饥饿值 / 水分 / 体力 / 状态词条，每秒结算）
         ConstructionManager.Ensure();                    // 8. 规划区施工（点蓝图指派施工的人）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
+    }
+
+    // 地形（TerrainSystem）：失败了也不影响开局，用场景原来的地图继续。
+    void GenerateTerrain()
+    {
+        try { TerrainSystem.Ensure().Generate(); }
+        catch (System.Exception e) { Debug.LogError("[Terrain] 地形生成失败，用原来的地图继续：" + e); }
     }
 
     // 造世界：用词条池随机生成 NPC。
@@ -104,6 +111,7 @@ public class WorldManager : MonoBehaviour
     {
         AdvanceTurn();
         if (ClimateSystem.Instance != null) ClimateSystem.Instance.OnTurn(world); // 天气、气温、风力发电、加温/降温、收集雨水
+        TerrainSystem.OnTurn(world);                                              // 地形：湖里的鱼恢复（以后植物生长）
         WorldRules.ApplyTurnEffects(world);
         WorldRules.ApplyBreakdown(world);
         WorldRules.ApplyHealth(world);

@@ -72,6 +72,7 @@ public static class NpcNav
                 Vector3 c = new Vector3(center.x + Mathf.Cos(ang) * r, center.y + Mathf.Sin(ang) * r, from.z);
                 if (!InGrid(c)) continue;
                 if (!Sample(c, 0.8f, out Vector3 p) || !InGrid(p)) continue;
+                if (i < 12 && TerrainSystem.AvoidForWander(p)) continue; // 尽量别选沼泽（走进去很慢）
                 if (needUnseen && !IsUnseen(p)) continue;
                 if (!Reachable(from, p)) continue;
                 point = p;

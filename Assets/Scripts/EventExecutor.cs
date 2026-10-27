@@ -15,6 +15,9 @@ public class EventExecutor : MonoBehaviour
 {
     public static EventExecutor Instance { get; private set; }
 
+    [Tooltip("空间扭曲把人传到营地周围多远以内（世界单位 = 地砖格）。地图变大后不至于一下传到地图另一头")]
+    public float warpRadius = 12f;
+
     // 按当前界面语言选中文或日文（事件后果的固定日志文案用）。
     static string L(string zh, string ja)
     {
@@ -215,17 +218,19 @@ public class EventExecutor : MonoBehaviour
         "壁の向こうで誰かが叩いてる……一回、二回……",
     };
 
-    // 找一个随机的可站立格子，输出其世界坐标。找到返回true。
+    // 找一个随机的可站立格子（营地周围 warpRadius 以内），输出其世界坐标。找到返回true。
     bool TryGetRandomStandableCell(out Vector3 worldPos)
     {
         worldPos = Vector3.zero;
         GridManager grid = GridManager.Instance;
         if (grid == null) return false;
+        Vector2Int camp = grid.WorldToCell(NpcNav.CampCenter(Vector3.zero));
+        int r = Mathf.Max(3, Mathf.RoundToInt(warpRadius / Mathf.Max(0.01f, grid.cellSize)));
 
         for (int i = 0; i < 50; i++)
         {
-            int x = Random.Range(0, grid.gridWidth);
-            int y = Random.Range(0, grid.gridHeight);
+            int x = camp.x + Random.Range(-r, r + 1);
+            int y = camp.y + Random.Range(-r, r + 1);
             if (grid.InBounds(x, y) && grid.IsBuildable(x, y))
             {
                 worldPos = grid.CellToWorld(x, y);

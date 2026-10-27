@@ -6,6 +6,7 @@ using UnityEngine;
 //   【来源】下雨 / 下雪不直接给水。
 //   · 雨水收集器（RainCollector）：下雨 / 下雪时每回合接雨水，存在自己的水箱里（每台最多 CollectorCapacity）。
 //     雨水不能直接喝，装满后再下的雨就流走了。
+//   · 湖水（地形系统）：对 NPC 说"去打水"，NPC 去湖边装水、倒进收集器（AddRaw），一样要净化才能喝。
 //   · 水源净化器（PowerNode，kind = Purifier）：要用电线接到电网上。每回合从所有收集器里抽雨水
 //     （收集器和净化器之间当作有水管连着，不用拉线），净化成「净化水」放进公共仓库。
 //     档位 1~3（AI 终端机「能源」页调）：每档每回合最多净化 PurifyPerLevel 份；
@@ -137,6 +138,30 @@ public static class WaterWorks
         if (done > 0 && WorldManager.Instance != null) WorldManager.Instance.AddToStorage(WaterItem, done);
         PurifiedLastTurn = done;
         return done;
+    }
+
+    // 往收集器里倒水（NPC 从湖里打来的水等）：先倒进空位最多的。返回实际倒进去的份数（都满了就流走）。
+    public static int AddRaw(int amount)
+    {
+        int added = 0;
+        while (amount > 0)
+        {
+            RainCollector best = FreestCollector();
+            if (best == null) break;
+            best.stored++;
+            amount--;
+            added++;
+        }
+        return added;
+    }
+
+    // 建好的、空位最多的收集器（都满了 / 没有返回 null）。
+    public static RainCollector FreestCollector()
+    {
+        RainCollector best = null;
+        foreach (RainCollector r in RainCollector.All)
+            if (r != null && r.built && r.stored < CollectorCapacity && (best == null || r.stored < best.stored)) best = r;
+        return best;
     }
 
     // 从收集器里抽雨水（先抽存得多的）。

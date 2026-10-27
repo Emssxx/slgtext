@@ -16,6 +16,8 @@ public class NpcMover : MonoBehaviour
     private float _speedMult = 1f; // 行为给的倍率（闲逛慢走等）
     private float _tempFactor = 1f; // 气温给的倍率（寒冷时变慢，ClimateSystem 设置）
     private float _healthFactor = 1f; // 健康状态给的倍率（疲惫 / 受伤 / 生病…，NpcHealth 设置；濒死 = 0 走不动）
+    private float _terrainFactor = 1f; // 脚下地形给的倍率（土地 0.9 / 沼泽 0.2 / 营地地砖 1，TerrainSystem）
+    private float _terrainTimer;
     private NpcView _view;
     private Vector3 _lastPos;
 
@@ -86,7 +88,19 @@ public class NpcMover : MonoBehaviour
     void ApplySpeed()
     {
         if (_agent == null) return;
-        _agent.speed = _baseSpeed * _speedMult * _tempFactor * _healthFactor;
+        _agent.speed = _baseSpeed * _speedMult * _tempFactor * _healthFactor * _terrainFactor;
+    }
+
+    // 每 0.2 秒看一眼脚下的地形（走进沼泽就慢下来，走上营地地砖恢复原速）。
+    void UpdateTerrainFactor()
+    {
+        _terrainTimer -= Time.deltaTime;
+        if (_terrainTimer > 0f) return;
+        _terrainTimer = 0.2f;
+        float f = Mathf.Max(0.05f, TerrainSystem.SpeedFactorAt(transform.position));
+        if (Mathf.Approximately(f, _terrainFactor)) return;
+        _terrainFactor = f;
+        ApplySpeed();
     }
 
     // 走了多远就扣多少体力（每格 1 点，NpcHealth 结算）。瞬移（空间扭曲）一帧跳很远，不算。
@@ -111,6 +125,7 @@ public class NpcMover : MonoBehaviour
     void Update()
     {
         TrackMovement();
+        UpdateTerrainFactor();
         if (!_hasTarget)
         {
             SetMovingAnim(false);

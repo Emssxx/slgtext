@@ -182,6 +182,7 @@ public class NpcIdleManager : MonoBehaviour
             if (!NavMesh.SamplePosition(c, out NavMeshHit hit, 0.8f, NavMesh.AllAreas)) continue;
             Vector3 p = new Vector3(hit.position.x, hit.position.y, from.z);
             if (!InGrid(p) || IsCrowded(p, brain, 0.7f)) continue;
+            if (i < 10 && TerrainSystem.AvoidForWander(p)) continue; // 闲逛尽量不进沼泽
             if (!IsReachable(startHit.position, hit.position)) continue;
             point = p;
             return true;
