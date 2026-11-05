@@ -11,6 +11,7 @@ using TMPro;
 //   天然资源（树 / 石头 / 矿石）：名称、采集可得什么、采集进度（草太多了不弹框，坐标浮窗里有）。
 // 另外：鼠标在地图上停够半秒，鼠标左上方弹出这一格的坐标浮窗（内容由 CellInfo 的各个提供者写，以后加地形信息就加提供者）；
 // 同时悬停在 NPC / 建筑上时，坐标浮窗改为显示在它们的信息框下方（左边对齐）。
+// 点开某个 NPC 的对话窗口后，鼠标没指着别的 NPC / 建筑时，他的锁定框一直显示（窗口关掉才消失）。
 // NPC 的信息改成"锁定框"样式：四个角框住 NPC（淡绿色微光，和天数数字同色），信息写在左上角外面，透明底；
 //   出现时四个角从中间展开（expandTime 秒）。建筑 / 资源仍用原来的方框。
 //   和生命值联动：生命从 100 往 0 掉，颜色 绿 → 黄 → 红 平滑过渡，故障抖动越来越大（有上限）、电流闪烁越来越频繁。
@@ -582,8 +583,23 @@ public class HoverInfo : MonoBehaviour
             onMap = true;
             FindTarget(wp, out t, out npc);
         }
+        // 正在和某个 NPC 对话：鼠标没指着别的东西时，他的锁定框一直留着（对话窗口的连线就接在框的左上角）
+        if (t == null)
+        {
+            NpcView pinned = ChatPinnedNpc();
+            if (pinned != null) { t = pinned.gameObject; npc = pinned; }
+        }
         UpdateTarget(t, npc);
         UpdateCell(onMap, sp, wp); // 放在后面：要读 NPC / 建筑信息框这一帧的位置
+    }
+
+    // 对话窗口开着的那个 NPC（没开 / 他已经不在场景里时返回 null）。
+    static NpcView ChatPinnedNpc()
+    {
+        NpcChatWindow w = NpcChatWindow.Instance;
+        if (w == null || !w.IsOpen || string.IsNullOrEmpty(w.CurrentNpcId)) return null;
+        NpcMover m = NpcView.GetMover(w.CurrentNpcId);
+        return m != null ? m.GetComponent<NpcView>() : null;
     }
 
     // NPC / 建筑的信息框。

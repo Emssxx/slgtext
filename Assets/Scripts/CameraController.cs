@@ -10,6 +10,8 @@ using TMPro;
 // 鼠标在界面（对话窗口、日志、建造菜单……）上时滚轮不缩放，留给界面自己滚动。
 // 由 HudLayout 调 CameraController.Ensure() 挂到主摄像机上，不用改场景。
 // 相机震动（ScreenEffectManager）只是叠加一个偏移，不会把缩放 / 拖动的位置复位。
+// 跟随：Follow(某个物体) 后镜头平滑移过去并一直把它放在画面中心（对话窗口的连线点击时用）；
+//       手动移动镜头（WASD / 方向键、中键拖动、H）或 StopFollow() 就解除。跟随时滚轮以画面中心缩放。
 [RequireComponent(typeof(Camera))]
 public class CameraController : MonoBehaviour
 {
@@ -39,11 +41,21 @@ public class CameraController : MonoBehaviour
     [Tooltip("画面边缘最多露出地图外多少格")]
     public float edgeMargin = 1f;
 
+    [Header("跟随")]
+    [Tooltip("跟随时镜头追上目标的快慢：越大越快")]
+    public float followSmooth = 8f;
+
     Camera _cam;
     float _baseSize, _targetSize;
     Vector3 _pos;              // 不含震动偏移的"真实"位置
     bool _dragging;
     Vector2 _dragLastScreen;
+    Transform _follow;         // 正在跟随的物体（没有 = null）
+
+    public Transform FollowTarget => _follow;
+    public bool IsFollowing(Transform t) => t != null && _follow == t;
+    public void Follow(Transform t) { _follow = t; }
+    public void StopFollow() { _follow = null; }
 
     public float Zoom => _baseSize > 0f ? _baseSize / _cam.orthographicSize : 1f; // >1 = 放大
 
@@ -92,7 +104,7 @@ public class CameraController : MonoBehaviour
         {
             float next = Mathf.Lerp(size, _targetSize, 1f - Mathf.Exp(-zoomSmooth * dt));
             if (Mathf.Abs(next - _targetSize) < 0.001f) next = _targetSize;
-            if (zoomToCursor && mouse != null && MouseInView(mouse))
+            if (zoomToCursor && mouse != null && MouseInView(mouse) && _follow == null) // 跟随时以画面中心缩放
             {
                 Vector2 sp = mouse.position.ReadValue();
                 Vector3 before = ScreenToWorld(sp);
@@ -108,7 +120,7 @@ public class CameraController : MonoBehaviour
         if (middleMouseDrag && mouse != null)
         {
             Vector2 sp = mouse.position.ReadValue();
-            if (mouse.middleButton.wasPressedThisFrame && !PointerOverUI()) { _dragging = true; _dragLastScreen = sp; }
+            if (mouse.middleButton.wasPressedThisFrame && !PointerOverUI()) { _dragging = true; _dragLastScreen = sp; _follow = null; } // 手动拖动：解除跟随
             if (!mouse.middleButton.isPressed) _dragging = false;
             if (_dragging)
             {
@@ -132,12 +144,21 @@ public class CameraController : MonoBehaviour
                 if (kb.wKey.isPressed || kb.upArrowKey.isPressed) dir.y += 1f;
                 if (dir.sqrMagnitude > 0f)
                 {
+                    _follow = null; // 手动移动：解除跟随
                     float speed = panSpeed * (_cam.orthographicSize / Mathf.Max(0.01f, _baseSize));
                     Vector2 step = dir.normalized * speed * dt;
                     _pos += new Vector3(step.x, step.y, 0f);
                 }
             }
-            if (homeKey && kb.hKey.wasPressedThisFrame) LookAt(NpcNav.CampCenter(_pos));
+            if (homeKey && kb.hKey.wasPressedThisFrame) { _follow = null; LookAt(NpcNav.CampCenter(_pos)); }
+        }
+
+        // 4.5 跟随：平滑移向目标，之后一直把它放在画面中心（目标被销毁就自动解除）
+        if (_follow == null) _follow = null; // Unity 的"已销毁物体"在这里变成真正的 null
+        if (_follow != null)
+        {
+            Vector3 tp = _follow.position;
+            _pos = Vector3.Lerp(_pos, new Vector3(tp.x, tp.y, _pos.z), 1f - Mathf.Exp(-followSmooth * dt));
         }
 
         // 5. 不拖出地图；震动只叠加偏移

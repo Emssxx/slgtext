@@ -226,6 +226,8 @@ public class LocalizationManager : MonoBehaviour
             { "chatwin_order_started",("（{0} 开始行动：{1}）", "（{0}が行動を開始：{1}）") },
             { "chatwin_placeholder",  ("说点什么，或下指令…（Enter 发送）", "話しかける／指示を出す…（Enterで送信）") },
             { "chatwin_dead",         ("已死亡", "死亡") },
+            { "chatwin_header",       ("对话 — {0}", "会話 — {0}") },
+            { "chatwin_you",          ("你（AI）", "あなた（AI）") },
             { "mental_lucid",         ("清醒", "正常") },
             { "mental_dazed",         ("恍惚", "放心") },
             { "mental_halluc",        ("幻觉", "幻覚") },
