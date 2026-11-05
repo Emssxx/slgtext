@@ -62,7 +62,7 @@ public class HoverInfo : MonoBehaviour
     float DeathShowTime => deathCrossTime + deathStrikeStagger * 4f + deathStrikeTime + deathHoldTime + deathFadeTime;
 
     [Header("NPC 锁定框：文字底板")]
-    public Color textBgColor = new Color(0f, 0f, 0f, 0.5f);
+    public Color textBgColor = new Color(0.04f, 0.045f, 0.05f, 0.82f);
     public Vector2 textBgPadding = new Vector2(6f, 4f);
 
     const float Pad = 10f;
@@ -113,6 +113,8 @@ public class HoverInfo : MonoBehaviour
     Color _fxColor = Color.white;
     RectTransform _npcBg;
     Image _npcBgImg;
+    Image _npcFrame, _boxFrame, _cellFrame;   // 识别框的细边（UiStyle.Frame）
+    TMP_Text _npcTag, _boxTag, _cellTag;      // 框左上角的标签（UiStyle.Tag）
     float _fxAlpha = 1f;
 
     // —— 坐标浮窗 ——
@@ -150,23 +152,19 @@ public class HoverInfo : MonoBehaviour
         scaler.matchWidthOrHeight = 0f;
         _canvasRt = (RectTransform)transform;
 
-        // 方框：细边框 + 半透明深色底 + 文字；下面一个小尖角指向物体
+        // 方框（识别框样式）：深色半透明底 + 细边框 + 左上角标签「structure : online」+ 文字
         _box = NewRect("Box", transform);
         _box.anchorMin = _box.anchorMax = new Vector2(0.5f, 0.5f);
         _box.pivot = new Vector2(0.5f, 0f);
-        Image border = _box.gameObject.AddComponent<Image>();
-        border.color = new Color(1f, 1f, 1f, 0.28f);
-        border.raycastTarget = false;
-        RectTransform bg = NewRect("Bg", _box);
-        bg.anchorMin = Vector2.zero; bg.anchorMax = Vector2.one;
-        bg.offsetMin = new Vector2(1f, 1f); bg.offsetMax = new Vector2(-1f, -1f);
-        Image bgImg = bg.gameObject.AddComponent<Image>();
-        bgImg.color = new Color(0.04f, 0.05f, 0.08f, 0.72f);
-        bgImg.raycastTarget = false;
+        Image boxBg = _box.gameObject.AddComponent<Image>();
+        boxBg.color = new Color(UiStyle.Panel.r, UiStyle.Panel.g, UiStyle.Panel.b, 0.84f);
+        boxBg.raycastTarget = false;
+        _boxFrame = UiStyle.Frame(_box, UiStyle.Green);
+        _boxTag = UiStyle.Tag(_box, "structure : online", UiStyle.Green);
 
         RectTransform tr = NewRect("Text", _box);
         tr.anchorMin = Vector2.zero; tr.anchorMax = Vector2.one;
-        tr.offsetMin = new Vector2(Pad, Pad); tr.offsetMax = new Vector2(-Pad, -Pad);
+        tr.offsetMin = new Vector2(Pad, Pad); tr.offsetMax = new Vector2(-Pad, -(Pad + UiStyle.TagH));
         _text = tr.gameObject.AddComponent<TextMeshProUGUI>();
         TMP_FontAsset font = GameFonts.Find();
         if (font != null) _text.font = font;
@@ -184,26 +182,23 @@ public class HoverInfo : MonoBehaviour
         tailImg.sprite = TailSprite();
         tailImg.color = new Color(0.04f, 0.05f, 0.08f, 0.72f);
         tailImg.raycastTarget = false;
+        _tail.gameObject.SetActive(false); // 识别框样式不要尖角（留着物体，Place 里照常摆）
 
         _box.gameObject.SetActive(false);
 
         BuildNpcFrame(font);
 
-        // 坐标浮窗：同样的半透明方框，没有尖角
+        // 坐标浮窗：同样的识别框，灰色边框 + 灰色标签「grid : 12,08」
         _cellBox = NewRect("CellBox", transform);
         _cellBox.anchorMin = _cellBox.anchorMax = new Vector2(0.5f, 0.5f);
-        Image cborder = _cellBox.gameObject.AddComponent<Image>();
-        cborder.color = new Color(1f, 1f, 1f, 0.22f);
-        cborder.raycastTarget = false;
-        RectTransform cbg = NewRect("Bg", _cellBox);
-        cbg.anchorMin = Vector2.zero; cbg.anchorMax = Vector2.one;
-        cbg.offsetMin = new Vector2(1f, 1f); cbg.offsetMax = new Vector2(-1f, -1f);
-        Image cbgImg = cbg.gameObject.AddComponent<Image>();
-        cbgImg.color = new Color(0.04f, 0.05f, 0.08f, 0.62f);
+        Image cbgImg = _cellBox.gameObject.AddComponent<Image>();
+        cbgImg.color = new Color(UiStyle.Panel.r, UiStyle.Panel.g, UiStyle.Panel.b, 0.78f);
         cbgImg.raycastTarget = false;
+        _cellFrame = UiStyle.Frame(_cellBox, UiStyle.Gray);
+        _cellTag = UiStyle.Tag(_cellBox, "grid : scan", UiStyle.Gray);
         RectTransform ctr = NewRect("Text", _cellBox);
         ctr.anchorMin = Vector2.zero; ctr.anchorMax = Vector2.one;
-        ctr.offsetMin = new Vector2(CellPad, CellPad - 2f); ctr.offsetMax = new Vector2(-CellPad, -(CellPad - 2f));
+        ctr.offsetMin = new Vector2(CellPad, CellPad - 2f); ctr.offsetMax = new Vector2(-CellPad, -(CellPad - 2f + UiStyle.TagH));
         _cellText = ctr.gameObject.AddComponent<TextMeshProUGUI>();
         if (font != null) _cellText.font = font;
         _cellText.fontSize = 15f;
@@ -252,12 +247,15 @@ public class HoverInfo : MonoBehaviour
             _crossImgs[i] = li;
         }
 
-        // 文字底板（半透明黑），在文字下面
+        // 文字底板（识别框样式：深色半透明底 + 细边框 + 左上角标签「human : online」），在文字下面。
+        // 边框和标签的颜色跟着生命值变（绿 → 黄 → 红），也跟着闪烁
         _npcBg = NewRect("TextBg", _npcRoot);
         _npcBg.anchorMin = _npcBg.anchorMax = new Vector2(0.5f, 0.5f);
         _npcBgImg = _npcBg.gameObject.AddComponent<Image>();
         _npcBgImg.color = textBgColor;
         _npcBgImg.raycastTarget = false;
+        _npcFrame = UiStyle.Frame(_npcBg, HudGlow.Green);
+        _npcTag = UiStyle.Tag(_npcBg, "human : online", HudGlow.Green);
 
         _npcTextRt = NewRect("Text", _npcRoot);
         _npcTextRt.anchorMin = _npcTextRt.anchorMax = new Vector2(0.5f, 0.5f);
@@ -407,24 +405,40 @@ public class HoverInfo : MonoBehaviour
         float left = Mathf.Lerp(center.x, lo.x, e);
         float topY = Mathf.Lerp(center.y, hi.y, e);
         float botY = Mathf.Lerp(center.y, lo.y, e);
-        bool below = hi.y + 4f + size.y > r.yMax;
+        float th = UiStyle.TagH;                     // 底板上面多出来的标签高度
+        bool below = hi.y + 4f + size.y + textBgPadding.y * 2f + th > r.yMax;
         _npcTextRt.pivot = new Vector2(0f, below ? 1f : 0f);
         _npcText.alignment = below ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.BottomLeft;
         float x = Mathf.Clamp(left, r.xMin + 4f + textBgPadding.x, r.xMax - size.x - 4f - textBgPadding.x);
         float gapY = 4f + textBgPadding.y; // 留出底板的边，别压到角框
-        _npcTextRt.anchoredPosition = new Vector2(x, below ? botY - gapY : topY + gapY) + _textJitter;
+        _npcTextRt.anchoredPosition = new Vector2(x, below ? botY - gapY - th : topY + gapY) + _textJitter;
         _npcText.alpha = e * _flickAlpha * _fxAlpha;
 
         // 底板跟着文字（含抖动），四周多留一点；随展开 / 淡出变透明，不跟着闪烁
         _npcBg.pivot = _npcTextRt.pivot;
-        _npcBg.anchoredPosition = _npcTextRt.anchoredPosition + new Vector2(-textBgPadding.x, below ? textBgPadding.y : -textBgPadding.y);
-        _npcBg.sizeDelta = size + textBgPadding * 2f;
+        _npcBg.anchoredPosition = _npcTextRt.anchoredPosition + new Vector2(-textBgPadding.x, below ? textBgPadding.y + th : -textBgPadding.y);
+        _npcBg.sizeDelta = new Vector2(Mathf.Max(size.x + textBgPadding.x * 2f, UiStyle.TagWidth(_npcTag) + 10f),
+                                       size.y + textBgPadding.y * 2f + th);
         _npcBgImg.color = new Color(textBgColor.r, textBgColor.g, textBgColor.b, textBgColor.a * e * _fxAlpha);
 
+        // 边框和标签：生命值的颜色，跟着闪烁
+        float fa = e * _fxAlpha * _flickAlpha;
+        _npcFrame.color = new Color(_fxColor.r, _fxColor.g, _fxColor.b, fa);
+        UiStyle.SetTag(_npcTag, NpcTagText(), new Color(_fxColor.r, _fxColor.g, _fxColor.b, fa));
+        _npcTag.alpha = fa;
+
         _npcLeft = x;
-        _npcStackBottom = below ? lo.y - 4f - size.y - textBgPadding.y * 2f : lo.y;
+        _npcStackBottom = below ? lo.y - 4f - size.y - textBgPadding.y * 2f - th : lo.y;
 
         UpdateDeathFx(center);
+    }
+
+    // 锁定框标签：生命 > 75% 在线，> 20% 警告，再低是危险；死了是 lost。
+    string NpcTagText()
+    {
+        if (_deathFx) return "human : lost";
+        if (_hpShown > 0.75f) return "human : online";
+        return _hpShown > 0.2f ? "human : warning" : "human : critical";
     }
 
     // 死亡效果：① 四条线从四个角延伸到中心（deathCrossTime）；② 之后每行文字从左到右划一条线（一行比一行晚一点）。
@@ -632,7 +646,13 @@ public class HoverInfo : MonoBehaviour
                 NpcData nd = FindNpc(_npc.npcId);
                 if (nd != null && nd.IsDead && !_deathFx) { _deathFx = true; _deathFxT = 99f; } // 已死亡：直接画划掉后的样子
             }
-            else SetText(text);
+            else
+            {
+                BoxTag(_target, out string tag, out Color tagCol);
+                UiStyle.SetTag(_boxTag, tag, tagCol);
+                _boxFrame.color = tagCol;
+                SetText(text);
+            }
         }
         if (_npc != null) PlaceNpc(_target);
         else Place(_target);
@@ -722,8 +742,10 @@ public class HoverInfo : MonoBehaviour
             string text = CellInfo.Describe(cell, LanguageGuard.IsJp);
             if (string.IsNullOrEmpty(text)) { HideCell(); return; }
             _cellText.text = text;
+            UiStyle.SetTag(_cellTag, "grid : " + cell.x.ToString("00") + "," + cell.y.ToString("00"), UiStyle.Gray);
             Vector2 pref = _cellText.GetPreferredValues(text, maxWidth - CellPad * 2f, 0f);
-            _cellBox.sizeDelta = new Vector2(Mathf.Min(pref.x, maxWidth - CellPad * 2f) + CellPad * 2f, pref.y + (CellPad - 2f) * 2f);
+            _cellBox.sizeDelta = new Vector2(Mathf.Max(Mathf.Min(pref.x, maxWidth - CellPad * 2f) + CellPad * 2f, UiStyle.TagWidth(_cellTag) + 10f),
+                                             pref.y + (CellPad - 2f) * 2f + UiStyle.TagH);
             if (!_cellShown) { _cellBox.gameObject.SetActive(true); _cellShown = true; }
         }
         PlaceCell(sp);
@@ -754,7 +776,7 @@ public class HoverInfo : MonoBehaviour
             Vector2 bp = _box.anchoredPosition, bs = _box.sizeDelta;
             float bottom = bp.y - _box.pivot.y * bs.y;
             float left = bp.x - _box.pivot.x * bs.x;          // 信息框的左边
-            float gap = _box.pivot.y < 0.5f ? 12f : 4f; // 信息框在物体上方时，下面挂着尖角：多空一点
+            const float gap = 6f;
             _cellBox.pivot = new Vector2(0f, 1f);              // 左上角对齐：和信息框左边对齐
             pos = new Vector2(left, bottom - gap);
             pos.x = Mathf.Clamp(pos.x, r.xMin + 4f, r.xMax - size.x - 4f);
@@ -890,6 +912,23 @@ public class HoverInfo : MonoBehaviour
             }
         }
         return s;
+    }
+
+    // 信息框左上角的标签（类别 : 状态）和框的颜色：绿 = 正常，黄 = 规划 / 施工中，红 = 离线。
+    void BoxTag(GameObject go, out string tag, out Color col)
+    {
+        col = UiStyle.Green;
+        tag = "structure : online";
+        if (go == _cellAnchor) return;
+        if (go.GetComponent<ResourceNode>() != null) { tag = "resource : scan"; return; }
+        if (go.GetComponent<ConstructionSite>() != null) { tag = "blueprint : planned"; col = UiStyle.Yellow; return; }
+        TerminalController term = go.GetComponent<TerminalController>();
+        PowerNode pn = go.GetComponent<PowerNode>();
+        RainCollector rc = go.GetComponent<RainCollector>();
+        bool building = (term != null && !term.isBuilt) || (pn != null && !pn.IsBuilt) || (rc != null && !rc.built) || SpriteAlpha(go) < 0.9f;
+        if (building) { tag = "structure : building"; col = UiStyle.Yellow; return; }
+        if (term != null && !term.IsOnline()) { tag = "terminal : offline"; col = UiStyle.Red; return; }
+        if (term != null) tag = "terminal : online";
     }
 
     string BuildingText(GameObject go)
@@ -1047,8 +1086,8 @@ public class HoverInfo : MonoBehaviour
         _text.text = text;
         float inner = maxWidth - Pad * 2f;
         Vector2 pref = _text.GetPreferredValues(text, inner, 0f);
-        float w = Mathf.Clamp(pref.x, MinSize - Pad * 2f, inner) + Pad * 2f;
-        float h = pref.y + Pad * 2f;
+        float w = Mathf.Max(Mathf.Clamp(pref.x, MinSize - Pad * 2f, inner) + Pad * 2f, UiStyle.TagWidth(_boxTag) + 12f);
+        float h = pref.y + Pad * 2f + UiStyle.TagH;
         _box.sizeDelta = new Vector2(w, h);
         if (!_shown) { _box.gameObject.SetActive(true); _shown = true; }
     }
@@ -1084,13 +1123,13 @@ public class HoverInfo : MonoBehaviour
         if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRt, _cam.WorldToScreenPoint(top), null, out local)) return;
         Vector2 size = _box.sizeDelta;
         Rect r = _canvasRt.rect;
-        bool below = local.y + 12f + size.y > r.yMax;
+        bool below = local.y + 8f + size.y > r.yMax;
         if (below && RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRt, _cam.WorldToScreenPoint(bottom), null, out Vector2 lb))
             local = lb;
 
         _box.pivot = new Vector2(0.5f, below ? 1f : 0f);
         float x = Mathf.Clamp(local.x, r.xMin + size.x * 0.5f + 4f, r.xMax - size.x * 0.5f - 4f);
-        float y = below ? local.y - 12f : local.y + 12f;
+        float y = below ? local.y - 8f : local.y + 8f;
         _box.anchoredPosition = new Vector2(x, y);
 
         // 尖角始终指向物体（方框被挪动时尖角跟着偏）

@@ -63,7 +63,7 @@ public class ResourceHud : MonoBehaviour
         term.anchoredPosition = new Vector2(GroupLeft + (PanelW + Gap) * 2f, TopY);
         term.sizeDelta = new Vector2(TermW, PanelH);
         Image border = term.gameObject.AddComponent<Image>();
-        border.color = new Color(0.49f, 0.36f, 1f, 0.6f);
+        border.color = new Color(0.72f, 1f, 0.78f, 0.6f); // 淡绿色边框（和其它界面统一，见 UiStyle）
         RectTransform inner = NewRect("Bg", term);
         Stretch(inner, new Vector2(2f, 2f), new Vector2(-2f, -2f));
         _termBg = inner.gameObject.AddComponent<Image>();

@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 
 // 通用屏幕效果系统：提供「闪色」「相机震动」「横幅文字」三种效果。
 // 各事件可组合调用，做出各自的视觉反馈。运行时自建所需UI，不依赖预先摆放。
@@ -11,14 +12,21 @@ using UnityEngine.UI;
 //     ScreenEffectManager.Instance.Shake(strength, duration);
 //     ScreenEffectManager.Instance.Banner("空间扭曲", color);
 //   或用组合快捷方法 PlayEventEffect(type)。
+// 横幅是识别框样式（见 UiStyle）：红色细边 + 左上角红标签「anomaly : space_warp」+ 大字 + 一行等宽小字；
+//   出现时先画一条横线，再从这条线上下展开。
 public class ScreenEffectManager : MonoBehaviour
 {
     public static ScreenEffectManager Instance { get; private set; }
 
     private Canvas _canvas;          // 专用的顶层Canvas（盖在最上面）
     private Image _flashImage;       // 全屏闪色用的Image
-    private Text _bannerText;        // 横幅文字
+    private RectTransform _bannerBox; // 横幅的框
+    private TextMeshProUGUI _bannerText;
+    private TextMeshProUGUI _bannerSub;  // 框里下面那行等宽小字
+    private TMP_Text _bannerTag;
+    private Image _bannerFrame;
     private CanvasGroup _bannerGroup;
+    private Coroutine _bannerCo;
 
     private Camera _cam;
     private Vector3 _camBasePos;
@@ -46,7 +54,10 @@ public class ScreenEffectManager : MonoBehaviour
         _canvas = canvasGo.AddComponent<Canvas>();
         _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         _canvas.sortingOrder = 999; // 盖在所有UI之上
-        canvasGo.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f); // 和其它界面同一个基准
+        scaler.matchWidthOrHeight = 0.5f;
 
         // 全屏闪色Image（初始透明，不挡点击）
         GameObject flashGo = new GameObject("FlashImage");
@@ -58,21 +69,50 @@ public class ScreenEffectManager : MonoBehaviour
         fr.anchorMin = Vector2.zero; fr.anchorMax = Vector2.one;
         fr.offsetMin = Vector2.zero; fr.offsetMax = Vector2.zero;
 
-        // 横幅文字（屏幕中上方）
-        GameObject bannerGo = new GameObject("BannerText");
-        bannerGo.transform.parent = canvasGo.transform;
-        _bannerText = bannerGo.AddComponent<Text>();
-        _bannerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"); // 内置字体（兜底）
-        _bannerText.fontSize = 44;
-        _bannerText.alignment = TextAnchor.MiddleCenter;
-        _bannerText.color = Color.white;
-        _bannerText.raycastTarget = false;
-        RectTransform br = _bannerText.rectTransform;
-        br.anchorMin = new Vector2(0.1f, 0.7f); br.anchorMax = new Vector2(0.9f, 0.85f);
-        br.offsetMin = Vector2.zero; br.offsetMax = Vector2.zero;
+        // 横幅（屏幕中上方）：深色半透明底 + 红色细边 + 左上角标签 + 大字 + 等宽小字
+        GameObject bannerGo = new GameObject("Banner", typeof(RectTransform));
+        bannerGo.transform.SetParent(canvasGo.transform, false);
+        _bannerBox = (RectTransform)bannerGo.transform;
+        _bannerBox.anchorMin = _bannerBox.anchorMax = new Vector2(0.5f, 0.76f);
+        _bannerBox.pivot = new Vector2(0.5f, 0.5f);
+        _bannerBox.sizeDelta = new Vector2(640f, 150f);
+        Image bbg = bannerGo.AddComponent<Image>();
+        bbg.color = new Color(UiStyle.Panel.r, UiStyle.Panel.g, UiStyle.Panel.b, 0.86f);
+        bbg.raycastTarget = false;
+        _bannerFrame = UiStyle.Frame(_bannerBox, UiStyle.Red, 2f);
+        _bannerTag = UiStyle.Tag(_bannerBox, "anomaly : detected", UiStyle.Red, 16f);
+
+        TMP_FontAsset jp = GameFonts.Find();
+        _bannerText = BannerText("Text", jp, 46f, new Vector2(0f, -18f));
+        _bannerText.fontStyle = FontStyles.Bold;
+        _bannerSub = BannerText("Sub", UiStyle.Mono, 17f, new Vector2(0f, -62f));
+        _bannerSub.color = UiStyle.RedText;
+
         _bannerGroup = bannerGo.AddComponent<CanvasGroup>();
         _bannerGroup.alpha = 0;
         _bannerGroup.blocksRaycasts = false;
+        _bannerGroup.interactable = false;
+    }
+
+    TextMeshProUGUI BannerText(string name, TMP_FontAsset font, float size, Vector2 centerOffset)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(_bannerBox, false);
+        TextMeshProUGUI t = go.AddComponent<TextMeshProUGUI>();
+        if (font != null) t.font = font;
+        t.fontSize = size;
+        t.color = UiStyle.TextMain;
+        t.alignment = TextAlignmentOptions.Center;
+        t.textWrappingMode = TextWrappingModes.NoWrap;
+        t.richText = false;
+        t.raycastTarget = false;
+        RectTransform rt = t.rectTransform;
+        rt.anchorMin = new Vector2(0f, 0.5f);
+        rt.anchorMax = new Vector2(1f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(-24f, size + 14f);
+        rt.anchoredPosition = centerOffset + new Vector2(0f, 26f);
+        return t;
     }
 
     // ============ 三种基础效果 ============
@@ -134,24 +174,56 @@ public class ScreenEffectManager : MonoBehaviour
         ShakeOffset = off;
     }
 
-    // 横幅文字：短暂显示一行大字。
-    public void Banner(string text, Color color, float holdTime = 1.5f)
+    // 横幅：短暂显示一个识别框（大字 = text）。color 用在大字的微光上（各事件自己的颜色）；
+    // tag = 左上角标签里冒号后面的词（如 "space_warp"），不给就是 "detected"。
+    public void Banner(string text, Color color, float holdTime = 1.5f, string tag = null)
     {
-        StartCoroutine(BannerCo(text, color, holdTime));
+        if (_bannerCo != null) StopCoroutine(_bannerCo); // 连着来两个事件：后一个直接替换前一个
+        _bannerCo = StartCoroutine(BannerCo(text, color, holdTime, tag));
     }
-    IEnumerator BannerCo(string text, Color color, float holdTime)
+    IEnumerator BannerCo(string text, Color color, float holdTime, string tag)
     {
         _bannerText.text = text;
-        _bannerText.color = color;
-        // 淡入
-        for (float t = 0; t < 0.3f; t += Time.deltaTime)
-        { _bannerGroup.alpha = t / 0.3f; yield return null; }
+        _bannerText.color = Color.Lerp(UiStyle.TextMain, color, 0.35f);
+        UiStyle.SetTag(_bannerTag, "anomaly : " + (string.IsNullOrEmpty(tag) ? "detected" : tag), UiStyle.Red);
+        int day = WorldManager.Instance != null && WorldManager.Instance.world != null ? WorldManager.Instance.world.day : 0;
+        _bannerSub.text = ">> ANOMALY DETECTED // DAY " + day.ToString("00");
+
+        // 框的宽度跟着大字走
+        float w = Mathf.Max(_bannerText.GetPreferredValues(text).x, _bannerSub.GetPreferredValues(_bannerSub.text).x) + 96f;
+        w = Mathf.Max(w, UiStyle.TagWidth(_bannerTag) + 140f);
+        _bannerBox.sizeDelta = new Vector2(Mathf.Clamp(w, 520f, 1500f), 150f);
+
+        // 出现：先画一条横线（从中间往两边），再从横线上下展开，最后文字闪两下亮起来
         _bannerGroup.alpha = 1;
+        _bannerText.alpha = 0f; _bannerSub.alpha = 0f;
+        const float lineTime = 0.16f, openTime = 0.16f;
+        for (float t = 0; t < lineTime; t += Time.unscaledDeltaTime)
+        {
+            float k = 1f - Mathf.Pow(1f - t / lineTime, 3f);
+            _bannerBox.localScale = new Vector3(k, 0.03f, 1f);
+            yield return null;
+        }
+        for (float t = 0; t < openTime; t += Time.unscaledDeltaTime)
+        {
+            float k = 1f - Mathf.Pow(1f - t / openTime, 3f);
+            _bannerBox.localScale = new Vector3(1f, Mathf.Lerp(0.03f, 1f, k), 1f);
+            yield return null;
+        }
+        _bannerBox.localScale = Vector3.one;
+        float[] blink = { 1f, 0.2f, 1f, 0.4f, 1f };
+        foreach (float a in blink)
+        {
+            _bannerText.alpha = a; _bannerSub.alpha = a;
+            yield return new WaitForSecondsRealtime(0.04f);
+        }
+
         yield return new WaitForSeconds(holdTime);
         // 淡出
         for (float t = 0; t < 0.5f; t += Time.deltaTime)
         { _bannerGroup.alpha = 1 - t / 0.5f; yield return null; }
         _bannerGroup.alpha = 0;
+        _bannerCo = null;
     }
 
     // ============ 事件专用组合效果 ============
@@ -163,24 +235,24 @@ public class ScreenEffectManager : MonoBehaviour
             case "space_warp": // 空间扭曲：紫色闪 + 较强震动 + 横幅
                 Flash(new Color(0.49f, 0.36f, 1f), 0.5f, 0.45f); // 紫
                 Shake(0.25f, 0.5f);
-                Banner(GetBannerText("event_banner_space_warp"), new Color(0.49f, 0.36f, 1f));
+                Banner(GetBannerText("event_banner_space_warp"), new Color(0.49f, 0.36f, 1f), 1.5f, "space_warp");
                 break;
 
             case "time_disorder": // 时间失序：青白闪 + 轻微震动 + 横幅
                 Flash(new Color(0.6f, 0.9f, 1f), 0.8f, 0.4f); // 青白
                 Shake(0.08f, 0.3f);
-                Banner(GetBannerText("event_banner_time_disorder"), new Color(0.31f, 0.66f, 1f));
+                Banner(GetBannerText("event_banner_time_disorder"), new Color(0.31f, 0.66f, 1f), 1.5f, "time_disorder");
                 break;
 
             case "storm": // 亚空间风暴：铅灰闪 + 持续震动 + 横幅
                 Flash(new Color(0.35f, 0.4f, 0.45f), 0.9f, 0.5f);
                 Shake(0.18f, 1.2f);
-                Banner(GetBannerText("event_banner_storm"), new Color(0.75f, 0.85f, 0.95f));
+                Banner(GetBannerText("event_banner_storm"), new Color(0.75f, 0.85f, 0.95f), 1.5f, "storm");
                 break;
 
             case "whisper_vision": // 低语与幻象：暗紫黑雾 + 无震动 + 横幅
                 Flash(new Color(0.15f, 0.05f, 0.2f), 1.2f, 0.55f); // 暗紫
-                Banner(GetBannerText("event_banner_whisper_vision"), new Color(0.7f, 0.5f, 0.9f));
+                Banner(GetBannerText("event_banner_whisper_vision"), new Color(0.7f, 0.5f, 0.9f), 1.5f, "whisper_vision");
                 break;
 
             default:

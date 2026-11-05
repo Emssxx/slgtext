@@ -12,7 +12,8 @@ using TMPro;
 //   中间：他自己的聊天记录（来自 NpcMemory）——NPC 的话是左边的灰色气泡，玩家的话是右边的绿框气泡，
 //         系统消息（开始行动、转交给别人……）是居中的绿色「>> 」行；
 //   下方：「> 」开头的输入框，Enter 发送。
-// 外观和 HUD / 锁定框同一套：深色底、淡绿色细边框。
+// 外观用 UiStyle 那一套（"ABA 监控终端"）：深色底、淡绿色细边框、左上角实心标签「comm_link : 名字」，
+//   NPC 的气泡是灰框 + 灰色名字标签，玩家的气泡是绿框 + 绿色「AI」标签，系统行是等宽字体的「>> 」。
 // 打开动画：从这个 NPC 锁定框的左上角伸出一条线 → 线到达窗口的右上角后转成水平、往左变成窗口的上沿
 //           → 窗口从这条线往下展开。
 // 连线：展开后，锁定框 → 窗口右上角的那条线一直保留，跟着 NPC 和窗口移动（NPC 在屏幕外时连到屏幕边上）。
@@ -53,7 +54,7 @@ public class NpcChatWindow : MonoBehaviour
     Canvas _canvas;
     RectTransform _canvasRt, _window, _body;
     CanvasGroup _windowGroup;
-    TMP_Text _thinking, _placeholder, _title, _status;
+    TMP_Text _thinking, _placeholder, _status, _headerTag;
     ScrollRect _scroll;
     RectTransform _scrollRt, _content;
     TMP_InputField _input;
@@ -71,21 +72,18 @@ public class NpcChatWindow : MonoBehaviour
     bool _hasOrigin;
     Vector2 _origin, _tl, _tr;          // 都是"画布左下角为原点"的坐标
 
-    const float HeaderH = 44f;
+    const float HeaderH = 28f;
+    const float NameTagSize = 16f;                  // 标题标签（名字）的字号，标签高 = 字号 + 7
     const float InputH = 36f;
     const float Pad = 10f;
-    const float LabelH = 18f;
     const float MsgFont = 15f;
 
     static readonly Color Green = new Color(0.72f, 1f, 0.78f, 1f);          // 和天数数字、锁定框同色
     static readonly Color PanelColor = new Color(0.055f, 0.063f, 0.067f, 0.94f);
     static readonly Color HeaderColor = new Color(0.085f, 0.095f, 0.1f, 1f);
-    static readonly Color NpcBubble = new Color(0.17f, 0.18f, 0.19f, 1f);
-    static readonly Color NpcBorder = new Color(0.26f, 0.28f, 0.29f, 1f);
+    static readonly Color NpcBubble = new Color(0.1f, 0.108f, 0.112f, 1f);
     static readonly Color PlayerBubble = new Color(0.05f, 0.075f, 0.06f, 1f);
     static readonly Color SystemColor = new Color(0.6f, 0.92f, 0.68f, 1f);
-    static readonly Color LabelColor = new Color(0.62f, 0.66f, 0.66f, 1f);
-    static readonly Color FieldBorder = new Color(0.25f, 0.27f, 0.28f, 1f);
 
     // 确保场景里有一个窗口（没有就创建）。
     public static NpcChatWindow Ensure()
@@ -393,10 +391,10 @@ public class NpcChatWindow : MonoBehaviour
     {
         NpcData npc = Npc(CurrentNpcId);
         if (npc == null) return;
-        string who = npc.npcName + (string.IsNullOrEmpty(npc.profession) ? "" : "（" + npc.profession + "）");
-        _title.text = "<noparse>" + LF("chatwin_header", who) + "</noparse>";
-        _status.text = "<color=#8E9490>" + L("stat_sanity") + "</color> " + MentalTag(npc) +
-                       "　<color=#8E9490>" + L("stat_trust") + "</color> <color=#B8FFC7><b>" + Mathf.RoundToInt(npc.playerTrust) + "</b></color>";
+        _status.text = "<color=#8E9490>" + L("stat_sanity") + " :</color> " + MentalTag(npc) +
+                       "　<color=#8E9490>" + L("stat_trust") + " :</color> <color=#B8FFC7>" + Mathf.RoundToInt(npc.playerTrust) + "</color>";
+        // 标签里直接写名字（不显示职业）；死了换成灰色的 signal_lost
+        UiStyle.SetTag(_headerTag, (npc.IsDead ? "signal_lost : " : "comm_link : ") + npc.npcName, npc.IsDead ? UiStyle.Gray : UiStyle.Green);
     }
 
     static string MentalTag(NpcData n)
@@ -473,52 +471,42 @@ public class NpcChatWindow : MonoBehaviour
         return LanguageGuard.IsJp ? "「" + s + "」" : "“" + s + "”";
     }
 
-    // 一条对话：上面一行小字写是谁，下面是气泡。NPC 靠左（灰底），玩家靠右（绿框）。
+    // 一条对话：识别框式的气泡，左上角贴着说话人的标签。NPC 靠左（灰框 + 灰标签），玩家靠右（绿框 + 「AI」标签）。
     void AddBubble(string speaker, string text, bool player)
     {
         float width = ContentWidth;
-        float maxBubble = Mathf.Round(width * 0.84f);
+        float maxBubble = Mathf.Round(width * 0.86f);
         const float padX = 12f, padY = 8f;
 
         RectTransform item = NewRect("Msg", _content);
         LayoutElement le = item.gameObject.AddComponent<LayoutElement>();
 
-        TextMeshProUGUI label = NewText(item, "Speaker", 12f, player ? TextAlignmentOptions.TopRight : TextAlignmentOptions.TopLeft);
-        label.color = player ? new Color(Green.r, Green.g, Green.b, 0.75f) : LabelColor;
-        label.richText = false;
-        label.textWrappingMode = TextWrappingModes.NoWrap;
-        label.text = speaker ?? "";
-        label.rectTransform.anchorMin = new Vector2(0f, 1f);
-        label.rectTransform.anchorMax = new Vector2(1f, 1f);
-        label.rectTransform.pivot = new Vector2(0.5f, 1f);
-        label.rectTransform.offsetMin = new Vector2(2f, -LabelH);
-        label.rectTransform.offsetMax = new Vector2(-2f, 0f);
-
         RectTransform bubble = NewRect("Bubble", item);
         Image bg = bubble.gameObject.AddComponent<Image>();
         bg.color = player ? PlayerBubble : NpcBubble;
         bg.raycastTarget = false;
-        Outline border = bubble.gameObject.AddComponent<Outline>();
-        border.effectColor = player ? Green : NpcBorder;
-        border.effectDistance = new Vector2(1f, -1f);
+        UiStyle.Frame(bubble, player ? Green : UiStyle.Gray, 1.2f);
+        TMP_Text tag = UiStyle.Tag(bubble, player ? "AI" : (speaker ?? ""), player ? Green : UiStyle.Gray, 12f);
 
         TextMeshProUGUI t = NewText(bubble, "Text", MsgFont, TextAlignmentOptions.TopLeft);
         t.richText = true;
-        t.color = new Color(0.9f, 0.92f, 0.9f, 1f);
+        t.color = UiStyle.TextMain;
         t.text = "<noparse>" + text + "</noparse>";
 
-        // 气泡大小：短句按实际宽度，长句到最大宽度后换行
+        // 气泡大小：短句按实际宽度，长句到最大宽度后换行；至少比标签宽一点
         float maxText = maxBubble - padX * 2f;
         float textW = Mathf.Min(Mathf.Ceil(t.GetPreferredValues(t.text).x) + 2f, maxText);
         float textH = Mathf.Ceil(t.GetPreferredValues(t.text, textW, 0f).y);
-        float bw = textW + padX * 2f, bh = textH + padY * 2f;
+        float tagH = 12f + 7f;
+        float bw = Mathf.Max(textW + padX * 2f, UiStyle.TagWidth(tag) + 24f);
+        float bh = tagH + 4f + textH + padY * 2f;
 
         bubble.anchorMin = bubble.anchorMax = bubble.pivot = new Vector2(player ? 1f : 0f, 1f);
-        bubble.anchoredPosition = new Vector2(player ? -1f : 1f, -(LabelH + 3f));
+        bubble.anchoredPosition = new Vector2(player ? -2f : 2f, -2f);
         bubble.sizeDelta = new Vector2(bw, bh);
-        Stretch(t.rectTransform, Vector2.zero, Vector2.one, new Vector2(padX, padY), new Vector2(-padX, -padY));
+        Stretch(t.rectTransform, Vector2.zero, Vector2.one, new Vector2(padX, padY), new Vector2(-padX, -(padY + tagH + 4f)));
 
-        le.preferredHeight = LabelH + 3f + bh + 2f;
+        le.preferredHeight = bh + 4f;
     }
 
     // 系统消息：居中的绿色小字，前面加「>> 」（原文两边的括号去掉）。
@@ -527,7 +515,8 @@ public class NpcChatWindow : MonoBehaviour
         string s = (text ?? "").Trim();
         if (s.Length >= 2 && (s[0] == '（' || s[0] == '(') && (s[s.Length - 1] == '）' || s[s.Length - 1] == ')'))
             s = s.Substring(1, s.Length - 2);
-        TextMeshProUGUI t = NewText(_content, "System", 12.5f, TextAlignmentOptions.Top);
+        TextMeshProUGUI t = NewText(_content, "System", 13f, TextAlignmentOptions.Top);
+        t.font = UiStyle.Mono;
         t.richText = true;
         t.color = SystemColor;
         t.text = "<noparse>>> " + s + "</noparse>";
@@ -548,7 +537,7 @@ public class NpcChatWindow : MonoBehaviour
         if (show)
         {
             NpcData npc = Npc(CurrentNpcId);
-            _thinking.text = LF("chatwin_thinking", npc != null ? npc.npcName : "");
+            _thinking.text = ">> " + LF("chatwin_thinking", npc != null ? npc.npcName : "");
             _thinking.transform.SetAsLastSibling();
         }
         _thinking.gameObject.SetActive(show);
@@ -653,16 +642,16 @@ public class NpcChatWindow : MonoBehaviour
         fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         _scroll.content = _content;
 
-        _thinking = NewText(_content, "Thinking", 12.5f, TextAlignmentOptions.Top);
+        _thinking = NewText(_content, "Thinking", 13f, TextAlignmentOptions.Top);
+        _thinking.font = UiStyle.Mono;
         _thinking.color = new Color(0.62f, 0.66f, 0.66f);
-        _thinking.fontStyle = FontStyles.Italic;
         _thinking.gameObject.SetActive(false);
 
         BuildInput();
         BuildSegments(canvasGo.transform);
     }
 
-    // 标题栏：「会話 — 名字（职业）」+ 右边 正気 / 信頼 + 关闭按钮；下面一条淡绿细线。
+    // 标题栏（一行）：左上角实心标签「comm_link : 名字」，右边 正気 / 信頼（等宽字）+ 关闭按钮；最下面一条淡绿细线。
     void BuildHeader()
     {
         RectTransform header = NewRect("Header", _body);
@@ -677,21 +666,19 @@ public class NpcChatWindow : MonoBehaviour
         li.color = new Color(Green.r, Green.g, Green.b, 0.3f);
         li.raycastTarget = false;
 
-        _title = NewText(header, "Title", 16f, TextAlignmentOptions.Left);
-        _title.fontStyle = FontStyles.Bold;
-        _title.textWrappingMode = TextWrappingModes.NoWrap;
-        _title.overflowMode = TextOverflowModes.Ellipsis;
-        Stretch(_title.rectTransform, Vector2.zero, Vector2.one, new Vector2(14f, 0f), new Vector2(-170f, 0f));
+        _headerTag = UiStyle.Tag(header, "comm_link : ---", Green, NameTagSize);
+        float rowH = NameTagSize + 7f;                 // 和标签同高，文字对齐
 
         _status = NewText(header, "Status", 13f, TextAlignmentOptions.Right);
+        _status.font = UiStyle.Mono;
         _status.textWrappingMode = TextWrappingModes.NoWrap;
-        Stretch(_status.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-168f, 0f), new Vector2(-34f, 0f));
+        Stretch(_status.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-240f, -rowH), new Vector2(-34f, 0f));
 
         Button close = NewButton(header, "Close", "×", 20f, new Color(0f, 0f, 0f, 0f), out TMP_Text closeLabel);
         closeLabel.color = new Color(0.62f, 0.66f, 0.66f);
         RectTransform cr = (RectTransform)close.transform;
-        cr.anchorMin = cr.anchorMax = cr.pivot = new Vector2(1f, 0.5f);
-        cr.sizeDelta = new Vector2(30f, 30f);
+        cr.anchorMin = cr.anchorMax = cr.pivot = new Vector2(1f, 1f);
+        cr.sizeDelta = new Vector2(28f, rowH);
         cr.anchoredPosition = new Vector2(-4f, 0f);
         close.onClick.AddListener(Close);
     }
@@ -704,10 +691,11 @@ public class NpcChatWindow : MonoBehaviour
         Image boxImg = box.gameObject.AddComponent<Image>();
         boxImg.color = new Color(0.035f, 0.04f, 0.045f, 1f);
         Outline bo = box.gameObject.AddComponent<Outline>();
-        bo.effectColor = FieldBorder;
+        bo.effectColor = UiStyle.Gray;
         bo.effectDistance = new Vector2(1f, -1f);
 
         TextMeshProUGUI prompt = NewText(box, "Prompt", 15f, TextAlignmentOptions.Left);
+        prompt.font = UiStyle.Mono;
         prompt.text = ">";
         prompt.color = Green;
         prompt.fontStyle = FontStyles.Bold;

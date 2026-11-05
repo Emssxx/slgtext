@@ -10,6 +10,8 @@ using TMPro;
 //   右上角：天数（电子表风格段码字，第 1 天显示 1……）；
 //   顶部中间：电力 | 净化水 | 「终端机」按钮（ResourceHud），下面一行是天气和气温（ClimateSystem）。
 //   NPC 对话窗口在左下角（见 NpcChatWindow）。
+// 事件栏、日志栏是两个独立的识别框（UiStyle）：淡绿细边 + 左上角淡绿标签（就是原来的标题「事件」「日志」）。
+// 抽屉本身透明，只负责一起滑动。
 // 由 WorldManager.Start 调 HudLayout.Ensure() 创建。场景里原有的面板只是被"挪了位置"，各自的逻辑不变。
 public class HudLayout : MonoBehaviour
 {
@@ -40,6 +42,9 @@ public class HudLayout : MonoBehaviour
     RectTransform _drawer;
     UiSlider _drawerSlider;
     TMP_Text _tabLabel;
+    // 栏的标题 → 左上角标签：标题文字（会随语言切换）每帧同步到标签上
+    readonly System.Collections.Generic.List<TMP_Text> _titleSrc = new System.Collections.Generic.List<TMP_Text>();
+    readonly System.Collections.Generic.List<TMP_Text> _titleTag = new System.Collections.Generic.List<TMP_Text>();
     RectTransform _tabArrow;
     bool _drawerOpen;
     TMP_FontAsset _font;
@@ -106,10 +111,12 @@ public class HudLayout : MonoBehaviour
         _drawer = NewRect("HudLogDrawer", root);
         _drawer.anchorMin = _drawer.anchorMax = _drawer.pivot = new Vector2(0f, 1f);
         _drawer.sizeDelta = new Vector2(drawerWidth, 0f);
-        _drawer.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.35f);
+        Image drawerImg = _drawer.gameObject.AddComponent<Image>();
+        drawerImg.color = Color.clear;          // 透明：事件、日志各自是一个框
+        drawerImg.raycastTarget = false;        // 两个框中间的空隙不挡地图
         VerticalLayoutGroup v = _drawer.gameObject.AddComponent<VerticalLayoutGroup>();
-        v.padding = new RectOffset(4, 4, 4, 4);
-        v.spacing = 4f;
+        v.padding = new RectOffset(0, 0, 0, 0);
+        v.spacing = 10f;
         v.childControlWidth = true;
         v.childControlHeight = true;
         v.childForceExpandWidth = true;
@@ -119,6 +126,11 @@ public class HudLayout : MonoBehaviour
 
         if (events != null) events.SetParent(_drawer, false);
         if (logs != null) logs.SetParent(_drawer, false);
+
+        StyleSection(events, "event_log");
+        StyleSection(logs, "sys_log");
+        if (EventLogManager.Instance != null) EventLogManager.Instance.eventColor = new Color(1f, 0.6f, 0.56f); // 事件 = 异常：淡红
+        if (LogManager.Instance != null) LogManager.Instance.nameColor = UiStyle.Green;                       // NPC 名字：淡绿
 
         BuildDrawerTab();
         AttachNpcList();
@@ -141,13 +153,15 @@ public class HudLayout : MonoBehaviour
         tab.anchoredPosition = Vector2.zero;
         tab.sizeDelta = new Vector2(TabWidth, TabHeight);
         Image img = tab.gameObject.AddComponent<Image>();
-        img.color = new Color(0.1f, 0.1f, 0.15f, 0.95f);
+        img.color = new Color(UiStyle.Panel.r, UiStyle.Panel.g, UiStyle.Panel.b, 0.95f);
+        UiStyle.Frame(tab, new Color(UiStyle.Green.r, UiStyle.Green.g, UiStyle.Green.b, 0.7f));
         Button b = tab.gameObject.AddComponent<Button>();
         b.targetGraphic = img;
         b.onClick.AddListener(ToggleDrawer);
 
         TextMeshProUGUI arrow = NewText(tab, "Arrow", 15f);
         arrow.text = "▶";
+        arrow.color = UiStyle.Green;
         _tabArrow = arrow.rectTransform;
         _tabArrow.anchorMin = new Vector2(0f, 1f);
         _tabArrow.anchorMax = new Vector2(1f, 1f);
@@ -156,7 +170,7 @@ public class HudLayout : MonoBehaviour
         _tabArrow.anchoredPosition = new Vector2(0f, -17f);
 
         TextMeshProUGUI label = NewText(tab, "Label", 15f);
-        label.color = new Color(0.85f, 0.85f, 0.9f);
+        label.color = UiStyle.Green;
         Stretch(label.rectTransform, Vector2.zero, Vector2.one, new Vector2(0f, 4f), new Vector2(0f, -30f));
         _tabLabel = label;
     }
@@ -220,6 +234,48 @@ public class HudLayout : MonoBehaviour
         g.alpha = 0f;
         g.blocksRaycasts = false;
         g.interactable = false;
+    }
+
+    // 事件栏 / 日志栏换成识别框样式：深色底（去掉圆角）+ 淡绿细边；原来的标题字藏起来，
+    // 换成框左上角的淡绿标签（文字照抄标题，切换语言也跟着变）；标题栏本身透明，只留右边的箭头和点击折叠。
+    // 场景里的物体只改颜色，不改结构；新加的边框 / 标签不参与排版、不挡点击。
+    void StyleSection(RectTransform sec, string fallbackTitle)
+    {
+        if (sec == null) return;
+        Image bg = sec.GetComponent<Image>();
+        if (bg != null) { bg.sprite = null; bg.color = new Color(UiStyle.Panel.r, UiStyle.Panel.g, UiStyle.Panel.b, 0.82f); }
+
+        TMP_Text title = null;
+        CollapsibleSection cs = sec.GetComponent<CollapsibleSection>();
+        if (cs != null && cs.headerButton != null)
+        {
+            Image hb = cs.headerButton.GetComponent<Image>();
+            if (hb != null) { hb.sprite = null; hb.color = Color.clear; } // 透明，但还能点
+            foreach (TMP_Text t in cs.headerButton.GetComponentsInChildren<TMP_Text>(true))
+            {
+                if (t == cs.toggleIcon) { t.color = UiStyle.Green; continue; }
+                if (title == null) title = t;
+                t.color = Color.clear;                                     // 原标题藏起来（文字还在，用来同步）
+            }
+        }
+
+        Image frame = UiStyle.Frame(sec, new Color(UiStyle.Green.r, UiStyle.Green.g, UiStyle.Green.b, 0.75f), 1.2f);
+        frame.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        frame.transform.SetAsLastSibling();
+
+        TMP_Text tag = UiStyle.Tag(sec, title != null ? title.text : fallbackTitle, UiStyle.Green);
+        RectTransform tagRt = (RectTransform)tag.transform.parent;
+        tagRt.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        tagRt.SetAsLastSibling();
+        if (title != null) { _titleSrc.Add(title); _titleTag.Add(tag); }
+    }
+
+    // 标题文字变了（切换语言）就更新标签。
+    void Update()
+    {
+        for (int i = 0; i < _titleSrc.Count; i++)
+            if (_titleSrc[i] != null && _titleTag[i] != null && !string.IsNullOrEmpty(_titleSrc[i].text))
+                UiStyle.SetTag(_titleTag[i], _titleSrc[i].text, UiStyle.Green);
     }
 
     // 从栏里的某个物体往上找，第一个挂了折叠控制器（CollapsibleSection）的就是这一栏。
