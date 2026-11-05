@@ -33,6 +33,7 @@ public class IdleChatSession
     public readonly WorldState world;
     public IdleChatTopic topic = IdleChatTopic.SmallTalk;
     public List<IdleChatLine> lines;          // 实际说出的台词
+    public bool llmLines;                     // 台词是 AI 现场写的（不是本地剧本）：聊完让小模型判断实际语气
 
     public bool Ended { get; private set; }   // 已结束（正常聊完或中途散场）
     public bool Aborted { get; private set; } // 是否中途散场
@@ -132,6 +133,8 @@ public static class IdleChatRules
         return IdleChatTopic.SmallTalk;
     }
 
+    static string RelLF(string key, params object[] args) => LocalizationManager.Instance != null ? LocalizationManager.Instance.GetFormat(key, args) : key;
+
     // —— 聊完结算：关系、理智、记忆、一条行为日志 ——
     public static void ApplyOutcome(IdleChatSession s)
     {
@@ -167,10 +170,22 @@ public static class IdleChatRules
         if (a.personality.sociability >= 65) affA += 1f;          // 外向的人聊完更有好感
         if (b.personality.sociability >= 65) affB += 1f;
 
-        RelationshipManager.ChangeAffinity(a, b.id, affA);
-        RelationshipManager.ChangeAffinity(b, a.id, affB);
-        RelationshipManager.ChangeTrust(a, b.id, trust);
-        RelationshipManager.ChangeTrust(b, a.id, trust);
+        // 关系结算：
+        //   本地剧本台词 → 台词本来就是按话题写的，直接按话题结算；
+        //   AI 现场写的台词 → 内容可能和话题不一样（家常聊着聊着吵起来了），让小模型读一遍实际说的话判断语气，按语气结算。
+        //   小模型没装 / 太忙 / 判断不出来 → 还是按话题结算。
+        // 只有印象深的（投机 / 吵架 / 聊得僵 / 聊过去）才记一句原因。
+        int rday = s.world != null ? s.world.day : 0;
+        string reasonKey = s.topic == IdleChatTopic.Tense ? "rel_reason_quarrel"
+                         : s.topic == IdleChatTopic.Friendly ? "rel_reason_chat_good"
+                         : s.topic == IdleChatTopic.Past ? "rel_reason_chat_past" : null;
+        float fAffA = affA, fAffB = affB, fTrust = trust;
+        Action byTopic = () =>
+        {
+            RelationshipManager.Apply(a, b, fAffA, fTrust, 0f, reasonKey != null ? RelLF(reasonKey, rday, b.npcName) : null);
+            RelationshipManager.Apply(b, a, fAffB, fTrust, 0f, reasonKey != null ? RelLF(reasonKey, rday, a.npcName) : null);
+        };
+        if (!(s.llmLines && JudgeTone(s, a, b, rday, byTopic))) byTopic();
         ChangeSanity(a, sanA);
         ChangeSanity(b, sanB);
 
@@ -194,6 +209,95 @@ public static class IdleChatRules
 
         // 实际说过的台词记进双方的档案（以后和玩家聊天时能想起来）。
         NpcMemory.AddIdleChat(s);
+    }
+
+    // ============ 闲聊语气判断（小模型）============
+
+    const string ToneSystemPrompt =
+        "你是对话语气判断器。读下面 A 和 B 的一段对话（可能是中文或日文），分别判断 A 对 B、B 对 A 的态度，只能从这四个里选：\n" +
+        "friendly = 友好、亲切、关心、开玩笑\n" +
+        "neutral = 普通、平淡、就事论事\n" +
+        "cold = 冷淡、敷衍、不耐烦、阴阳怪气\n" +
+        "hostile = 敌意、指责、争吵、嘲讽、威胁\n" +
+        "只输出一个 JSON 对象，不要任何多余文字：{\"a\":\"A 对 B 的态度\",\"b\":\"B 对 A 的态度\"}";
+
+    // 把实际说的话交给小模型判断语气。发出去返回 true（结果回来再结算）；没发出去返回 false（调用方按话题结算）。
+    static bool JudgeTone(IdleChatSession s, NpcData a, NpcData b, int day, Action fallback)
+    {
+        if (s.lines == null || s.lines.Count == 0) return false;
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        foreach (IdleChatLine line in s.lines)
+            if (line != null && !string.IsNullOrEmpty(line.text)) sb.Append(line.byInitiator ? "A：" : "B：").AppendLine(line.text);
+        string dialogue = sb.ToString();
+        IdleChatTopic topic = s.topic;
+        return AiScheduler.Submit(new AiRequest
+        {
+            kind = AiKind.ChatTone, key = a.id + "|" + b.id, json = true, maxTokens = 40,
+            system = () => ToneSystemPrompt,
+            user = () => dialogue,
+            onResult = raw =>
+            {
+                if (!TryParseTone(raw, out int ta, out int tb)) { fallback(); return; }
+                SettleByTone(a, b, ta, tb, topic, day);
+            },
+        });
+    }
+
+    // 语气 → 分数：friendly 2 / neutral 1 / cold -1 / hostile -2。两个都认出来才算成功。
+    static bool TryParseTone(string raw, out int ta, out int tb)
+    {
+        ta = tb = 0;
+        if (string.IsNullOrEmpty(raw)) return false;
+        try
+        {
+            int i = raw.IndexOf('{'), j = raw.LastIndexOf('}');
+            if (i < 0 || j <= i) return false;
+            Newtonsoft.Json.Linq.JObject o = Newtonsoft.Json.Linq.JObject.Parse(raw.Substring(i, j - i + 1));
+            ta = ToneScore(o.Value<string>("a"));
+            tb = ToneScore(o.Value<string>("b"));
+            return ta != 0 && tb != 0;
+        }
+        catch { return false; }
+    }
+
+    static int ToneScore(string t)
+    {
+        switch ((t ?? "").Trim().ToLowerInvariant())
+        {
+            case "friendly": return 2;
+            case "neutral": return 1;
+            case "cold": return -1;
+            case "hostile": return -2;
+            default: return 0;
+        }
+    }
+
+    // 好感变化看"对方怎么对我"：对方友好 +5、普通 +2、冷淡 -2、敌意 -6（外向的人 +1）。
+    // 信任：两边都友好 +2；有人敌意 -2；有人冷淡 0；其余 +1。
+    static void SettleByTone(NpcData a, NpcData b, int ta, int tb, IdleChatTopic topic, int day)
+    {
+        if (a == null || b == null) return;
+        float affAB = ToneAffinity(tb) + (a.personality.sociability >= 65 ? 1f : 0f);
+        float affBA = ToneAffinity(ta) + (b.personality.sociability >= 65 ? 1f : 0f);
+        float trust = (ta == 2 && tb == 2) ? 2f : (ta == -2 || tb == -2) ? -2f : (ta < 0 || tb < 0) ? 0f : 1f;
+        string key = (ta == -2 || tb == -2) ? "rel_reason_quarrel"
+                   : (ta == 2 && tb == 2) ? "rel_reason_chat_good"
+                   : (ta < 0 || tb < 0) ? "rel_reason_chat_cold"
+                   : topic == IdleChatTopic.Past ? "rel_reason_chat_past" : null;
+        RelationshipManager.Apply(a, b, affAB, trust, 0f, key != null ? RelLF(key, day, b.npcName) : null);
+        RelationshipManager.Apply(b, a, affBA, trust, 0f, key != null ? RelLF(key, day, a.npcName) : null);
+        Debug.Log($"[闲聊语气] {a.npcName} → {b.npcName}：{ta}，{b.npcName} → {a.npcName}：{tb}（话题 {topic}）");
+    }
+
+    static float ToneAffinity(int tone)
+    {
+        switch (tone)
+        {
+            case 2: return 5f;
+            case 1: return 2f;
+            case -1: return -2f;
+            default: return -6f;
+        }
     }
 
     // 聊完后多久才会再聊（外向的人短，内向的人长）。

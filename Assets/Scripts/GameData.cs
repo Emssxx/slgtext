@@ -45,7 +45,9 @@ public class Relationship
     public string targetId;        // 对谁（另一个 NPC 的 id）
     public float trust = 50f;      // 信任度 0~100：信不信任对方（能力、可靠性）
     public float affinity = 0f;    // 友善度 -100~100：喜不喜欢对方（可为负=厌恶）
+    public float respect = 50f;    // 尊重 0~100：服不服对方（能干、肯出力、有担当）。以后选领导、听不听指挥用它
     public string note;            // 备注：这段关系的来由（如"曾一起逃生"）
+    public List<string> reasons = new List<string>(); // 最近几件影响这段关系的事（"第3天：和中村一起建成了墙"），给 AI 读
 }
 
 
@@ -80,6 +82,10 @@ public class NpcData
     // 状态词条（疲惫、饥饿、口渴、受伤、生病……），存的是英文 id，见 NpcHealth.TagId。
     public List<string> conditions = new List<string>();
     public float sanity = 100f; // 精神/理智（亚空间会侵蚀理智，本作特色数值）
+    public string role;          // 今天的分工（build / gather / scavenge / care / rest；领导早会分配，NpcSociety）
+    public string roleTarget;    // 分工的对象（采集什么）
+    public int roleDay = -1;     // 分工是哪一天的（过了这天就失效）
+    public float security = 60f; // 安全感（0~100）：营地围合度、同伴、异常度、危险决定，低于自己的底线就会自己想办法（NpcSecurity）
 
     // 是否已死亡（只读，统一用这个判断，不要各处自己写 health<=0）。
     public bool IsDead => health <= 0f;
@@ -150,4 +156,8 @@ public class WorldState
     public int terminalLevel = 0;                                 // 终端机等级：0=还没建成，1~3=一产~三产
     public List<string> unlockedTechs = new List<string>();       // 已研究完成的科技 id
     public List<string> placedUniqueBuilds = new List<string>();  // 已放置的唯一建筑 id（如终端机，防止建第二座）
+
+    // —— 营地社会（见 NpcSociety）——
+    public string leaderId;           // 大家推举的领导（npc id；空 = 还没有）
+    public int lastElectionDay;       // 上次选领导是第几天
 }

@@ -18,6 +18,7 @@ public class NpcTaskRunner : MonoBehaviour
     private Queue<NpcTask> _queue = new Queue<NpcTask>();
     private bool _running = false;
     private string _claimedId; // 在 NpcBusy 登记占用时用的 id（物体销毁后也能正确解除）
+    private System.Action<bool> _onDone; // 这一串任务结束时通知谁：true = 全部做完，false = 被取消 / 被新的一串替换（NpcIntentBrain 用）
 
     // 是否正在执行玩家指令的任务（闲置行为系统读它：有任务时不去干扰移动）。
     public bool IsBusy => _running;
@@ -34,6 +35,7 @@ public class NpcTaskRunner : MonoBehaviour
     {
         // 物体被关掉/销毁时协程会停，这里把状态和占用登记一起收拾干净。
         if (_running) { _running = false; ReleaseClaim(); }
+        FinishCallback(false);
     }
 
     // 取消所有任务并立刻停止移动（被事件打断时调用）。
@@ -45,6 +47,17 @@ public class NpcTaskRunner : MonoBehaviour
         StopAllCoroutines();     // 停止正在跑的任务协程（DoGo/DoAct/DoPush）
         _mover.Stop();           // 通知 NpcMover 停下，清路径、停动画
         ReleaseClaim();
+        FinishCallback(false);
+    }
+
+    // 通知这一串任务的发起者（只通知一次）。
+    void FinishCallback(bool ok)
+    {
+        System.Action<bool> cb = _onDone;
+        _onDone = null;
+        if (cb == null) return;
+        try { cb(ok); }
+        catch (System.Exception e) { Debug.LogException(e); }
     }
 
     // 执行玩家指令期间在 NpcBusy 登记占用（优先级最高），需求行为、闲置行为都会让路。
@@ -61,9 +74,11 @@ public class NpcTaskRunner : MonoBehaviour
         _claimedId = null;
     }
 
-    // 下达一串任务（清掉旧的，执行新的）。
-    public void RunTasks(List<NpcTask> tasks)
+    // 下达一串任务（清掉旧的，执行新的）。onDone：这一串结束时回调（true = 做完，false = 被取消 / 被替换），可不传。
+    public void RunTasks(List<NpcTask> tasks, System.Action<bool> onDone = null)
     {
+        FinishCallback(false); // 旧的一串被替换了
+        _onDone = onDone;
         _queue.Clear();
         foreach (NpcTask t in tasks) _queue.Enqueue(t);
         if (!_running) StartCoroutine(RunLoop());
@@ -80,6 +95,7 @@ public class NpcTaskRunner : MonoBehaviour
         }
         _running = false;
         ReleaseClaim();
+        FinishCallback(true);
     }
 
     IEnumerator DoOneTask(NpcTask task)
@@ -185,6 +201,9 @@ public class NpcTaskRunner : MonoBehaviour
                    : target == self ? LF("log_use_item", self.npcName, itemName)
                    : LF("cmd_log_use_on", self.npcName, target.npcName, itemName);
         Report(self, target, log);
+        // 给别人用了药 / 绷带：对方更喜欢、更信任、更尊重这个人
+        if (ok && target != self)
+            RelationshipManager.Apply(target, self, 10f, 6f, 4f, LF("rel_reason_helped", w.day, self.npcName, itemName));
     }
 
     // take_item：从仓库拿一个带在身上（以后"给某人用"时优先用身上的）。

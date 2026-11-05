@@ -133,14 +133,22 @@ public class NpcAgent : MonoBehaviour
         NpcChatWindow.Ensure().SetThinking(id, true);
         string systemPrompt = BuildSystemPrompt(npc, playerText, situation);
 
-        AIClientHub.Instance.Send(systemPrompt, playerText, raw =>
+        // 走 AI 调度器排队（玩家对话优先级最高，见 AiScheduler）；结果回来的处理和以前一样。
+        Action<string> onReply = raw =>
         {
             if (NpcChatWindow.Instance != null) NpcChatWindow.Instance.SetThinking(id, false);
             NpcData n = WorldManager.Instance != null ? WorldManager.Instance.GetNpcById(id) : null;
             string line = DialogueCleaner.Clean(ParseDialogue(raw), n != null ? n.npcName : "");
             if (string.IsNullOrEmpty(line)) line = "……";
             NpcChat.Post(id, ChatRole.Npc, (n != null ? Prefix(n) : "") + line, true);
-        }, true);
+        };
+        bool queued = AiScheduler.Submit(new AiRequest
+        {
+            kind = AiKind.PlayerChat, key = id, json = true,
+            system = () => systemPrompt, user = () => playerText,
+            onResult = onReply,
+        });
+        if (!queued) AIClientHub.Instance.Send(systemPrompt, playerText, onReply, true); // 调度器拒绝（不该发生）：照旧直接发
     }
 
     // ============ 提示词：一个 NPC 的完整"剧本" ============
@@ -162,6 +170,7 @@ public class NpcAgent : MonoBehaviour
         string recalled = FormatRecalled(npc, playerText, jp);
         string mental = MentalState.GetInjection(npc, world);
         string body = NpcHealth.ActorBlock(npc, jp); // 身体状况词条（饥饿、受伤、生病……）：台词必须体现
+        string relations = RelationshipManager.PromptBlock(npc, jp); // 对营地里其他人的感觉（好感 / 信任 / 尊重 + 最近一件事）
         string langRule = LocalizationManager.Instance != null ? LocalizationManager.Instance.GetAILanguageInstruction() : "";
 
         StringBuilder sb = new StringBuilder();
@@ -177,6 +186,7 @@ public class NpcAgent : MonoBehaviour
             sb.AppendLine(WorldLore.NpcMood);
             sb.AppendLine();
             sb.Append(context);
+            if (relations.Length > 0) sb.Append(relations);
             if (events.Length > 0) sb.Append(events);
             if (hints.Length > 0) { sb.AppendLine("【話に出てきたものの説明】"); sb.Append(hints); }
             if (recalled.Length > 0) { sb.AppendLine("【あなたが思い出したこと】"); sb.Append(recalled); }
@@ -202,6 +212,7 @@ public class NpcAgent : MonoBehaviour
             sb.AppendLine(WorldLore.NpcMood);
             sb.AppendLine();
             sb.Append(context);
+            if (relations.Length > 0) sb.Append(relations);
             if (events.Length > 0) sb.Append(events);
             if (hints.Length > 0) { sb.AppendLine("【话里提到的东西】"); sb.Append(hints); }
             if (recalled.Length > 0) { sb.AppendLine("【你想起来的事】"); sb.Append(recalled); }

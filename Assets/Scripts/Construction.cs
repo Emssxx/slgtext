@@ -390,6 +390,7 @@ public class ConstructionManager : MonoBehaviour
     void Complete(ConstructionSite site)
     {
         if (site == null) return;
+        List<string> crew = new List<string>(site.builders); // 关系结算用（下面会逐个解除指派）
         bool jp = LanguageGuard.IsJp;
         List<string> names = new List<string>();
         WorldState w = WorldManager.Instance != null ? WorldManager.Instance.world : null;
@@ -413,6 +414,7 @@ public class ConstructionManager : MonoBehaviour
         if (BuildManager.Instance != null) BuildManager.Instance.FinishConstruction(go, blocks);
         else go.SendMessage("OnBuildComplete", SendMessageOptions.DontRequireReceiver);
         Say((jp ? "建設完了：" : "建成：") + siteName + (names.Count > 0 ? (jp ? "（担当：" : "（施工：") + string.Join("、", names) + "）" : ""));
+        RelationshipManager.OnBuilt(crew, siteName); // 一起干活的人更亲近；其他人对施工的人多一点尊重
     }
 
     void Release(string id, Builder b)

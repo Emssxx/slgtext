@@ -12,6 +12,8 @@ using System.Threading;
 //   Send           = 前台请求（玩家对话、指令解析、导演事件）：重要，带语言守卫的重试与翻译修复。
 //   SendBackground = 后台请求（NPC 之间闲聊的配音）：不重要，只在模型空闲时发，
 //                    前台请求一来就立刻取消，失败/被取消时回调 null，由调用方用本地台词兜底。
+//   SendLite       = 小模型请求（玩家输入分类、敌人台词等短活）：走本地小模型，和主模型同时跑、互不排队，
+//                    不打断前台 / 后台；没装小模型、太忙、超时都回调 null（或直接返回 false），调用方用代码兜底。
 public enum AIProvider { LocalOllama, Claude, OpenAI, Gemini }
 
 public class AIClientHub : MonoBehaviour
@@ -31,6 +33,11 @@ public class AIClientHub : MonoBehaviour
     public float backgroundMinInterval = 3f;    // 两次后台请求之间至少隔几秒（给显卡喘口气）
     public int backgroundMaxTokens = 256;       // 后台请求最多生成多少 token（越少越快）
 
+    [Header("小模型（助手）：和主模型同时跑，互不排队")]
+    public int liteMaxConcurrent = 2;   // 小模型同时最多跑几个请求
+    public float liteTimeout = 20f;     // 超过几秒没回来就放弃（调用方用代码兜底）
+    int _liteInFlight;
+
     int _foregroundCount;                     // 正在进行中的前台请求数
     float _lastForegroundTime;                // 最近一次前台请求开始的时间（防止计数卡死）
     CancellationTokenSource _backgroundCts;   // 正在进行中的后台请求（本地，可取消）
@@ -40,6 +47,10 @@ public class AIClientHub : MonoBehaviour
     // 前台是否有请求在跑（超过 120 秒没结束的视为卡死，不再算忙）。
     public bool ForegroundBusy => _foregroundCount > 0 && Time.realtimeSinceStartup - _lastForegroundTime < 120f;
     public bool BackgroundBusy => _backgroundCts != null || _backgroundCloudBusy;
+
+    // 小模型能不能用（本地装了、加载好了）。和 provider 无关：选了云端，本机开着 Ollama 也照样能用小模型。
+    public bool LiteAvailable => OllamaAIClient.Instance != null && OllamaAIClient.Instance.liteEnabled && OllamaAIClient.Instance.LiteReady;
+    public bool LiteBusy => _liteInFlight >= liteMaxConcurrent;
 
     private void Awake()
     {
@@ -156,6 +167,33 @@ public class AIClientHub : MonoBehaviour
                 callback?.Invoke(raw);
             }, jsonFormat);
         }
+        return true;
+    }
+
+    // 小模型请求：发出去返回 true；没就绪 / 太忙返回 false（调用方立刻用代码兜底）。
+    // 结果回调：成功 = 模型原文；失败 / 超时 = null。不做语言重试（短活，有代码兜底）。
+    // languageAnchor = true 时加上语言提示（要给玩家看的台词才需要；分类标签这类不需要）。
+    public bool SendLite(string systemPrompt, string userPrompt, Action<string> callback,
+                         bool jsonFormat = true, int maxTokens = 128, bool languageAnchor = false)
+    {
+        if (!LiteAvailable || LiteBusy) return false;
+
+        string sys = systemPrompt, usr = userPrompt;
+        if (languageAnchor && languageGuard && LocalizationManager.Instance != null)
+        {
+            Language lang = LocalizationManager.Instance.current;
+            sys = LanguageGuard.SystemHeader(lang) + systemPrompt;
+            usr = userPrompt + LanguageGuard.UserReminder(lang);
+        }
+
+        _liteInFlight++;
+        CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(liteTimeout));
+        OllamaAIClient.Instance.SendLiteRequest(sys, usr, raw =>
+        {
+            _liteInFlight = Mathf.Max(0, _liteInFlight - 1);
+            cts.Dispose();
+            callback?.Invoke(raw);
+        }, jsonFormat, maxTokens, cts.Token);
         return true;
     }
 

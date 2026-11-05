@@ -90,7 +90,15 @@ public class AIDirector : MonoBehaviour
             "}" +
             "\n\n" + langRule;
 
-        AIClientHub.Instance.Send(systemPrompt, LanguageGuard.Pick("生成本回合的事件。", "今回のイベントを生成してください。"), OnEventGenerated, true);
+        // 走 AI 调度器排队（导演优先级低，但排久了会自动升高，不会一直轮不到）。
+        string userPrompt = LanguageGuard.Pick("生成本回合的事件。", "今回のイベントを生成してください。");
+        bool queued = AiScheduler.Submit(new AiRequest
+        {
+            kind = AiKind.Director, key = "director", json = true,
+            system = () => systemPrompt, user = () => userPrompt,
+            onResult = raw => OnEventGenerated(raw ?? ""),
+        });
+        if (!queued) AIClientHub.Instance.Send(systemPrompt, userPrompt, OnEventGenerated, true); // 调度器拒绝（不该发生）：照旧直接发
     }
 
     void OnEventGenerated(string rawJson)
@@ -107,6 +115,7 @@ public class AIDirector : MonoBehaviour
         if (!string.IsNullOrEmpty(eventText))
         {
             EventLogManager.Instance.AddEvent(world.day, eventText);
+            NpcSecurity.NotifyDanger(6f); // 诡异事件让人心里发毛
             world.eventLog.Add(new MemoryEntry { day = world.day, content = eventText });
             // （旧版在这里会随机点名一个 NPC 用 LLM 复述/评论事件——信息重复又容易说错，已删除。
             //   NPC 仍然"知道"发生了什么：事件写进了 eventLog，和他聊天时会出现在提示词的"最近发生的事"里。）
@@ -122,6 +131,7 @@ public class AIDirector : MonoBehaviour
         {
             float severity = anomaly / 100f;
             WorldRules.ApplyCreatureShock(world, severity);
+            NpcSecurity.NotifyDanger(15f + 15f * severity); // 所有人的安全感往下掉，之后慢慢恢复
             EventLogManager.Instance.AddEvent(world.day,
                 LocalizationManager.Instance != null ? LocalizationManager.Instance.Get("danger_approach") : "【危险】有什么东西靠近了！");
             EventChronicle.Record("creature", null, null); // 记进事件编年史（每个 NPC 按自己面对亚空间生物的态度）

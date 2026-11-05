@@ -387,17 +387,32 @@ public class BuildManager : MonoBehaviour
             return;
         }
 
+        PlaceBlueprint(_selectedData, cell);
+        Debug.Log($"[BuildManager] 规划：{_selectedData.displayName} @ {grid.CellToLabel(cell.x, cell.y)}");
+        if (_selectedData.uniqueBuild) _selectedData = null;    // 唯一建筑放一次就取消选中
+    }
+
+    // 放下一块规划区（蓝图）。玩家点格子、NPC 自己决定建造（NpcIntentBrain）都走这里。
+    // cell = 占地中心那一格。放不下（越界 / 被占）返回 null。解锁检查由调用方做。
+    public ConstructionSite PlaceBlueprint(BuildableData data, Vector2Int cell)
+    {
+        GridManager grid = GridManager.Instance;
+        if (data == null || grid == null) return null;
+        Vector2Int size = data.FootprintSize(grid.cellSize);
+        Vector2Int origin = grid.FootprintOrigin(cell, size);
+        if (!grid.IsAreaBuildable(origin, size)) return null;
+
         // 先标记占用，防止连点同一处；覆盖层这些格子变红
-        grid.SetAreaOccupied(origin, size, _selectedData.displayName);
+        grid.SetAreaOccupied(origin, size, data.displayName);
         TerrainSystem.ClearGrass(origin, size); // 地上的草清掉（树 / 石头 / 矿石占着的格本来就放不下）
         RefreshOverlayArea(origin, size);
         Vector3 center = grid.AreaCenter(origin, size);
 
         // 生成半透明预览（用 BuildableData.prefab 实例化，alpha调到0.5）
         GameObject previewGO = null;
-        if (_selectedData.prefab != null)
+        if (data.prefab != null)
         {
-            previewGO = Instantiate(_selectedData.prefab, center, Quaternion.identity);
+            previewGO = Instantiate(data.prefab, center, Quaternion.identity);
             previewGO.AddComponent<BuildingFootprint>().Set(origin, size); // 记下占了哪些格（点击、电线、悬停信息用）
             previewGO.SendMessage("OnBuildPlaced", SendMessageOptions.DontRequireReceiver); // 通知：施工中（终端机用）
             // SortingOrder 设为 0，与地图同层；NPC 用 1，保证 NPC 始终显示在建筑上方
@@ -407,15 +422,13 @@ public class BuildManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"[BuildManager] {_selectedData.displayName} 的 prefab 未赋值，跳过预览实例化。");
+            Debug.LogWarning($"[BuildManager] {data.displayName} 的 prefab 未赋值，跳过预览实例化。");
         }
 
-        // 变成一块规划区（蓝图）：不自动开工，等玩家点它指派施工的人
-        ConstructionManager.Ensure().CreateSite(_selectedData, origin, size, previewGO);
-
-        Debug.Log($"[BuildManager] 规划：{_selectedData.displayName} @ {grid.CellToLabel(cell.x, cell.y)}");
-        ProgressionRules.NotifyPlaced(_selectedData);           // 唯一建筑记一笔
-        if (_selectedData.uniqueBuild) _selectedData = null;    // 唯一建筑放一次就取消选中
+        // 变成一块规划区（蓝图）：不自动开工，等玩家点它指派施工的人（或 NPC 自己去施工）
+        ConstructionSite site = ConstructionManager.Ensure().CreateSite(data, origin, size, previewGO);
+        ProgressionRules.NotifyPlaced(data);           // 唯一建筑记一笔
+        return site;
     }
 
     // ——阶段D：施工完成（ConstructionManager 调）——————————————————————

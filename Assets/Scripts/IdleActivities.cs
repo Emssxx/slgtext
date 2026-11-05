@@ -242,8 +242,10 @@ public class ChatActivity : IdleActivity
             yield return null;
         }
         if (!got) IdleChat.Voice.Cancel(s);                                          // 等太久：取消生成，别占着显卡
+        bool fromLlm = IdleChat.Voice is LlmIdleChatVoice && lines != null && lines.Count > 0; // 台词是 AI 现场写的
         if (lines == null || lines.Count == 0) lines = LocalIdleChatVoice.Build(s); // LLM 忙/失败/超时 → 本地台词
         s.lines = lines;
+        s.llmLines = fromLlm;
 
         // 3. 你一句我一句
         foreach (IdleChatLine line in lines)

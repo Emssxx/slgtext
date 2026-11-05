@@ -18,6 +18,15 @@ public class NpcBehaviorDriver : MonoBehaviour
         // 闲置行为系统（发呆 / 闲逛 / NPC 之间闲聊）：场景里没手动放 NpcIdleManager 的话，自动挂一个到本物体上。
         if (FindFirstObjectByType<NpcIdleManager>() == null)
             gameObject.AddComponent<NpcIdleManager>();
+        // NPC 自主意图（社会系统第 1 阶段）：没事做的时候自己决定做什么（建造 / 采集 / 搜寻 / 休息），见 NpcIntents.cs
+        if (FindFirstObjectByType<NpcIntentBrain>() == null)
+            gameObject.AddComponent<NpcIntentBrain>();
+        // 安全感（NPC 自发行动的动机）：营地空旷 / 异常度高 / 刚有危险 → 安全感低于底线 → 自己决定怎么办，见 NpcSecurity.cs
+        if (FindFirstObjectByType<NpcSecurity>() == null)
+            gameObject.AddComponent<NpcSecurity>();
+        // 领导与分组（社会系统第 4 阶段）：开会选领导、每天早会分工，见 NpcSociety.cs
+        if (FindFirstObjectByType<NpcSociety>() == null)
+            gameObject.AddComponent<NpcSociety>();
     }
 
     void Update()

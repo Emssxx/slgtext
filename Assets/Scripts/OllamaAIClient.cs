@@ -11,6 +11,8 @@ using Newtonsoft.Json;
 // 支持 qwen3 这类思考型模型：自动关闭思考模式，并过滤掉回复里的 <think> 段（见 BuildRequest / StripThinking）。
 // 以后要切换"本地/云端"，只需在这里换实现，上层（NpcAgent/AIDirector）不用动。
 // 同时支持"后台请求"（IAIBackgroundClient）：NPC 闲聊配音这类可随时取消的请求。
+// 小模型（助手，默认 qwen3:4b）：和主模型同时加载、同时跑，专做短活（玩家输入分类、敌人台词、记忆摘要等）。
+//   启动时检查有没有装、预先加载进显存；由 AIClientHub.SendLite 调度。没装 / 连不上时一律回调 null，调用方用代码兜底。
 public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
 {
     public static OllamaAIClient Instance;
@@ -29,6 +31,28 @@ public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
     [Tooltip("关闭思考模式：qwen3 这类模型默认会先输出一段 <think> 思考，既慢又会弄乱 JSON。勾选后请求时关闭思考（非思考型模型不受影响）。")]
     public bool disableThinking = true;
 
+    [Header("小模型（助手：玩家输入分类、敌人台词、记忆摘要等短活）")]
+    [Tooltip("关掉或没装小模型时，用到它的地方会自动改用代码兜底。")]
+    public bool liteEnabled = true;
+    [Tooltip("必须和 `ollama list` 显示的名字一致。先在命令行执行：ollama pull qwen3:4b。显存够也可以换 qwen3.5:4b。")]
+    public string liteModelName = "qwen3:4b";
+    [Tooltip("小模型所在的 Ollama 地址。空 = 和主模型同一台；想放到另一台电脑上就填 http://那台电脑的IP:11434/api/chat")]
+    public string liteApiUrl = "";
+    [Range(0f, 1.5f)] public float liteTemperature = 0.3f; // 分类这类活要稳，低一点
+    [Tooltip("小模型的上下文长度。短活用不着长上下文，省显存。运行中别改（会让 Ollama 重新加载模型）。")]
+    public int liteNumCtx = 4096;
+    [Tooltip("模型用完后在显存里保留多久（主模型、小模型都适用）。Ollama 默认 5 分钟就卸载，下次用要重新加载好几秒。")]
+    public string keepAlive = "30m";
+    [Tooltip("小模型只用 CPU 跑（不占显卡显存）。显存不够、ollama ps 里看到模型被挤到 CPU 时打开。运行中别改。")]
+    public bool liteCpuOnly = false;
+    [Tooltip("只用 CPU 时最多用几个线程（留一些核给游戏本身，0 = Ollama 自己决定）。")]
+    public int liteCpuThreads = 6;
+
+    // 小模型状态（启动时检查一次；没装的话装好后可以在 Inspector 右键「重新检查小模型」）
+    public bool LiteReady { get; private set; }
+    public string LiteStatus { get; private set; } = "...";   // 调试显示用：... 检查中 / OK 就绪 / NG 没装或连不上
+    string LiteUrl => string.IsNullOrEmpty(liteApiUrl) ? ollamaApiUrl : liteApiUrl;
+
     // 全局共用一个 HttpClient，120 秒超时（14B 模型首次加载 + 写演员提示词这类长输出会比较慢）。
     private static readonly HttpClient _client = new HttpClient() { Timeout = TimeSpan.FromSeconds(120) };
 
@@ -41,6 +65,127 @@ public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
     {
         if (Instance == null) { Instance = this; DontDestroyOnLoad(gameObject); }
         else Destroy(gameObject);
+    }
+
+    void Start()
+    {
+        if (Instance == this && liteEnabled) CheckLite();
+    }
+
+    [ContextMenu("重新检查小模型")]
+    void RecheckLite()
+    {
+        LiteReady = false;
+        LiteStatus = "...";
+        if (liteEnabled) CheckLite();
+    }
+
+    // 启动时检查小模型：Ollama 里装了没有 → 预先加载进显存（第一次用的时候就不用等加载）。
+    async void CheckLite()
+    {
+        string chatUrl = LiteUrl;
+        string tagsUrl = BaseUrl(chatUrl) + "/api/tags";
+        try
+        {
+            string body = await _client.GetStringAsync(tagsUrl);
+            OllamaTags tags = JsonConvert.DeserializeObject<OllamaTags>(body);
+            bool found = false;
+            if (tags != null && tags.models != null)
+                foreach (OllamaTagModel m in tags.models)
+                    if (m != null && SameModel(m.name, liteModelName)) { found = true; break; }
+            if (!found)
+            {
+                LiteStatus = "NG";
+                Debug.LogWarning($"[小模型] Ollama 里没有 {liteModelName}。请在命令行执行：ollama pull {liteModelName}（没装时自动用代码兜底）");
+                return;
+            }
+
+            // 预热：messages 为空 = 只把模型加载进显存，不生成。num_ctx 要和正式请求一致，否则之后会重新加载
+            float t0 = Time.realtimeSinceStartup;
+            Dictionary<string, object> req = new Dictionary<string, object>
+            {
+                { "model", liteModelName },
+                { "messages", new object[0] },
+                { "stream", false },
+                { "options", LiteOptions(0) },
+            };
+            if (!string.IsNullOrEmpty(keepAlive)) req["keep_alive"] = keepAlive;
+            var content = new StringContent(JsonConvert.SerializeObject(req), Encoding.UTF8, "application/json");
+            HttpResponseMessage resp = await _client.PostAsync(chatUrl, content);
+            resp.EnsureSuccessStatusCode();
+            LiteReady = true;
+            LiteStatus = "OK";
+            Debug.Log($"[小模型] {liteModelName} 已就绪（加载 {Time.realtimeSinceStartup - t0:0.0} 秒）");
+        }
+        catch (Exception e)
+        {
+            LiteStatus = "NG";
+            Debug.LogWarning($"[小模型] 连不上 Ollama（{tagsUrl}）：{e.Message}。用到小模型的地方会改用代码兜底。");
+        }
+    }
+
+    // 小模型的生成参数。num_ctx / num_gpu 每次都要一样，否则 Ollama 会重新加载模型。
+    // num_gpu = 0：一层都不放显卡 = 只用 CPU。
+    Dictionary<string, object> LiteOptions(int maxTokens)
+    {
+        Dictionary<string, object> o = new Dictionary<string, object>
+        {
+            { "temperature", liteTemperature }, { "top_p", topP }, { "repeat_penalty", repeatPenalty }, { "num_ctx", liteNumCtx },
+        };
+        if (maxTokens > 0) o["num_predict"] = maxTokens;
+        if (liteCpuOnly)
+        {
+            o["num_gpu"] = 0;
+            if (liteCpuThreads > 0) o["num_thread"] = liteCpuThreads;
+        }
+        return o;
+    }
+
+    // "http://localhost:11434/api/chat" → "http://localhost:11434"
+    static string BaseUrl(string chatUrl)
+    {
+        int i = chatUrl.IndexOf("/api/", StringComparison.Ordinal);
+        return i > 0 ? chatUrl.Substring(0, i) : chatUrl.TrimEnd('/');
+    }
+
+    // 名字一样吗（没写标签时 Ollama 显示成 ":latest"）。
+    static bool SameModel(string listed, string wanted)
+    {
+        if (string.IsNullOrEmpty(listed) || string.IsNullOrEmpty(wanted)) return false;
+        if (string.Equals(listed, wanted, StringComparison.OrdinalIgnoreCase)) return true;
+        return wanted.IndexOf(':') < 0 && string.Equals(listed, wanted + ":latest", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 小模型请求（由 AIClientHub.SendLite 调度，上层不要直接调用）。和主模型互不排队。
+    /// 失败、超时、被取消、没就绪时回调 null（调用方用代码兜底），不弹错误。
+    /// </summary>
+    public async void SendLiteRequest(string systemPrompt, string userPrompt, Action<string> callback,
+                                      bool jsonFormat, int maxTokens, CancellationToken token)
+    {
+        if (!LiteReady) { callback?.Invoke(null); return; }
+        try
+        {
+            object requestData = BuildRequest(liteModelName, systemPrompt, userPrompt, jsonFormat, LiteOptions(maxTokens));
+            var content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json");
+            HttpResponseMessage response = await _client.PostAsync(LiteUrl, content, token);
+            response.EnsureSuccessStatusCode();
+            string responseBody = await response.Content.ReadAsStringAsync();
+            if (token.IsCancellationRequested) { callback?.Invoke(null); return; }
+
+            var result = JsonConvert.DeserializeObject<OllamaResponse>(responseBody);
+            string text = (result != null && result.message != null) ? StripThinking(result.message.content) : null;
+            callback?.Invoke(string.IsNullOrEmpty(text) ? null : text);
+        }
+        catch (OperationCanceledException)
+        {
+            callback?.Invoke(null); // 超时：安静地放弃
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[小模型] 请求失败：{e.Message}");
+            callback?.Invoke(null);
+        }
     }
 
     // Ollama 的生成参数（每次请求都带上）。
@@ -59,7 +204,7 @@ public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
         try
         {
             // 构建请求体。jsonFormat=true 时加 format="json"，让 Ollama 强制返回合法 JSON。
-            object requestData = BuildRequest(systemPrompt, userPrompt, jsonFormat, BuildOptions());
+            object requestData = BuildRequest(modelName, systemPrompt, userPrompt, jsonFormat, BuildOptions());
 
             string json = JsonConvert.SerializeObject(requestData);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -104,7 +249,7 @@ public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
                 temperature = temperature, top_p = topP, repeat_penalty = repeatPenalty,
                 num_ctx = numCtx, num_predict = maxTokens
             };
-            object requestData = BuildRequest(systemPrompt, userPrompt, jsonFormat, options);
+            object requestData = BuildRequest(modelName, systemPrompt, userPrompt, jsonFormat, options);
 
             var content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json");
             HttpResponseMessage response = await _client.PostAsync(ollamaApiUrl, content, token); // 取消时连接断开，Ollama 会停止生成
@@ -127,17 +272,19 @@ public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
         }
     }
 
-    // ============ 请求体（前台 / 后台共用）============
+    // ============ 请求体（前台 / 后台 / 小模型共用）============
     // 思考型模型（qwen3 等）：顶层加 think=false 关闭思考；再在用户消息末尾加 /no_think（qwen3 的软开关，
-    // 旧版 Ollama 不认 think 字段时也能生效）。非思考型模型（qwen2.5 等）什么都不加。
-    object BuildRequest(string systemPrompt, string userPrompt, bool jsonFormat, object options)
+    // 旧版 Ollama 不认 think 字段时也能生效；qwen3.5 不用这个软开关）。非思考型模型（qwen2.5 等）什么都不加。
+    // keep_alive：让模型在显存里多留一会儿（主模型、小模型同时常驻，切换不用重新加载）。
+    object BuildRequest(string model, string systemPrompt, string userPrompt, bool jsonFormat, object options)
     {
-        bool noThink = disableThinking && IsThinkingModel(modelName);
-        if (noThink && modelName.ToLowerInvariant().StartsWith("qwen3")) userPrompt += " /no_think";
+        bool noThink = disableThinking && IsThinkingModel(model);
+        string lower = model.ToLowerInvariant();
+        if (noThink && lower.StartsWith("qwen3") && !lower.StartsWith("qwen3.")) userPrompt += " /no_think";
 
         Dictionary<string, object> req = new Dictionary<string, object>
         {
-            { "model", modelName },
+            { "model", model },
             { "messages", new[]
                 {
                     new { role = "system", content = systemPrompt },
@@ -149,6 +296,7 @@ public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
         };
         if (jsonFormat) req["format"] = "json";
         if (noThink) req["think"] = false;
+        if (!string.IsNullOrEmpty(keepAlive)) req["keep_alive"] = keepAlive;
         return req;
     }
 
@@ -183,4 +331,17 @@ public class OllamaMessage
 {
     public string role;
     public string content;
+}
+
+// —— /api/tags（Ollama 里装了哪些模型）——
+[Serializable]
+public class OllamaTags
+{
+    public List<OllamaTagModel> models;
+}
+
+[Serializable]
+public class OllamaTagModel
+{
+    public string name;
 }

@@ -22,6 +22,9 @@ public static class NpcActors
         _session++;
         _profiles.Clear();
         if (LlmJobQueue.Instance != null) LlmJobQueue.Instance.Clear();
+        AiScheduler.ClearQueued(); // 上一局还在排队的 AI 请求作废
+        NpcIntentBrain.ClearAll(); // 上一局 NPC 自己的计划清空
+        NpcSociety.ClearAll();     // 开会 / 分工状态清空（领导存在世界数据里，新世界自然没有）
         if (w == null) return;
         foreach (NpcData n in w.npcs) Create(n);
         Debug.Log("[演员提示词] 已用代码模板生成 " + _profiles.Count + " 份，正在后台让 LLM 补写演绎部分。");

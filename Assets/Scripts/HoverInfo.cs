@@ -892,12 +892,21 @@ public class HoverInfo : MonoBehaviour
 
         string s = "<b>" + n.npcName + "</b>";
         if (!string.IsNullOrEmpty(n.profession)) s += "  <size=80%><color=#9AA5B8>" + n.profession + "</color></size>";
+        // 领导 / 今天的分工（NpcSociety）
+        string roleTag = NpcSociety.IsLeader(n) ? NpcSociety.RoleName("leader") : "";
+        if (NpcSociety.HasRole(n)) roleTag += (roleTag.Length > 0 ? "・" : "") + NpcSociety.RoleName(n.role);
+        if (roleTag.Length > 0) s += "  <size=80%>[" + roleTag + "]</size>";
         s += "\n" + (jp ? "行動：" : "正在：") + doing;
         // 饥饿值 / 水分：100 = 不饿 / 不渴（死亡时也显示，死亡效果要把这几行划掉）
         s += "\n<size=82%><color=#C8CFDC>" + (jp ? "生命 " : "生命 ") + Mathf.RoundToInt(Mathf.Max(0f, n.health)) +
              (jp ? "　満腹 " : "　饥饿 ") + Mathf.RoundToInt(n.satiety) + "</color></size>";
         s += "\n<size=82%><color=#C8CFDC>" + (jp ? "水分 " : "水分 ") + Mathf.RoundToInt(n.water) +
-             (jp ? "　体力 " : "　体力 ") + Mathf.RoundToInt(n.energy) + "</color></size>";
+             (jp ? "　体力 " : "　体力 ") + Mathf.RoundToInt(n.energy) + "</color>";
+        // 安全感：低于他自己的底线时标黄（"不安"），这时他会自己想办法（NpcSecurity / NpcIntentBrain）
+        bool uneasy = !n.IsDead && NpcSecurity.Insecure(n);
+        s += (jp ? "<color=#C8CFDC>　安心感 </color>" : "<color=#C8CFDC>　安全感 </color>") +
+             (uneasy ? "<color=#FFE36A>" + Mathf.RoundToInt(n.security) + (jp ? "（不安）" : "（不安）") + "</color>"
+                     : "<color=#C8CFDC>" + Mathf.RoundToInt(n.security) + "</color>") + "</size>";
         if (n.IsDead) s += "\n<size=82%>" + (jp ? "バイタル反応なし" : "无生命体征") + "</size>";
         else
         {

@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 
 // 【AI模型调试UI】右下角显示当前用的是本地Ollama还是云端Claude（含具体模型名），
+// 后面跟着小模型的名字和状态（[OK] 就绪 / [NG] 没装或连不上 / [...] 检查中）。
 // 纯展示，不提供切换功能。
 public class AIModelDebugUI : MonoBehaviour
 {
@@ -16,6 +17,7 @@ public class AIModelDebugUI : MonoBehaviour
     // 避免每帧都拼字符串（那会产生垃圾内存）。
     private AIProvider _lastProvider;
     private string _lastModelName = null;
+    private string _lastLiteStatus = null;
 
     void Awake()
     {
@@ -43,7 +45,8 @@ public class AIModelDebugUI : MonoBehaviour
         // 两种情况需要重刷：
         //   1) provider 变了（Inspector 里改了下拉、或运行中调了 SetProvider）
         //   2) 上次没取到模型名（显示成 "?"，说明那时客户端还没 Awake 好），要再试一次
-        if (now != _lastProvider || _lastModelName == "?")
+        string lite = OllamaAIClient.Instance != null ? OllamaAIClient.Instance.LiteStatus : null;
+        if (now != _lastProvider || _lastModelName == "?" || lite != _lastLiteStatus)
             RefreshModelLabel();
     }
 
@@ -66,7 +69,7 @@ public class AIModelDebugUI : MonoBehaviour
         labelRt.anchorMax = new Vector2(1, 0);
         labelRt.pivot = new Vector2(1, 0);
         labelRt.anchoredPosition = new Vector2(-20, 20); // 离右下角边缘留一点距离
-        labelRt.sizeDelta = new Vector2(220, 30);
+        labelRt.sizeDelta = new Vector2(380, 30);
 
         _modelLabel = labelGo.AddComponent<TextMeshProUGUI>();
         _modelLabel.alignment = TextAlignmentOptions.Right;
@@ -105,6 +108,11 @@ public class AIModelDebugUI : MonoBehaviour
         }
 
         _modelLabel.text = $"{prefix}: {modelName}";
+
+        // 小模型（助手）
+        OllamaAIClient ol = OllamaAIClient.Instance;
+        _lastLiteStatus = ol != null ? ol.LiteStatus : null;
+        if (ol != null && ol.liteEnabled) _modelLabel.text += $"  +  {ol.liteModelName} [{ol.LiteStatus}]";
 
         // 记下这次用的 provider 和模型名，供 Update 判断下次要不要再刷。
         _lastProvider = provider;
