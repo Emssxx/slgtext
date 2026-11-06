@@ -18,22 +18,29 @@
 - Languages: Chinese / Japanese (UI, prompts and NPC lines all follow the language chosen in the main menu)
 - Development: June 2026 – present · solo project
 
-### Core design: the LLM does only three things
+### Core design: code computes → 4B judges → 14B decides and performs → code executes
 
-The usual problems with putting an LLM in a game are that it is slow, unstable, and makes things up. So this project draws a clear line:
+The usual problems with putting an LLM in a game are that it is slow, unstable, and makes things up. This project does not lock the AI inside a chat box — it lets the AI take part in decisions, but inside clear boundaries:
 
-| LLM handles (whitelist) | Rule-based code handles (the LLM never touches) |
-|---|---|
-| NPC dialogue | NPC decisions, movement, pathfinding |
-| AI-director event generation | Trust, and whether an NPC obeys an order |
-| Understanding the player's natural-language orders | Relationship values, mental state, world-rule resolution |
-| | Anything per-frame, high-frequency, or that the player waits on |
+| Layer | Who | What |
+|---|---|---|
+| ① Compute | Rule-based code | Turns the world into numbers and facts: how many seconds of clean water are left, how many wall segments are missing, who is injured… |
+| ② Judge | Small model (qwen3:4b, an invisible "camp advisor") | Reads a rulebook plus the situation table and works out the 1–3 most urgent things for the camp |
+| ③ Decide & perform | Main model (14B class, or cloud) | The leader's division of labor, NPCs' own intentions, dialogue, director events, understanding the player's orders — using the 4B's judgment as reference |
+| ④ Execute | Rule-based code | Validates the AI's choice and breaks it into task chains (pathfinding, fetching materials, construction); resolves all values |
 
-Before adding any feature, it must pass three questions:
+The AI can decide *what* to do, but it never changes the world directly:
 
-1. Does it need **creation** or **judgment**? Creation → the LLM may do it; judgment → rules.
-2. Is it **low-frequency and something the player can wait for**? If not → rules.
-3. When it fails, does it just "look worse" or does the "logic break"? Logic breaks → it must be rules.
+- It can only pick from option lists provided by code (build / gather / fetch water / scavenge / care / rest …). Choices that are locked or impossible right now are discarded by code.
+- Values are resolved only by code: trust, affinity, respect, whether an order is obeyed, health, sanity. The AI reads them but never writes them.
+- Anything per-frame or high-frequency (movement, pathfinding, needs, danger response) is rule-based.
+- Every AI request goes through a scheduler (two queues, priorities, expiry, daily limits). No model, an error or a timeout always falls back to code — the game is playable with no model at all.
+
+Before adding any AI feature, it must pass three questions:
+
+1. Is it **low-frequency and something the player can wait for**? If not → rules.
+2. When it fails, does it just "look worse" or does the "logic break"? Logic breaks → rules, or a code check plus a fallback.
+3. Can code **verify** the AI's output? Only choices from a list that code can check are handed to the AI.
 
 ### Making the LLM reliable
 
@@ -43,9 +50,12 @@ Before adding any feature, it must pass three questions:
 - **Background job queue**: non-urgent LLM jobs (writing profiles, event opinions, idle-chat voice lines) are queued and step aside the moment the player speaks. Failures, timeouts or no model running all fall back to local lines.
 - **Language guard**: checks that the reply is in the right language; if not, retry → translate → safe placeholder line. Whole prompts are written in the UI language to avoid mixing Chinese and Japanese.
 - **Small-model friendly**: a short world summary in the current language replaces the full world data to prevent context overflow; thinking models such as qwen3 are supported (thinking disabled, `<think>` filtered out).
+- **Code does the math, the 4B only reasons**: small models are bad at arithmetic, so code pre-computes every number in the situation table. The advisor's rulebook (`Assets/Resources/AI/advisor_rules.txt`) only explains how the game works, never gives ready-made answers, and can be edited by a designer without touching code.
+- **AI scheduler**: the main model and the small model run in parallel on separate queues; requests that wait too long or are no longer relevant are dropped, and `F9` shows how compute is being spent.
 
-### Game systems (all rule-based code)
+### Game systems
 
+- **Camp society**: each NPC has a sense of safety computed by code (how enclosed the camp is, companions, anomaly level, danger). When it drops below their personal threshold, or the advisor spots an emergency, they decide on their own what to do. A leader emerges after a few days (the 4B observes everyone's personality values); the leader assigns everyone to a group, and whether people obey depends on respect. NPCs can ask each other for help, and code decides whether they agree.
 - **NPC autonomy**: eat when hungry, rest when tired, scavenge when supplies run low, flee from danger; otherwise idle, wander and chat with others. Personality values shift the thresholds (brave NPCs flee later).
 - **Health**: satiety, water and stamina tick every second; status tags such as injured, sick, thirsty, fatigued and psychosis affect movement, work and relationships.
 - **Mental state**: sanity decides lucid / dazed / hallucinating / broken; broken NPCs mutate.
@@ -60,7 +70,7 @@ Before adding any feature, it must pass three questions:
 ### How to run
 
 1. Open the project in **Unity 6000.4.11f1** and start from `Assets/Scenes/MainMenu.unity`.
-2. **Local model (recommended)**: install [Ollama](https://ollama.com/), run `ollama pull qwen2.5:7b`, and keep Ollama running.
+2. **Local model (recommended)**: install [Ollama](https://ollama.com/), run `ollama pull qwen2.5:7b` (or a 14B model if you have the VRAM), and keep Ollama running. Optionally run `ollama pull qwen3:4b` for the small helper model (camp advisor, tone checks, short lines); without it, code rules take over.
 3. **Cloud model (optional)**: choose Claude / OpenAI / Gemini in the main menu and put your own API key under `Application.persistentDataPath` (Claude: `apikey.txt`, OpenAI: `openai_key.txt`, Gemini: `gemini_key.txt`). Key files live outside the project and never go into Git.
 4. It is playable with no model at all: dialogue and events fall back to local lines.
 
@@ -88,22 +98,29 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 - 言語：中国語 / 日本語（UI・プロンプト・NPC のセリフはすべてメインメニューで選んだ言語に従う）
 - 開発期間：2026 年 6 月〜（開発継続中）・個人制作
 
-### 設計の核：LLM がやるのは 3 つだけ
+### 設計の核：コードが計算 → 4B が判断 → 14B が決めて演じる → コードが実行
 
-ゲームに LLM を入れると「遅い・不安定・話を作ってしまう」という問題が起きがちです。そこで、まず境界線を決めました。
+ゲームに LLM を入れると「遅い・不安定・話を作ってしまう」という問題が起きがちです。このプロジェクトでは AI を会話ウィンドウに閉じ込めず、意思決定にも参加させますが、はっきりした境界線を引いています。
 
-| LLM の担当（ホワイトリスト） | ルールベースのコードの担当（LLM は触らない） |
-|---|---|
-| NPC の会話生成 | NPC の行動決定・移動・経路探索 |
-| AI ディレクターによるイベント生成 | 信頼度と、指示に従うかどうかの判定 |
-| プレイヤーの自然言語の指示の理解 | 関係値・精神状態・ワールドルールの処理 |
-| | 毎フレーム・高頻度・プレイヤーが結果を待つ処理すべて |
+| 層 | 担当 | 内容 |
+|---|---|---|
+| ① 計算 | ルールベースのコード | 世界を数字と事実に整理する：浄水があと何秒もつか、壁があと何区画足りないか、誰がけがをしているか…… |
+| ② 判断 | 小さなモデル（qwen3:4b、見えない「拠点の参謀」） | ルールブックと状況表を読み、拠点にとっていま一番大事なことを 1〜3 個導き出す |
+| ③ 決定・演技 | メインモデル（14B クラス、またはクラウド） | リーダーの役割分担、NPC 自身の意図、会話、ディレクターのイベント、プレイヤーの指示の理解。4B の判断を参考にする |
+| ④ 実行 | ルールベースのコード | AI の選択をチェックし、タスクの連鎖（経路探索・材料の運搬・施工）に分解する。数値の処理はすべてコード |
 
-新しい機能を入れる前に、次の 3 つを確認します。
+AI は「何をするか」を決められますが、世界を直接書き換えることはありません。
 
-1. 必要なのは**創造**か**判断**か？　創造 → LLM でもよい／判断 → ルール。
-2. **低頻度で、プレイヤーが待てる**ものか？　違う → ルール。
-3. 失敗したとき「見た目が悪くなる」だけか、「ロジックが壊れる」か？　ロジックが壊れる → 必ずルール。
+- コードが用意した選択肢（建設 / 採集 / 水汲み / 探索 / 看護 / 休息……）からしか選べません。未解放のものや今できないものはコードが捨てます。
+- 数値はコードだけが処理します：信頼・好感・尊敬・指示に従うか・HP・正気度。AI は読むだけで、書き換えません。
+- 毎フレーム・高頻度の処理（移動・経路探索・欲求・危険への反応）はすべてルールです。
+- AI へのリクエストはすべてスケジューラーを通ります（2 本のキュー・優先度・期限切れ・1 日の上限）。モデルがない・エラー・タイムアウトのときは必ずコードで補うので、モデルなしでも遊べます。
+
+AI を使う機能を入れる前に、次の 3 つを確認します。
+
+1. **低頻度で、プレイヤーが待てる**ものか？　違う → ルール。
+2. 失敗したとき「見た目が悪くなる」だけか、「ロジックが壊れる」か？　ロジックが壊れる → ルール、またはコードのチェックと代替処理。
+3. AI の出力をコードで**検証できる**か？　コードが確認できる選択肢から選ぶものだけを AI に任せる。
 
 ### LLM を安定して動かすための工夫
 
@@ -113,9 +130,12 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 - **バックグラウンドのジョブキュー**：急がない LLM の処理（設定の執筆・イベントへの考え・雑談のセリフ）は順番待ちにし、プレイヤーが話しかけた瞬間に道を譲ります。失敗・タイムアウト・モデル未起動のときはローカルのセリフで補います。
 - **言語ガード**：返答の言語が正しいかを確認し、違えば再試行 → 翻訳で修正 → 安全な仮のセリフ。プロンプト全体も UI の言語で書き、中国語と日本語が混ざらないようにしています。
 - **小さなモデルに優しく**：ワールドデータ全体の代わりに現在の言語での短い概要を渡し、コンテキストのあふれを防ぎます。qwen3 などの思考型モデルにも対応（思考を無効化し、`<think>` を取り除く）。
+- **計算はコード、4B は推論だけ**：小さなモデルは計算が苦手なので、状況表の数字はすべてコードが先に計算します。参謀のルールブック（`Assets/Resources/AI/advisor_rules.txt`）は「ゲームの仕組み」だけを説明し、答えは書きません。コードを触らずにプランナーが編集できます。
+- **AI スケジューラー**：メインモデルと小さなモデルは別々のキューで同時に動きます。待ちすぎたリクエストや意味がなくなったリクエストは捨て、`F9` で計算資源の使われ方を確認できます。
 
-### ゲームシステム（すべてルールベースのコード）
+### ゲームシステム
 
+- **拠点の社会**：NPC ごとに、コードで計算する「安心感」があります（拠点の囲まれ具合・仲間・異常度・危険）。それが本人のしきい値を下回るか、参謀が緊急事態を見つけると、自分で何をするか決めます。数日たつとリーダーが現れ（4B が全員の性格の数値を見て判断）、リーダーが全員を班に分けます。従うかどうかは尊敬の度合いで決まります。NPC 同士で手伝いを頼むこともでき、引き受けるかどうかはコードが決めます。
 - **NPC の自律行動**：お腹が空けば食べ、疲れれば休み、物資が減れば探索に出て、危険なら逃げる。何もないときはぼんやりしたり、うろついたり、仲間と雑談したり。性格の数値で判断のしきい値が変わります（勇敢な人ほど逃げるのが遅い）。
 - **健康**：満腹度・水分・体力を毎秒処理。けが・病気・のどの渇き・疲労・精神病などの状態タグが、移動・作業・人間関係に影響します。
 - **精神状態**：正気度で「正常 / 朦朧 / 幻覚 / 崩壊」が決まり、崩壊すると体が変異します。
@@ -130,7 +150,7 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 ### 起動方法
 
 1. **Unity 6000.4.11f1** でプロジェクトを開き、`Assets/Scenes/MainMenu.unity` から実行します。
-2. **ローカルモデル（おすすめ）**：[Ollama](https://ollama.com/) をインストールし、`ollama pull qwen2.5:7b` を実行して、Ollama を起動したままにします。
+2. **ローカルモデル（おすすめ）**：[Ollama](https://ollama.com/) をインストールし、`ollama pull qwen2.5:7b`（VRAM に余裕があれば 14B モデル）を実行して、Ollama を起動したままにします。補助の小さなモデルを使う場合は `ollama pull qwen3:4b` も実行します（拠点の参謀・口調の判定・短いセリフ）。入れなくてもコードのルールが代わりに動きます。
 3. **クラウドモデル（任意）**：メインメニューで Claude / OpenAI / Gemini を選び、自分の API キーを `Application.persistentDataPath` に置きます（Claude：`apikey.txt`、OpenAI：`openai_key.txt`、Gemini：`gemini_key.txt`）。キーのファイルはプロジェクトの外にあり、Git には入りません。
 4. モデルを使わなくても遊べます。会話とイベントはローカルのセリフで補います。
 
@@ -158,22 +178,29 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 - 语言：中文 / 日本語（界面、提示词、NPC 台词全部跟随主菜单语言）
 - 开发期间：2026-06 ～（持续开发中）· 个人项目
 
-### 设计核心：LLM 只做三件事
+### 设计核心：代码算数 → 4B 判断 → 14B 决策与演绎 → 代码执行
 
-在游戏里接入 LLM 最容易出现的问题是：慢、不稳定、会「编」。所以本项目先定下一条边界——
+在游戏里接入 LLM 最容易出现的问题是：慢、不稳定、会「编」。本项目不把 AI 关在对话框里，而是让它参与决策，但给它划好边界——
 
-| LLM 负责（白名单） | 规则代码负责（LLM 绝不碰） |
-|---|---|
-| NPC 对话生成 | NPC 行为决策、移动、寻路 |
-| AI 导演事件生成 | 信任度与是否听从指令 |
-| 玩家自然语言指令的理解 | 关系数值、精神状态、世界规则结算 |
-| | 任何每帧 / 高频 / 玩家等着看结果的逻辑 |
+| 层 | 谁负责 | 做什么 |
+|---|---|---|
+| ① 算数 | 规则代码 | 把世界整理成数字和事实：净化水还够几秒、围墙还差几段、谁受伤了…… |
+| ② 判断 | 小模型（qwen3:4b，隐形的「营地参谋」） | 读「规则手册」+ 局势表，推出营地眼下最要紧的 1～3 件事 |
+| ③ 决策与演绎 | 主模型（14B 级，或云端） | 领导分工、NPC 自主意图、对话、导演事件、理解玩家指令；参考 4B 的判断 |
+| ④ 执行 | 规则代码 | 审核 AI 的选择，拆成任务链（寻路、取材料、施工）；所有数值结算 |
 
-加任何新功能前，先过三道判断：
+AI 可以决定「做什么」，但永远不直接改世界：
 
-1. 它需要**创造**还是**判断**？创造 → 可以用 LLM；判断 → 规则。
-2. 它是**低频、玩家可以等待**的吗？不是 → 规则。
-3. 出错时是「表现差」还是「逻辑崩」？逻辑崩 → 必须规则。
+- 只能从代码给的选项清单里选（建造 / 采集 / 打水 / 搜寻 / 照顾 / 休息……），没解锁、眼下做不到的选择由代码丢掉。
+- 数值只由代码结算：信任、好感、尊重、听不听指令、生命、理智——AI 只读不写。
+- 每帧 / 高频的逻辑（移动、寻路、需求、遇险反应）全部是规则。
+- 所有 AI 请求统一由调度器排队（两条队列、优先级、过期作废、每日限额）；没开模型、出错、超时都有代码兜底，不开模型也能玩。
+
+加任何 AI 功能前，先过三道判断：
+
+1. 它是**低频、玩家可以等待**的吗？不是 → 规则。
+2. 出错时是「表现差」还是「逻辑崩」？逻辑崩 → 规则，或代码审核 + 兜底。
+3. AI 的输出能不能被代码**检查**？只有能从清单里选、代码能验证的，才交给 AI 决策。
 
 ### 让 LLM 稳定工作的几个做法
 
@@ -183,9 +210,12 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 - **后台任务队列**：非紧急的 LLM 任务（写演员设定、写事件看法、闲聊配音）排队执行，玩家一开口就让路；失败、超时、没开模型时都有本地台词兜底。
 - **语言守卫**：检查 LLM 回复的语言是否正确，不对就重试 → 翻译修复 → 安全占位台词。整段提示词也按界面语言书写，避免中日混杂。
 - **小模型友好**：用当前语言的简短世界概况代替整份世界数据，防止上下文溢出；兼容 qwen3 等思考型模型（自动关闭思考、过滤 `<think>`）。
+- **代码算数，4B 只推理**：小模型算数不可靠，局势表里的数字全部由代码先算好。参谋的规则手册（`Assets/Resources/AI/advisor_rules.txt`）只讲「游戏怎么运作」，不给现成答案，策划不用改代码就能调。
+- **AI 调度器**：主模型和小模型分两条队列同时跑；排队太久或已经没用的请求直接作废，按 `F9` 能看到算力花在了哪里。
 
-### 游戏系统（全部为规则代码）
+### 游戏系统
 
+- **营地社会**：每个 NPC 有一个由代码计算的安全感（营地围合度、同伴、异常度、危险）。低于自己的底线，或者参谋发现了紧急情况，他会自己决定怎么办。几天后会出现领导（4B 读大家的性格数值判断），领导给每个人分组，听不听由尊重值决定。NPC 之间可以请人帮忙，答不答应由代码算。
 - **NPC 自主行为**：饿了去吃、累了休息、物资不足外出搜寻、危险时逃跑；没事时发呆、闲逛、找同伴闲聊。性格数值影响行为阈值（勇敢的人更晚逃跑）。
 - **健康系统**：饥饿值、水分、体力每秒结算；受伤、生病、口渴、疲惫、精神病等状态词条影响移动、工作和人际关系。
 - **精神状态**：理智值决定清醒 / 恍惚 / 幻觉 / 崩解，崩解后身体异变。
@@ -200,7 +230,7 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 ### 运行方法
 
 1. 用 **Unity 6000.4.11f1** 打开项目，从 `Assets/Scenes/MainMenu.unity` 开始运行。
-2. **本地模型（推荐）**：安装 [Ollama](https://ollama.com/)，执行 `ollama pull qwen2.5:7b`，保持 Ollama 运行。
+2. **本地模型（推荐）**：安装 [Ollama](https://ollama.com/)，执行 `ollama pull qwen2.5:7b`（显存够的话可以换 14B 模型），保持 Ollama 运行。想用辅助小模型（营地参谋、语气判断、短台词）再执行 `ollama pull qwen3:4b`；不装也行，会由代码规则代替。
 3. **云端模型（可选）**：在主菜单选择 Claude / OpenAI / Gemini，把自己的 API key 放到 `Application.persistentDataPath` 下（Claude：`apikey.txt`，OpenAI：`openai_key.txt`，Gemini：`gemini_key.txt`）。key 文件在工程外面，不会进 Git。
 4. 不开任何模型也能玩：对话和事件会使用本地台词兜底。
 
