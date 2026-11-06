@@ -30,6 +30,9 @@ public class NpcBehaviorDriver : MonoBehaviour
         // 领导与分组（社会系统第 4 阶段）：开会选领导、每天早会分工，见 NpcSociety.cs
         if (FindFirstObjectByType<NpcSociety>() == null)
             gameObject.AddComponent<NpcSociety>();
+        // 营地参谋（隐形的 4B）：每 5 秒看一次局势，把"营地眼下最要紧的事"交给 14B（领导分工 / NPC 想事情），见 CampAdvisor.cs
+        if (FindFirstObjectByType<CampAdvisor>() == null)
+            gameObject.AddComponent<CampAdvisor>();
     }
 
     void Update()

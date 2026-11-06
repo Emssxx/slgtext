@@ -46,6 +46,7 @@ public enum AiKind
     SocialLine,     // 小模型：NPC 被别人请求 / 指挥时的一句回答（答不答应由代码决定）
     LeaderPlan,     // 领导每天早会给所有人分工（一次调用安排所有人）
     LeaderObserve,  // 小模型当观察者：读大家的数值，判断谁最适合当领导
+    Advisor,        // 小模型当营地参谋（隐形）：按规则手册 + 局势表判断营地眼下最要紧的事，交给 14B 演绎（CampAdvisor）
 }
 
 [Serializable]
@@ -118,8 +119,9 @@ public class AiScheduler : MonoBehaviour
             new AiKindRule(AiKind.MemorySummary, AiLane.Lite,  20, 0f,  0, false),
             new AiKindRule(AiKind.ChatTone,      AiLane.Lite,  40, 20f, 0, false),
             new AiKindRule(AiKind.SocialLine,    AiLane.Lite,  70, 10f, 0, false),
-            new AiKindRule(AiKind.LeaderPlan,    AiLane.Main,  55, 30f, 2, false),   // 每天最多 2 次（换了领导时会再分一次）
+            new AiKindRule(AiKind.LeaderPlan,    AiLane.Main,  55, 30f, 0, false),   // 什么时候重新分工由 NpcSociety 按局势控制（不按天限次）
             new AiKindRule(AiKind.LeaderObserve, AiLane.Lite,  30, 30f, 0, false),
+            new AiKindRule(AiKind.Advisor,       AiLane.Lite,  50, 10f, 0, false),   // 局势变了才问（CampAdvisor 控制），排队超过 10 秒就过时了
         };
     }
 
@@ -184,6 +186,13 @@ public class AiScheduler : MonoBehaviour
         Instance = this;
         foreach (AiKind k in Enum.GetValues(typeof(AiKind))) _stats[k] = new KindStats();
         if (rules == null || rules.Count == 0) rules = DefaultRules();
+        // 场景里存过旧的规则列表：新加的请求种类补上默认规则（否则会被当成"没有规则"拒绝）
+        foreach (AiKindRule d in DefaultRules())
+        {
+            bool has = false;
+            foreach (AiKindRule r in rules) if (r != null && r.kind == d.kind) { has = true; break; }
+            if (!has) rules.Add(d);
+        }
     }
 
     void OnDestroy()
@@ -523,6 +532,8 @@ public class AiScheduler : MonoBehaviour
           .Append("  busy ").Append(_liteInFlight).Append('/').Append(liteMax)
           .Append("  queue ").Append(_lite.Count).Append('\n');
         AppendLane(sb, AiLane.Lite, _lite);
+        string advisor = CampAdvisor.DebugText(); // 营地参谋最近一次的判断
+        if (advisor.Length > 0) sb.Append('\n').Append(advisor);
         sb.Append("<color=#8E9490>day ").Append(_day).Append("   F9 close</color>");
         return sb.ToString();
     }

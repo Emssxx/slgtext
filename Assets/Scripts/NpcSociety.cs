@@ -15,9 +15,14 @@ using Newtonsoft.Json.Linq;
 //       现在 NPC 的数值是固定的，所以领导也是固定的（只有领导死了 / 崩解了才重新看）；以后有成长系统再定期重看。
 //       小模型没装 / 失败时，用代码按同样的数值打分。
 //     · 出现时：大家聚到营地中心，日志写"这几天大家渐渐开始听 X 的——理由"，其他人对他的尊重 +3，他说一句话。
-//   每天早会分工（AI，一次调用安排所有人）：
-//     · 新的一天，领导用主模型看营地现状和每个人的状态，给每个人分一个组：
-//         build（修建）/ gather（采集，带材料）/ scavenge（找吃的）/ care（照顾伤病员）/ rest（休整）
+//   分工（AI，一次调用安排所有人）：
+//     · 领导用主模型看营地现状、每个人的状态，以及营地参谋（CampAdvisor，隐形的 4B）整理的"营地眼下最要紧的事"，
+//       给每个人分一个组：build（修建）/ haul（搬运：运材料放蓝图、打水）/ gather（采集，带材料）/ scavenge（找吃的和药）
+//       / care（照顾伤病员）/ rest（休整）；还可以定一个"建造项目"（project：今天优先建什么，搬运组运料放蓝图、建造组施工）。
+//     · 什么时候重新安排（不按"天"——5 秒一天时每天一次太频繁）：刚当上领导马上排；参谋发现新的紧急情况隔 planOnUrgentGap 秒；
+//       参谋的看法变了隔 planOnChangeGap 秒；什么都没变每 planRefresh 秒重新看一次。
+//     · 没换活的人不用再问听不听；有人换了活 / 不服 / 换了项目才写日志、领导才开口（免得刷屏）。
+//       不服的人 refuseCooldown 秒内不再派他（免得一次次掷骰、关系一次次变差）。
 //     · 听不听安排由代码算（对领导的尊重为主）：不服的人当天不按分工干，领导对他的好感 / 信任下降。
 //     · 领导自己也必须干活（以身作则）：AI 没给他分活、或者让身体好好的他去休息，代码改成建造组。
 //     · AI 漏了的人由代码补上分工；AI 没回 / 回的不能用时，整份分工由代码按规则排（AutoAssign），保证每天都有分工。
@@ -39,16 +44,25 @@ public class NpcSociety : MonoBehaviour
     public float observeInterval = 20f;   // 多久看一次有没有契机（秒）
     public float meetingWait = 20f;       // 聚到营地中心最多等多少秒
 
-    [Header("早会分工")]
+    [Header("分工")]
     public bool dailyPlan = true;
     [Range(0f, 100f)] public float obeyThreshold = 45f; // 听从安排的门槛（看对领导的尊重为主）
+    public float planOnUrgentGap = 8f;    // 参谋发现新的紧急情况：距上次安排至少隔几秒就重新安排
+    public float planOnChangeGap = 25f;   // 参谋的看法变了：距上次至少隔几秒才重新安排
+    public float planRefresh = 90f;       // 什么都没变：每隔几秒重新看一次
+    public float refuseCooldown = 90f;    // 不服安排的人，几秒内不再派他
 
-    public static readonly string[] Roles = { "build", "gather", "scavenge", "care", "rest" };
+    public static readonly string[] Roles = { "build", "haul", "gather", "scavenge", "care", "rest" };
 
     bool _meeting;
     float _nextTry;
     int _plannedDay = -1;
     bool _planPending;
+    float _lastPlanTime = -999f;
+    int _plannedAdviceVersion = -1, _plannedUrgentVersion = -1;
+    string _plannedLeaderId;
+    readonly Dictionary<string, float> _refusedAt = new Dictionary<string, float>();
+    static string _projectId;   // 建造项目（BuildableData.id），放下蓝图后清空
     int _helpRequests;   // 营地里一共发生过几次"请人帮忙"（第一次集体行动 = 出现领导的契机）
 
     void Awake()
@@ -71,6 +85,31 @@ public class NpcSociety : MonoBehaviour
         Instance._plannedDay = -1;
         Instance._planPending = false;
         Instance._helpRequests = 0;
+        Instance._plannedLeaderId = null;
+        Instance._lastPlanTime = -999f;
+        Instance._refusedAt.Clear();
+        _projectId = null;
+    }
+
+    // ============ 建造项目 ============
+
+    // 现在的建造项目（没有 / 已经不能建了返回 null）。
+    public static BuildableData Project => string.IsNullOrEmpty(_projectId) ? null : NpcIntentBrain.FindCandidate(_projectId);
+
+    // 项目的蓝图放下了（NpcIntentBrain 搬运时调）：项目完成，之后由建造组施工。
+    public static void ProjectPlaced(BuildableData d)
+    {
+        if (d != null && _projectId == d.id) _projectId = null;
+    }
+
+    // 定一个新项目。空 / 围墙 / 不能建 → 保持原来的。换了返回 true。
+    bool SetProject(string id, NpcData leader)
+    {
+        BuildableData d = string.IsNullOrEmpty(id) || id == "wall" ? null : NpcIntentBrain.FindCandidate(id);
+        if (d == null || _projectId == d.id) return false;
+        _projectId = d.id;
+        if (leader != null) Announce(LF("society_project", leader.npcName, d.LocalizedName));
+        return true;
     }
 
     // 有人请别人帮忙了（NpcIntentBrain 调）：集体行动开始了，是出现领导的契机之一。
@@ -113,7 +152,18 @@ public class NpcSociety : MonoBehaviour
             return;
         }
 
-        if (dailyPlan && Leader != null && _plannedDay != w.day && !_planPending) RequestPlan();
+        NpcData leader = Leader;
+        if (dailyPlan && leader != null && !_planPending && PlanDue(leader)) RequestPlan();
+    }
+
+    // 该不该重新安排分工（见文件开头）。
+    bool PlanDue(NpcData leader)
+    {
+        float since = Time.time - _lastPlanTime;
+        if (_plannedLeaderId != leader.id) return true;                                                  // 刚当上领导 / 还没安排过
+        if (CampAdvisor.UrgentVersion != _plannedUrgentVersion && since >= planOnUrgentGap) return true; // 新的紧急情况
+        if (CampAdvisor.Version != _plannedAdviceVersion && since >= planOnChangeGap) return true;       // 参谋的看法变了
+        return since >= planRefresh;
     }
 
     // 有没有让领导站出来的契机。
@@ -176,6 +226,7 @@ public class NpcSociety : MonoBehaviour
                                          "ここ数日、拠点のみんなは少しずつあなたの言うことを聞くようになり、今日はみんなが集まってあなたの判断を待っている。今言いたいことを一言。"),
               L("society_leader_line"));
         _plannedDay = -1; // 马上分工
+        _plannedLeaderId = null;
     }
 
     // ============ 观察者（4B）============
@@ -267,7 +318,7 @@ public class NpcSociety : MonoBehaviour
         return string.Join(jp ? "、" : "、", parts);
     }
 
-    // ============ 早会分工 ============
+    // ============ 分工 ============
 
     void RequestPlan()
     {
@@ -276,47 +327,70 @@ public class NpcSociety : MonoBehaviour
         if (leader == null || w == null) return;
         int day = w.day;
         string lid = leader.id;
+        bool replan = _plannedLeaderId == lid;   // 已经安排过一次了：这次是调整
+        _plannedLeaderId = lid;
+        _lastPlanTime = Time.time;
+        _plannedAdviceVersion = CampAdvisor.Version;
+        _plannedUrgentVersion = CampAdvisor.UrgentVersion;
         _planPending = true;
         bool queued = AiScheduler.Submit(new AiRequest
         {
             kind = AiKind.LeaderPlan, key = lid, json = true,
-            system = () => PlanPrompt(WorldManager.Instance.GetNpcById(lid)),
-            user = () => LanguageGuard.Pick("给大家分工。", "みんなに仕事を割り振って。"),
+            system = () => PlanPrompt(WorldManager.Instance.GetNpcById(lid), replan),
+            user = () => replan ? LanguageGuard.Pick("看看要不要调整分工。", "割り振りを見直して。") : LanguageGuard.Pick("给大家分工。", "みんなに仕事を割り振って。"),
             onResult = raw =>
             {
                 _planPending = false;
                 _plannedDay = day;
                 NpcData l = WorldManager.Instance != null ? WorldManager.Instance.GetNpcById(lid) : null;
-                if (!ApplyPlan(l, raw, day)) AutoPlan(l, day); // AI 没回 / 回的不能用：按规则分
+                if (!ApplyPlan(l, raw, day, replan)) AutoPlan(l, day, replan); // AI 没回 / 回的不能用：按规则分
             },
         });
-        if (!queued) { _planPending = false; _plannedDay = day; AutoPlan(leader, day); } // 调度器拒绝：按规则分
+        if (!queued) { _planPending = false; _plannedDay = day; AutoPlan(leader, day, replan); } // 调度器拒绝：按规则分
+    }
+
+    // 这个人刚不服过安排、还在冷静期：这次不派他。
+    bool RecentlyRefused(NpcData n)
+    {
+        return n != null && _refusedAt.TryGetValue(n.id, out float t) && Time.time - t < refuseCooldown;
+    }
+
+    void Refuse(NpcData n, NpcData leader, int day, List<string> refused)
+    {
+        n.role = null;
+        refused.Add(n.npcName);
+        _refusedAt[n.id] = Time.time;
+        RelationshipManager.Apply(leader, n, -3f, -2f, 0f, LF("rel_reason_disobeyed", day, n.npcName));
     }
 
     // ============ 代码分工（AI 用不了时，或补 AI 漏掉的人）============
 
     // 按规则给所有人分工：伤病 / 太累 → 休整；有伤员又有药 → 1 人医护；食物少 → 1~2 人搜寻；
     // 剩下的：营地还没围起来 → 一半建造（领导带头）、一半采石头；围好了 → 采最缺的材料。
-    void AutoPlan(NpcData leader, int day)
+    void AutoPlan(NpcData leader, int day, bool replan = false)
     {
         if (leader == null || leader.IsDead) return;
         Dictionary<NpcData, string> plan = AutoAssign(Alive(), leader);
         Dictionary<string, List<string>> byRole = new Dictionary<string, List<string>>();
         List<string> refused = new List<string>();
+        int changed = 0;
         foreach (KeyValuePair<NpcData, string> kv in plan)
         {
             NpcData n = kv.Key;
-            if (n != leader && !Obeys(n, leader))
-            {
-                n.role = null;
-                refused.Add(n.npcName);
-                RelationshipManager.Apply(leader, n, -3f, -2f, 0f, LF("rel_reason_disobeyed", day, n.npcName));
-                continue;
-            }
+            if (n.role == kv.Value) { ListRole(n, byRole); continue; }        // 没换活：不用再问听不听
+            if (n != leader && RecentlyRefused(n)) continue;
+            if (n != leader && !Obeys(n, leader)) { Refuse(n, leader, day, refused); continue; }
             SetRole(n, kv.Value, day, byRole);
+            changed++;
         }
-        Speak(leader, null, L("society_plan_line"));
-        AnnouncePlan(leader, byRole, refused);
+        // 建造项目：参谋认为今天之内该建的东西
+        CampAdvisor.Advice b = CampAdvisor.TopBuild(2);
+        bool projectChanged = b != null && SetProject(b.target, leader);
+        if (!replan || changed > 0 || refused.Count > 0 || projectChanged)
+        {
+            Speak(leader, null, L("society_plan_line"));
+            AnnouncePlan(leader, byRole, refused, replan);
+        }
     }
 
     Dictionary<NpcData, string> AutoAssign(List<NpcData> people, NpcData leader)
@@ -338,7 +412,12 @@ public class NpcSociety : MonoBehaviour
         // 搜寻：食物少于 4 份 → 1 人（5 人以上 → 2 人），挑最胆大的
         int food = ItemDatabase.Instance != null && w != null ? ItemDatabase.Instance.CountInStorage(ItemCategory.Food, w) : 0;
         int scav = food < 4 ? (workers.Count >= 5 ? 2 : 1) : 0;
+        if (scav == 0 && CampAdvisor.Top("scavenge", 2) != null) scav = 1;   // 参谋说要出去找（食物 / 药）
         for (int i = 0; i < scav && workers.Count > 1; i++) TakeBest(workers, result, leader, "scavenge", p => p.personality.bravery);
+        // 搬运：参谋说要打水（有收集器和净化器），或者有建造项目要运料 → 1 人，挑体力最好的
+        bool water = CampAdvisor.Top("haul_water", 2) != null && WaterWorks.CollectorCount > 0 && WaterWorks.PurifierCount > 0;
+        bool project = Project != null || CampAdvisor.TopBuild(2) != null;
+        if ((water || project) && workers.Count > 1) TakeBest(workers, result, leader, "haul", p => p.energy);
         // 剩下的：修墙 / 采材料
         CampZone z = CampZone.Instance;
         BuildableData wall = CampZone.WallData();
@@ -385,20 +464,27 @@ public class NpcSociety : MonoBehaviour
         n.role = role;
         n.roleTarget = role == "gather" ? (string.IsNullOrEmpty(target) ? DefaultGatherTarget() : target) : "";
         n.roleDay = day;
-        if (!byRole.TryGetValue(role, out List<string> list)) { list = new List<string>(); byRole[role] = list; }
-        list.Add(n.npcName + (role == "gather" ? "（" + ItemName(n.roleTarget) + "）" : ""));
+        ListRole(n, byRole);
     }
 
-    void AnnouncePlan(NpcData leader, Dictionary<string, List<string>> byRole, List<string> refused)
+    // 记进"这次分工"的名单（宣布用），不改他的分工。
+    static void ListRole(NpcData n, Dictionary<string, List<string>> byRole)
+    {
+        if (n == null || string.IsNullOrEmpty(n.role)) return;
+        if (!byRole.TryGetValue(n.role, out List<string> list)) { list = new List<string>(); byRole[n.role] = list; }
+        list.Add(n.npcName + (n.role == "gather" ? "（" + ItemName(n.roleTarget) + "）" : ""));
+    }
+
+    void AnnouncePlan(NpcData leader, Dictionary<string, List<string>> byRole, List<string> refused, bool replan = false)
     {
         List<string> parts = new List<string>();
         foreach (string r in Roles)
             if (byRole.TryGetValue(r, out List<string> names)) parts.Add(RoleName(r) + "：" + string.Join("、", names));
-        if (parts.Count > 0) Announce(LF("society_plan", leader.npcName, string.Join(LanguageGuard.Pick("；", "／"), parts)));
+        if (parts.Count > 0) Announce(LF(replan ? "society_replan" : "society_plan", leader.npcName, string.Join(LanguageGuard.Pick("；", "／"), parts)));
         foreach (string name in refused) Announce(LF("society_refused", name, leader.npcName));
     }
 
-    string PlanPrompt(NpcData leader)
+    string PlanPrompt(NpcData leader, bool replan = false)
     {
         if (leader == null) throw new Exception("领导不存在");
         WorldState w = World;
@@ -406,14 +492,22 @@ public class NpcSociety : MonoBehaviour
         StringBuilder sb = new StringBuilder();
         sb.AppendLine(NpcActors.Render(leader));
         sb.AppendLine();
-        sb.AppendLine(jp ? $"あなたは拠点のみんなに選ばれたリーダーだ。今は{w.day}日目の朝。みんなに今日の仕事を割り振る。"
-                         : $"你是营地里大家推举出来的领导。现在是第 {w.day} 天早上，你要给大家分配今天的工作。");
+        if (replan)
+            sb.AppendLine(jp ? $"あなたは拠点のみんなに選ばれたリーダーだ。今は{w.day}日目。拠点の状況が変わってきたので、みんなの割り振りを見直す（変える必要のない人はそのままでいい）。"
+                             : $"你是营地里大家推举出来的领导。现在是第 {w.day} 天，营地的情况有了变化，你要看看要不要调整大家的分工（没必要换的人就别换）。");
+        else
+            sb.AppendLine(jp ? $"あなたは拠点のみんなに選ばれたリーダーだ。今は{w.day}日目の朝。みんなに今日の仕事を割り振る。"
+                             : $"你是营地里大家推举出来的领导。现在是第 {w.day} 天早上，你要给大家分配今天的工作。");
         sb.AppendLine();
         sb.AppendLine(jp ? "【拠点の今の状況】" : "【营地现状】");
         sb.Append(NpcIntentBrain.CampStatusText(leader, jp));
         sb.AppendLine(jp ? $"拠点の囲い：{Mathf.RoundToInt((NpcSecurity.Instance != null ? NpcSecurity.Instance.Coverage : 0f) * 100f)}%" + (NpcSecurity.Instance != null && NpcSecurity.Instance.Enclosed ? "（囲まれている）" : "")
                          : $"营地围合：{Mathf.RoundToInt((NpcSecurity.Instance != null ? NpcSecurity.Instance.Coverage : 0f) * 100f)}%" + (NpcSecurity.Instance != null && NpcSecurity.Instance.Enclosed ? "（已经围起来了）" : ""));
+        BuildableData project = Project;
+        if (project != null) sb.AppendLine(jp ? $"今の建設プロジェクト：{project.LocalizedName}（まだ設計図を置いていない）" : $"现在的建造项目：{project.LocalizedName}（还没放下蓝图）");
         sb.AppendLine();
+        string concerns = CampAdvisor.PromptBlock(jp); // 营地眼下最要紧的事（隐形的营地参谋整理的）
+        if (concerns.Length > 0) { sb.Append(concerns); sb.AppendLine(); }
         sb.AppendLine(jp ? "【みんなの様子】" : "【大家的情况】");
         foreach (NpcData n in Alive())
         {
@@ -431,31 +525,43 @@ public class NpcSociety : MonoBehaviour
                 sb.Append(jp ? "／" : "，").Append(string.Join("・", names));
             }
             if (n != leader) sb.Append(jp ? "／あなたの気持ち：" : "，你对他的感觉：").Append(RelationshipManager.Label(leader, n.id));
+            sb.Append(jp ? "／今：" : "，现在：").Append(HasRole(n) ? RoleName(n.role) + (n.role == "gather" ? "（" + ItemName(n.roleTarget) + "）" : "") : (jp ? "割り振りなし" : "没有分工"));
             sb.AppendLine();
         }
         sb.AppendLine();
+        string buildList = NpcIntentBrain.BuildListText(jp, true);
         if (jp)
         {
-            sb.AppendLine("【割り振れる仕事】build（拠点のまわりに壁を建てる：自分で倉庫から石を取って建てる。石がなければ先に採る）／gather（資源を採る。target に wood / stone / ore / fiber。壁には石が要る）／scavenge（拠点の外で食べ物を探す）／care（けが人・病人の世話）／rest（休ませる）");
-            sb.AppendLine("あなた自身も含めて、全員に一つずつ割り振る。体の状態・職業・拠点に今いちばん足りないものを見て決める。けがや病気の人は rest か care にする。");
+            sb.AppendLine("【割り振れる仕事】build（建設：置いてある設計図を建てに行く。ふだんは拠点のまわりの壁を建てる）／haul（運搬：資材を運んで設計図を置く、湖で水を汲んで雨水タンクへ運ぶ）／gather（資源を採る。target に wood / stone / ore / fiber。壁には石が要る）／scavenge（拠点の外で食べ物や薬を探す）／care（けが人・病人の世話）／rest（休ませる）");
+            if (buildList.Length > 0)
+            {
+                sb.AppendLine("【建設プロジェクト】project に、拠点で優先して建てる物を一つ書ける（下の英字IDから選ぶ。要らなければ空）。決めると運搬班が資材を運んで設計図を置き、建設班が建てる。資材が足りなければ採集する人が先に採る。壁は書かなくていい（建設班がふだんから建てる）。");
+                sb.Append(buildList);
+            }
+            sb.AppendLine("あなた自身も含めて、全員に一つずつ割り振る。【拠点で今いちばん急ぐこと】の「急ぎ」をまず片づけ、それから体の状態・職業を見て決める。けがや病気の人は rest か care にする。");
             sb.AppendLine("リーダーのあなたも必ず手を動かすこと（指示するだけで休むのはだめ。率先して一番きつい仕事を取ってもいい）。");
             sb.AppendLine("【出力形式】JSONオブジェクトを1つだけ出力し、それ以外は何も書かないこと：");
-            sb.AppendLine("{\"groups\":[{\"name\":\"名前\",\"role\":\"上のどれか（英字）\",\"target\":\"gatherのときの資源\"}],\"speech\":\"朝の集まりでみんなに言う一言（短く）\"}");
+            sb.AppendLine("{\"groups\":[{\"name\":\"名前\",\"role\":\"上のどれか（英字）\",\"target\":\"gatherのときの資源\"}],\"project\":\"建てる物の英字ID（なければ空）\",\"speech\":\"みんなに言う一言（短く）\"}");
         }
         else
         {
-            sb.AppendLine("【可以分配的工作】build（修营地那一圈围墙：会自己去仓库取石头、开工；没石头就先去采）／gather（采集，target 填 wood / stone / ore / fiber；修墙要石头）／scavenge（出营地找吃的）／care（照顾伤病的人）／rest（休整）");
-            sb.AppendLine("每个人分一项，包括你自己。按每个人的身体状况、职业和营地现在最缺什么来分。受伤、生病的人分 rest 或让别人 care。");
+            sb.AppendLine("【可以分配的工作】build（修建：去施工已经放下的蓝图，平时修营地那一圈围墙）／haul（搬运：把材料运过去放下蓝图、去湖边打水倒进雨水收集器）／gather（采集，target 填 wood / stone / ore / fiber；修墙要石头）／scavenge（出营地找吃的和药）／care（照顾伤病的人）／rest（休整）");
+            if (buildList.Length > 0)
+            {
+                sb.AppendLine("【建造项目】project 可以填一样营地优先要建的东西（从下面的英文 id 里选；不需要就留空）。定了以后搬运组会运材料、放蓝图，建造组去施工；材料不够时采集的人会先去采。围墙不用填，建造组平时就会修。");
+                sb.Append(buildList);
+            }
+            sb.AppendLine("每个人分一项，包括你自己。先顾【营地眼下最要紧的事】里「紧急」的事，再按每个人的身体状况、职业来分。受伤、生病的人分 rest 或让别人 care。");
             sb.AppendLine("你是领导，自己也必须干活，以身作则（不能只指挥、自己休息；可以带头去干最累的活）。");
             sb.AppendLine("【输出格式】只输出一个 JSON 对象，不要多余文字：");
-            sb.AppendLine("{\"groups\":[{\"name\":\"名字\",\"role\":\"上面之一（英文）\",\"target\":\"gather 时要采的东西\"}],\"speech\":\"你在早会上对大家说的一两句话（简短）\"}");
+            sb.AppendLine("{\"groups\":[{\"name\":\"名字\",\"role\":\"上面之一（英文）\",\"target\":\"gather 时要采的东西\"}],\"project\":\"要建的英文 id（不需要就留空）\",\"speech\":\"你对大家说的一两句话（简短）\"}");
         }
         if (LocalizationManager.Instance != null) sb.AppendLine(LocalizationManager.Instance.GetAILanguageInstruction());
         return sb.ToString();
     }
 
     // 解析分工 → 每个人决定听不听 → 写日志。AI 的结果不能用返回 false（调用方改用代码分工）。
-    bool ApplyPlan(NpcData leader, string raw, int day)
+    bool ApplyPlan(NpcData leader, string raw, int day, bool replan = false)
     {
         WorldState w = World;
         if (leader == null || w == null || leader.IsDead || string.IsNullOrEmpty(raw)) return false;
@@ -471,11 +577,12 @@ public class NpcSociety : MonoBehaviour
         if (groups == null || groups.Count == 0) return false;
 
         string speech = (o.Value<string>("speech") ?? "").Trim();
-        if (speech.Length > 0) Speak(leader, null, speech);
+        string projectId = (o.Value<string>("project") ?? "").Trim().ToLowerInvariant();
 
         Dictionary<string, List<string>> byRole = new Dictionary<string, List<string>>();
         List<string> refused = new List<string>();
         List<NpcData> assigned = new List<NpcData>();
+        int changed = 0;
         foreach (JToken t in groups)
         {
             JObject g = t as JObject;
@@ -487,31 +594,49 @@ public class NpcSociety : MonoBehaviour
             if (target != ResourceInfo.WoodItem && target != ResourceInfo.StoneItem && target != ResourceInfo.OreItem && target != ResourceInfo.FiberItem) target = "";
 
             assigned.Add(n);
+            // 领导自己也要干活（以身作则）：身体没问题却被分去休息 → 改成建造组
+            if (n == leader && role == "rest" && n.energy >= 40f && NpcHealth.CanWork(n)) role = "build";
+            if (n.role == role)
+            {
+                // 没换活：不用再问听不听（采集换一种材料也算没换活）
+                if (role == "gather" && target.Length > 0 && n.roleTarget != target) { n.roleTarget = target; changed++; }
+                ListRole(n, byRole);
+                continue;
+            }
+            if (n != leader && RecentlyRefused(n)) continue;        // 刚不服过：这次先不派他
             if (n != leader && !Obeys(n, leader))
             {
-                n.role = null;
-                refused.Add(n.npcName);
-                RelationshipManager.Apply(leader, n, -3f, -2f, 0f, LF("rel_reason_disobeyed", day, n.npcName));
+                Refuse(n, leader, day, refused);
                 RelationshipManager.Apply(n, leader, 0f, 0f, -2f, null);
                 continue;
             }
-            // 领导自己也要干活（以身作则）：身体没问题却被分去休息 → 改成建造组
-            if (n == leader && role == "rest" && n.energy >= 40f && NpcHealth.CanWork(n)) role = "build";
             SetRole(n, role, day, byRole, target);
+            changed++;
             if (n != leader) RelationshipManager.Apply(leader, n, 0f, 1f, 0f, null);
         }
 
         // AI 漏掉的人（包括领导自己）：按规则补上分工
         List<NpcData> missing = new List<NpcData>();
-        foreach (NpcData p in Alive()) if (!assigned.Contains(p)) missing.Add(p);
+        foreach (NpcData p in Alive()) if (!assigned.Contains(p) && (p == leader || !RecentlyRefused(p))) missing.Add(p);
         if (missing.Count > 0)
         {
             Dictionary<NpcData, string> auto = AutoAssign(Alive(), leader);
             foreach (NpcData p in missing)
-                if (auto.TryGetValue(p, out string r)) SetRole(p, r, day, byRole);
+            {
+                if (!auto.TryGetValue(p, out string r)) continue;
+                if (p.role == r) { ListRole(p, byRole); continue; }
+                SetRole(p, r, day, byRole);
+                changed++;
+            }
         }
 
-        AnnouncePlan(leader, byRole, refused);
+        bool projectChanged = SetProject(projectId, leader);
+        // 第一次分工一定宣布；之后只有真的有变化才宣布、领导才开口（免得刷屏）
+        if (!replan || changed > 0 || refused.Count > 0 || projectChanged)
+        {
+            if (speech.Length > 0) Speak(leader, null, speech);
+            AnnouncePlan(leader, byRole, refused, replan);
+        }
         return true;
     }
 

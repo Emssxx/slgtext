@@ -6,13 +6,16 @@ using Newtonsoft.Json.Linq;
 
 // ============================================================================
 // NPC 自主意图（社会系统第 1 阶段）："AI 做判断，代码做拆解和执行"。
-//   1. 什么时候想：由【动机】触发，不是闲着就想。目前的动机：安全感不足（NpcSecurity：营地空旷、异常度高、
-//      刚有危险……安全感掉到他自己的底线以下；越胆小底线越高）。生理需求（饿 / 累 / 逃命）优先，
+//   1. 什么时候想：由【动机】触发，不是闲着就想。目前的动机：
+//      · 安全感不足（NpcSecurity：营地空旷、异常度高、刚有危险……安全感掉到他自己的底线以下；越胆小底线越高）
+//      · 营地参谋（CampAdvisor，隐形的 4B）发现了新的紧急情况（断水、断粮、有人伤重……）：每次最多 urgentResponders 个
+//        没分工的人去想办法，每人对同一次紧急情况只想一次。
+//      生理需求（饿 / 累 / 逃命）优先，
 //      正在执行玩家指令 / 施工、玩家正在和他说话时也先不想；冷却到了、今天还有次数才会想。
 //   2. 想什么：通过 AI 调度器（AiKind.NpcIntent）问主模型。AI 看得到他为什么不安（哪边敞开、异常度……），
 //      只能从代码给的清单里选一件事：
-//        build（建造：哪种建筑 + 营地哪一边）/ gather（采集）/ scavenge（出去找吃的）/ regroup（回营地待在大家身边）
-//        / rest（休息）/ none（先不做）
+//        build（建造：哪种建筑 + 营地哪一边）/ gather（采集）/ water（去湖边打水，有收集器时）/ scavenge（出去找吃的）
+//        / regroup（回营地待在大家身边）/ rest（休息）/ none（先不做）
 //      输出 JSON：goal / target / area / reason（为什么这么想）/ dialogue（说出口的话）。
 //   3. 代码审核，再拆成任务链：
 //        build：代码挑具体格子放下蓝图（玩家能看到他的计划）；围墙这类挡路的建筑优先补营地四周还敞开的缺口
@@ -48,6 +51,9 @@ public class NpcIntentBrain : MonoBehaviour
     public float roleCooldown = 2f;       // 按分工干完一件，歇多久再干下一件
     public int maxStagedWalls = 2;        // 搬运：最多先运好几段墙的材料等人来建（多了就先去干别的）
 
+    [Header("营地参谋（CampAdvisor）")]
+    public int urgentResponders = 2;      // 出现新的紧急情况时，最多几个没分工的人自己去想办法
+
     // 每种分工的"活的优先顺序"：前面的没活可干，才轮到后面的。
     //   活：build 建筑 / haul 搬运 / gather 采集 / care 医疗 / scavenge 探寻 / rest 休息
     [Serializable]
@@ -59,6 +65,7 @@ public class NpcIntentBrain : MonoBehaviour
     public List<RolePriority> rolePriorities = new List<RolePriority>
     {
         new RolePriority { role = "build",    jobs = new[] { "build", "haul", "gather", "care", "scavenge" } },
+        new RolePriority { role = "haul",     jobs = new[] { "haul", "build", "gather", "care", "scavenge" } },
         new RolePriority { role = "gather",   jobs = new[] { "gather", "scavenge", "haul", "build", "care" } },
         new RolePriority { role = "scavenge", jobs = new[] { "scavenge", "gather", "haul", "build", "care" } },
         new RolePriority { role = "care",     jobs = new[] { "care", "haul", "gather", "scavenge", "build" } },
@@ -86,6 +93,8 @@ public class NpcIntentBrain : MonoBehaviour
         public float nextRole;      // 下次按分工干活的时间
         public string lastJob;      // 上一次干的是哪种活（换了才写日志）
         public int roleLogDay = -1; // 今天写过"按分工去干什么"的日志了（一天只写一次，免得刷屏）
+        public int urgentSeen = -1; // 对哪一次紧急情况（CampAdvisor.UrgentVersion）已经想过了
+        public string projectHaul;  // 正在给哪个建造项目运材料（同一个项目同时只让一个人运）
         public int token;      // 每开始一个新的异步步骤 +1：旧的回调回来时对不上就忽略
     }
 
@@ -102,6 +111,7 @@ public class NpcIntentBrain : MonoBehaviour
 
     readonly Dictionary<string, State> _states = new Dictionary<string, State>();
     float _tick;
+    int _urgentVersion = -1, _urgentCount; // 这次紧急情况已经有几个人去想办法了
 
     // ============ 生命周期 ============
 
@@ -164,9 +174,16 @@ public class NpcIntentBrain : MonoBehaviour
                         }
                         break;
                     }
-                    // 没分工的人：有动机（安全感不足）才想
-                    if (now >= s.nextThink && thinking < maxThinking && NpcSecurity.Insecure(n) && CanThink(n, w, true) && Think(n, s))
+                    // 没分工的人：有动机才想——安全感不足，或者营地参谋发现了新的紧急情况（每次最多 urgentResponders 人，每人只想一次）
+                    if (now < s.nextThink || thinking >= maxThinking) break;
+                    bool insecure = NpcSecurity.Insecure(n);
+                    if (_urgentVersion != CampAdvisor.UrgentVersion) { _urgentVersion = CampAdvisor.UrgentVersion; _urgentCount = 0; }
+                    bool urgent = !insecure && CampAdvisor.HasActionableUrgent && s.urgentSeen != CampAdvisor.UrgentVersion && _urgentCount < urgentResponders;
+                    if ((insecure || urgent) && CanThink(n, w, true) && Think(n, s, urgent))
+                    {
                         thinking++;
+                        if (urgent) { s.urgentSeen = CampAdvisor.UrgentVersion; _urgentCount++; }
+                    }
                     break;
                 case Phase.Building:
                     CheckBuilding(n, s);
@@ -231,7 +248,7 @@ public class NpcIntentBrain : MonoBehaviour
         return true;
     }
 
-    bool Think(NpcData n, State s)
+    bool Think(NpcData n, State s, bool urgent = false)
     {
         string id = n.id;
         int tok = ++s.token;
@@ -239,8 +256,11 @@ public class NpcIntentBrain : MonoBehaviour
         {
             kind = AiKind.NpcIntent, key = id, json = true, replacePending = true,
             system = () => BuildSystemPrompt(Npc(id)),
-            user = () => LanguageGuard.Pick("你觉得不安。现在你打算怎么做？", "落ち着かない。今、どうするつもり？"),
-            stillValid = () => autonomy && CanThink(Npc(id), World, false) && NpcSecurity.Insecure(Npc(id)), // 排队期间安心下来了就不用想了
+            user = () => urgent
+                ? LanguageGuard.Pick("营地眼下有急事（见【营地眼下最要紧的事】）。现在你打算怎么做？", "拠点に急ぎの問題がある（【拠点で今いちばん急ぐこと】を見て）。今、どうするつもり？")
+                : LanguageGuard.Pick("你觉得不安。现在你打算怎么做？", "落ち着かない。今、どうするつもり？"),
+            // 排队期间安心下来了 / 急事已经过去了，就不用想了
+            stillValid = () => autonomy && CanThink(Npc(id), World, false) && (urgent ? CampAdvisor.HasActionableUrgent : NpcSecurity.Insecure(Npc(id))),
             onResult = raw => OnThought(id, tok, raw),
         });
         if (!queued)
@@ -289,6 +309,10 @@ public class NpcIntentBrain : MonoBehaviour
             case "rest":
                 Log(n, LF("intent_log_rest", n.npcName), true);
                 RunChain(n, s, Phase.Doing, null, new NpcTask { action = "rest" });
+                break;
+            case "water":
+                Log(n, LF("intent_log_water", n.npcName), true);
+                RunChain(n, s, Phase.Doing, null, new NpcTask { action = "harvest", target = "water" });
                 break;
             case "regroup":
                 Log(n, LF("intent_log_regroup", n.npcName), true);
@@ -339,6 +363,8 @@ public class NpcIntentBrain : MonoBehaviour
                 return c;
             case "gather":
                 return Array.IndexOf(Materials, c.target) >= 0 ? c : null;
+            case "water":
+                return WaterWorks.CollectorCount > 0 ? c : null;   // 没有收集器，打来的水没地方倒
             case "scavenge":
             case "rest":
             case "regroup":
@@ -571,6 +597,7 @@ public class NpcIntentBrain : MonoBehaviour
         s.site = null;
         s.siteGo = null;
         s.gatherTrips = 0;
+        s.projectHaul = null;
         s.nextThink = Time.time + (ok ? cooldownAfterDone : retryAfterFail) * UnityEngine.Random.Range(0.8f, 1.3f);
         if (wasGoal == "role") s.nextRole = Time.time + roleCooldown;
         if (was == Phase.Fetching || was == Phase.Gathering || was == Phase.Doing)
@@ -637,6 +664,9 @@ public class NpcIntentBrain : MonoBehaviour
         foreach (string m in Materials) sb.Append(ItemName(m)).Append(' ').Append(Have(m)).Append(jp ? "、" : "、");
         int food = ItemDatabase.Instance != null ? ItemDatabase.Instance.CountInStorage(ItemCategory.Food, w) : 0;
         sb.Append(jp ? "食料 " : "食物 ").Append(food).AppendLine(jp ? "食分" : " 份");
+        sb.AppendLine(WaterLine(jp));
+        string power = PowerLine(jp);
+        if (power.Length > 0) sb.AppendLine(power);
 
         Dictionary<string, int> built = new Dictionary<string, int>(), planned = new Dictionary<string, int>();
         GridManager g = GridManager.Instance;
@@ -706,6 +736,9 @@ public class NpcIntentBrain : MonoBehaviour
         sb.Append(jp ? "- gather：資源を採る。target は " : "- gather：采集。target 填 ");
         for (int i = 0; i < Materials.Length; i++) sb.Append(i > 0 ? " / " : "").Append(Materials[i]).Append("（").Append(ItemName(Materials[i])).Append("）");
         sb.AppendLine();
+        if (WaterWorks.CollectorCount > 0)
+            sb.AppendLine(jp ? "- water：湖で水を汲み、雨水タンクへ運ぶ（タンクの雨水は浄水器で浄化しないと飲めない）"
+                             : "- water：去湖边打水，倒进雨水收集器（收集器里的雨水要经过净化器才能喝）");
         sb.AppendLine(jp ? "- scavenge：拠点の外へ食べ物や物資を探しに行く" : "- scavenge：出营地搜寻食物和物资");
         sb.AppendLine(jp ? "- regroup：拠点の真ん中に戻って、みんなのそばにいる" : "- regroup：回到营地中心，待在大家身边");
         sb.AppendLine(jp ? "- rest：休む" : "- rest：休息");
@@ -771,7 +804,16 @@ public class NpcIntentBrain : MonoBehaviour
         if (rolePriorities != null)
             foreach (RolePriority rp in rolePriorities)
                 if (rp != null && rp.role == role && rp.jobs != null && rp.jobs.Length > 0) return rp.jobs;
-        return new[] { "gather", "scavenge" };
+        // Inspector 里的列表是旧的（比如场景里存过、没有新加的分工）：用默认顺序
+        switch (role)
+        {
+            case "build":    return new[] { "build", "haul", "gather", "care", "scavenge" };
+            case "haul":     return new[] { "haul", "build", "gather", "care", "scavenge" };
+            case "scavenge": return new[] { "scavenge", "gather", "haul", "build", "care" };
+            case "care":     return new[] { "care", "haul", "gather", "scavenge", "build" };
+            case "rest":     return new[] { "rest", "haul", "gather", "scavenge", "build" };
+            default:         return new[] { "gather", "scavenge", "haul", "build", "care" };
+        }
     }
 
     // —— 建筑：去建还没建完的蓝图（不是别人正在凑材料的那块）——
@@ -787,19 +829,74 @@ public class NpcIntentBrain : MonoBehaviour
         return true;
     }
 
-    // —— 搬运：①把修墙的石头从仓库运到营地那一圈的空墙位，放下蓝图（材料到位，建筑的人就能开工）；
-    //          ②营地还不缺墙时：从湖边打水倒进雨水收集器 ——
+    // —— 搬运（按这个顺序看）：
+    //   ① 净化水快喝完了（少于参谋的"紧急"线，默认只够 60 秒）：先去湖边打水倒进雨水收集器
+    //   ② 领导定的建造项目（NpcSociety.Project）：把材料从仓库运到营地里，放下蓝图（建造组会去施工）
+    //   ③ 修墙：把石头运到营地那一圈的空墙位，放下蓝图
+    //   ④ 净化水不多（少于参谋的"偏低"线，默认只够 180 秒）：打水
+    //   打水要有收集器、收集器没满、有净化器（没有净化器，雨水喝不了）——
     bool JobHaul(NpcData n, State s, out string desc)
     {
         desc = null;
+        if (WaterWorks.DaysLeft < CampAdvisor.WaterUrgentDays && HaulWater(n, s, out desc)) return true;
+        if (HaulProject(n, s, out desc)) return true;
         if (HaulWall(n, s, out desc)) return true;
-        if (WaterWorks.CollectorCount > 0 && WaterWorks.RawTotal < WaterWorks.RawCapacity && WaterWorks.DaysLeft < 3f)
-        {
-            RunChain(n, s, Phase.Doing, null, new NpcTask { action = "harvest", target = "water" });
-            desc = L("job_desc_haul_water");
-            return true;
-        }
+        if (WaterWorks.DaysLeft < CampAdvisor.WaterLowDays && HaulWater(n, s, out desc)) return true;
         return false;
+    }
+
+    bool HaulWater(NpcData n, State s, out string desc)
+    {
+        desc = null;
+        if (WaterWorks.CollectorCount == 0 || WaterWorks.PurifierCount == 0 || WaterWorks.RawTotal >= WaterWorks.RawCapacity) return false;
+        RunChain(n, s, Phase.Doing, null, new NpcTask { action = "harvest", target = "water" });
+        desc = L("job_desc_haul_water");
+        return true;
+    }
+
+    // 建造项目：材料够、还没放下蓝图、没有别人正在运 → 去仓库取材料，运到营地里挑好的位置，放下蓝图。
+    bool HaulProject(NpcData n, State s, out string desc)
+    {
+        desc = null;
+        BuildableData d = NpcSociety.Project;
+        GridManager g = GridManager.Instance;
+        if (d == null || g == null || BuildManager.Instance == null) return false;
+        foreach (ConstructionSite site in ConstructionSite.All)
+            if (site != null && site.data != null && site.data.id == d.id) return false;           // 蓝图已经放下了：等建造组施工
+        foreach (State o in _states.Values)
+            if (o != s && o.projectHaul == d.id && o.phase != Phase.Idle) return false;           // 别人正在运
+        MaterialCost[] cost = CostOf(d);
+        if (FirstMissing(cost, out _) != null) return false;                                     // 材料不够：采集的人会先去采
+        string area = Areas[UnityEngine.Random.Range(0, Areas.Length)];
+        if (!TryPickSpot(d, area, out Vector2Int cell)) return false;
+        string label = g.CellToLabel(cell.x, cell.y);
+        desc = LF("job_desc_haul_project", CostText(cost), d.LocalizedName);
+        n.currentAction = desc;
+        string id = n.id;
+        RunChain(n, s, Phase.Fetching, ok =>
+        {
+            NpcData me = Npc(id);
+            if (!ok || me == null) { EndIntent(me, s, false, null); return; }
+            if (NpcSociety.Project != d) { EndIntent(me, s, true, null); return; }                 // 半路换了项目
+            if (!ProgressionRules.ConsumeMaterials(cost)) { EndIntent(me, s, true, null); return; } // 材料被别人先用掉了
+            ConstructionSite site = BuildManager.Instance.PlaceBlueprint(d, cell);              // 放不下（位置被占了）会返回 null
+            if (site == null && TryPickSpot(d, area, out Vector2Int other)) site = BuildManager.Instance.PlaceBlueprint(d, other);
+            if (site == null)
+            {
+                foreach (MaterialCost c in cost) if (c != null && c.amount > 0 && WorldManager.Instance != null) WorldManager.Instance.AddToStorage(c.materialName, c.amount);
+                EndIntent(me, s, true, null);
+                return;
+            }
+            NpcSociety.ProjectPlaced(d);
+            Log(me, LF("role_log_wall_ready", me.npcName, site.DisplayName), false);
+            EndIntent(me, s, true, null);
+        },
+        new NpcTask { action = "go", destination = "@storage" },
+        new NpcTask { action = "act" },
+        new NpcTask { action = "go", destination = label },
+        new NpcTask { action = "act" });
+        if (s.phase == Phase.Fetching) s.projectHaul = d.id;
+        return true;
     }
 
     bool HaulWall(NpcData n, State s, out string desc)
@@ -868,7 +965,10 @@ public class NpcIntentBrain : MonoBehaviour
         desc = null;
         List<string> order = new List<string>();
         if (n.role == "gather" && Array.IndexOf(Materials, n.roleTarget) >= 0) order.Add(n.roleTarget);
-        order.Add(WallsNeeded(CampZone.Instance, CampZone.WallData()) ? ResourceInfo.StoneItem : LowestMaterial());
+        string projectNeed = ProjectMissingMaterial();                       // 领导定的建造项目还缺的材料
+        if (projectNeed != null && !order.Contains(projectNeed)) order.Add(projectNeed);
+        string usual = WallsNeeded(CampZone.Instance, CampZone.WallData()) ? ResourceInfo.StoneItem : LowestMaterial();
+        if (!order.Contains(usual)) order.Add(usual);
         foreach (string m in new[] { ResourceInfo.StoneItem, ResourceInfo.WoodItem, ResourceInfo.OreItem, ResourceInfo.FiberItem })
             if (!order.Contains(m)) order.Add(m);
         NpcMover mover = NpcView.GetMover(n.id);
@@ -1208,6 +1308,56 @@ public class NpcIntentBrain : MonoBehaviour
     }
 
     // ============ 建筑 / 材料 ============
+
+    // 现在能建的建筑（已解锁、不是唯一建筑）。营地参谋、领导分工也用。
+    public static List<BuildableData> BuildCandidates() => Candidates();
+
+    // 按 id / 名字找一个能建的建筑；找不到返回 null。
+    public static BuildableData FindCandidate(string idOrName) => FindBuildable(idOrName);
+
+    // 能建的建筑清单（领导定建造项目用）：- id（名字，材料 …，仓库够 / 不够）。
+    public static string BuildListText(bool jp, bool skipWall)
+    {
+        StringBuilder sb = new StringBuilder();
+        foreach (BuildableData d in Candidates())
+        {
+            if (skipWall && d.id == "wall") continue;
+            MaterialCost[] cost = CostOf(d);
+            bool enough = FirstMissing(cost, out _) == null;
+            sb.Append("- ").Append(d.id).Append("（").Append(d.LocalizedName).Append(jp ? "／材料 " : "，材料 ").Append(CostText(cost))
+              .Append(enough ? (jp ? "／倉庫にある" : "，仓库够") : (jp ? "／足りない" : "，不够")).AppendLine("）");
+        }
+        return sb.ToString();
+    }
+
+    // 建造项目还缺哪种材料（都够 / 没有项目返回 null）。
+    static string ProjectMissingMaterial()
+    {
+        BuildableData d = NpcSociety.Project;
+        if (d == null) return null;
+        MaterialCost m = FirstMissing(CostOf(d), out _);
+        return m != null && Array.IndexOf(Materials, m.materialName) >= 0 ? m.materialName : null;
+    }
+
+    // 水和电的现状（营地现状里用：NPC 自己想事情、领导分工都看得到）。
+    static string WaterLine(bool jp)
+    {
+        string d = CampAdvisor.DaysPhrase(WaterWorks.DaysLeft, jp);
+        return jp ? $"水：浄化水 {WaterWorks.StoredWater}（{d}）／雨水タンク {WaterWorks.CollectorCount} 基（雨水 {WaterWorks.RawTotal}/{WaterWorks.RawCapacity}）／浄水器 {WaterWorks.PurifierCount} 台"
+                  : $"水：净化水 {WaterWorks.StoredWater} 份（{d}）；雨水收集器 {WaterWorks.CollectorCount} 台（雨水 {WaterWorks.RawTotal}/{WaterWorks.RawCapacity}）；水源净化器 {WaterWorks.PurifierCount} 台";
+    }
+
+    static string PowerLine(bool jp)
+    {
+        int nodes = 0;
+        foreach (PowerNode p in PowerNode.All) if (p != null && p.IsBuilt && p.kind != PowerNodeKind.Terminal) nodes++;
+        if (nodes == 0) return "";
+        PowerGrid.Summary ps = PowerGrid.Total();
+        string s = jp ? $"電気：蓄電 {ps.stored:0.#}/{ps.capacity:0.#}" : $"电：储电 {ps.stored:0.#}/{ps.capacity:0.#}";
+        if (ps.shed > 0) s += jp ? "（電気が足りず止まっている設備がある）" : "（有设备因为电不够停了）";
+        if (ps.unlinkedDevices > 0) s += jp ? "（電源につながっていない設備がある）" : "（有设备没接上电）";
+        return s;
+    }
 
     static List<BuildableData> Candidates()
     {

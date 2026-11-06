@@ -50,6 +50,9 @@ public static class PromptContext
             if (s.count > 0) items.Add(ProgressionRules.ItemName(s.itemName) + "×" + s.count);
         sb.AppendLine((jp ? "【拠点の倉庫】" : "【营地仓库】") + (items.Count > 0 ? string.Join("、", items) : (jp ? "空っぽ" : "空的")));
 
+        // —— 营地眼下最要紧的事（隐形的营地参谋 CampAdvisor 整理；只给 NPC 自己的提示词：想事情、和 AI 说话）——
+        if (self != null) sb.Append(CampAdvisor.PromptBlock(jp));
+
         // —— 最近大事（只取符合当前语言的条目）——
         if (includeEvents) AppendRecent(sb, w.eventLog, MaxEvents, jp ? "【最近の出来事】" : "【最近发生的事】");
 
