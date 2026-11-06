@@ -4,7 +4,9 @@ using UnityEngine.UI;
 using TMPro;
 
 // AI 终端机面板：点击终端机打开。四个分页——升级 / 合成（建造台）/ 科技 / 能源（电网 + 加温器、降温器的档位）。
-// 底部显示算力槽和任务队列。UI 运行时自动生成（和仓库面板同一风格）。
+// 底部显示算力槽和任务队列。UI 运行时自动生成。
+// 风格和游戏里其他浮窗一致（UiPopup）：深色底 + 淡绿细框 + 左上角标签「terminal : online」；
+//   打开时一条细线从终端机伸到浮窗左上角 → 变成上沿 → 往下展开。分页 / 按钮是淡绿标签样式（英文等宽字）。
 // 挂在场景里的常驻空物体上（和 TerminalDatabase 放一起即可），不要挂在终端机预制体上。
 public class TerminalPanelUI : MonoBehaviour
 {
@@ -20,7 +22,12 @@ public class TerminalPanelUI : MonoBehaviour
     private Tab _tab = Tab.Craft;
 
     // —— 运行时生成的 UI ——
-    private GameObject _panel;
+    private UiPopup _popup;
+    private GameObject _panel;            // = 浮窗的 Body，内容都放在这里
+    private string _tagText;
+    private readonly TMP_Text[] _tabTexts = new TMP_Text[4];
+    private readonly List<TMP_Text> _tags = new List<TMP_Text>();       // 段标题：打开（激活）后要重新量宽度
+    private readonly List<GameObject> _mainOnly = new List<GameObject>(); // 只在升级 / 合成 / 科技页显示的装饰（段标题、分隔线）
     private TMP_Text _header, _queueText, _dName, _dDesc, _dCost, _dReq, _feedback, _actionText;
     private Button _actionBtn;
     private Button[] _tabBtns = new Button[4];
@@ -39,25 +46,24 @@ public class TerminalPanelUI : MonoBehaviour
     private string _selectedId;
     private float _timer;
 
-    static readonly Color PanelColor = new Color(0.05f, 0.06f, 0.10f, 0.95f);
-    static readonly Color RowColor = new Color(0.14f, 0.16f, 0.22f, 1f);
-    static readonly Color RowSelColor = new Color(0.25f, 0.35f, 0.6f, 1f);
-    static readonly Color TabColor = new Color(0.16f, 0.18f, 0.26f, 1f);
-    static readonly Color TabSelColor = new Color(0.49f, 0.36f, 1f, 1f);
-    static readonly Color Accent = new Color(0.31f, 0.66f, 1f);
-    static readonly Color SubColor = new Color(0.65f, 0.7f, 0.8f);
+    // 识别框风格的颜色（UiStyle）：淡绿为主色，行底色很淡
+    static readonly Color Green = UiStyle.Green;
+    static readonly Color RowColor = new Color(1f, 1f, 1f, 0.035f);
+    static readonly Color RowSelColor = new Color(0.72f, 1f, 0.78f, 0.16f);
+    static readonly Color Accent = UiStyle.Green;
+    static readonly Color SubColor = UiStyle.TextSub;
+    const float W = 900f, H = 600f;   // 浮窗大小（1920×1080 下的界面单位）
 
     void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         BuildUI();
-        _panel.SetActive(false);
     }
 
     void Update()
     {
-        if (_panel == null || !_panel.activeSelf) return;
+        if (_popup == null || !_popup.IsOpen) return;
         // 终端机被销毁了就关掉面板
         if (TerminalController.Instance == null) { Close(); return; }
         _timer += Time.deltaTime;
@@ -67,13 +73,23 @@ public class TerminalPanelUI : MonoBehaviour
     // 打开面板（TerminalClickHandler 点击终端机时调用）。
     public void Open()
     {
-        if (TerminalController.Instance == null) return;
-        _panel.SetActive(true);
+        TerminalController tc = TerminalController.Instance;
+        if (tc == null) return;
         _feedback.text = "";
+        if (_popup.IsOpen) { Refresh(); return; }   // 已经开着：不重放动画
+        // 浮窗在屏幕正中；线从终端机（屏幕上的位置）伸到浮窗左上角
+        Vector2 cs = _popup.CanvasSize;
+        Vector2 tl = new Vector2((cs.x - W) * 0.5f, (cs.y + H) * 0.5f);
+        Camera cam = Camera.main;
+        Vector2 origin = cam != null ? _popup.ToCanvas(cam.WorldToScreenPoint(tc.transform.position)) : tl;
+        _popup.OpenCanvas(origin, tl, new Vector2(W, H), cam != null);
+        foreach (TMP_Text t in _tags) UiStyle.FitTag(t);   // 标签是在没激活的时候建的：激活后重新量宽度
         Refresh();
     }
 
-    public void Close() { if (_panel != null) _panel.SetActive(false); }
+    public bool IsOpen => _popup != null && _popup.IsOpen;
+
+    public void Close() { if (_popup != null) _popup.Close(); }
 
     void SwitchTab(Tab t)
     {
@@ -91,10 +107,14 @@ public class TerminalPanelUI : MonoBehaviour
 
         // 标题：AI终端机　Lv1·一产　在线
         string status = !tc.isBuilt ? L("term_status_building") : (tc.IsOnline() ? L("term_status_online") : L("term_status_offline"));
-        _header.text = $"{L("terminal_name")}　<color=#4EA8FF>{ProgressionRules.TierLabel(ProgressionRules.Tier)}</color>　<size=75%><color=#9AA5B8>{status}</color></size>";
+        string stColor = !tc.isBuilt ? "#FFE36A" : (tc.IsOnline() ? "#74DB8C" : "#FF6B6B");
+        _header.text = $"{L("terminal_name")}　<color=#B8FFC7>{ProgressionRules.TierLabel(ProgressionRules.Tier)}</color>　<size=75%><color={stColor}>{status}</color></size>";
+        // 左上角标签：terminal : online / offline / building
+        string tag = !tc.isBuilt ? "terminal : building" : (tc.IsOnline() ? "terminal : online" : "terminal : offline");
+        if (tag != _tagText) { _tagText = tag; _popup.SetTag(tag); }
 
-        // 分页按钮高亮
-        for (int i = 0; i < _tabBtns.Length; i++) _tabBtns[i].GetComponent<Image>().color = (int)_tab == i ? TabSelColor : TabColor;
+        // 分页按钮：选中的实心淡绿，没选中的只有细框
+        for (int i = 0; i < _tabBtns.Length; i++) StyleTagButton(_tabBtns[i], _tabTexts[i], (int)_tab == i);
 
         // 能源页：另一套界面
         bool power = _tab == Tab.Power;
@@ -107,7 +127,7 @@ public class TerminalPanelUI : MonoBehaviour
         for (int i = 0; i < _rows.Count; i++)
         {
             _rows[i].label.text = entries[i].label;
-            _rows[i].label.color = entries[i].dim ? new Color(0.5f, 0.52f, 0.58f) : Color.white;
+            _rows[i].label.color = entries[i].dim ? UiStyle.Gray : UiStyle.TextMain;
             _rows[i].bg.color = _rows[i].id == _selectedId ? RowSelColor : RowColor;
         }
 
@@ -143,7 +163,7 @@ public class TerminalPanelUI : MonoBehaviour
                     bool researching = ws != null && ws.IsQueued(TerminalJobType.Research, t.id);
                     string label = db.TechName(t.id);
                     if (done) label = "<color=#5FD69A>●</color> " + label;
-                    else if (researching) label += "  <size=80%><color=#4EA8FF>" + L("tech_researching") + "</color></size>";
+                    else if (researching) label += "  <size=80%><color=#B8FFC7>" + L("tech_researching") + "</color></size>";
                     else if (!unlocked) label += "  <size=80%>[" + L("lock_short_tech") + "/Lv" + t.requiredTier + "]</size>";
                     list.Add((t.id, label, !done && !unlocked));
                 }
@@ -235,6 +255,9 @@ public class TerminalPanelUI : MonoBehaviour
         _actionBtn.gameObject.SetActive(true);
         _actionBtn.interactable = can;
         _actionText.text = can ? label : label + "  <size=75%>(" + reason + ")</size>";
+        // 能点：实心淡绿 + 深色字；不能点：很淡的灰底 + 灰字
+        _actionBtn.GetComponent<Image>().color = can ? Green : new Color(UiStyle.Gray.r, UiStyle.Gray.g, UiStyle.Gray.b, 0.16f);
+        _actionText.color = can ? UiStyle.Ink : UiStyle.TextSub;
     }
 
     // 底部：算力槽 + 正在处理的任务进度 + 排队数
@@ -244,7 +267,7 @@ public class TerminalPanelUI : MonoBehaviour
         if (ws == null) { _queueText.text = "<color=#FF6B6B>TerminalWorkshop ?</color>"; return; }
 
         string s = ProgressionRules.LF("term_slots", ws.running.Count, ws.Slots, ws.waiting.Count) + "\n";
-        if (ws.running.Count == 0) s += "<color=#9AA5B8>" + L("term_idle") + "</color>";
+        if (ws.running.Count == 0) s += "<color=#9DB3A4>" + L("term_idle") + "</color>";
         foreach (TerminalJob j in ws.running)
             s += $"→ {TerminalWorkshop.JobLabel(j)}  {Bar(j.Progress01)}  {j.remaining:0}s　";
         _queueText.text = s;
@@ -254,7 +277,7 @@ public class TerminalPanelUI : MonoBehaviour
     static string Bar(float p)
     {
         int n = Mathf.RoundToInt(p * 10f);
-        return "<color=#4EA8FF>" + new string('■', n) + "</color><color=#3A4050>" + new string('■', 10 - n) + "</color>";
+        return "<color=#B8FFC7>" + new string('■', n) + "</color><color=#34403A>" + new string('■', 10 - n) + "</color>";
     }
 
     // ================= 按钮 =================
@@ -311,76 +334,125 @@ public class TerminalPanelUI : MonoBehaviour
     // ================= 搭 UI =================
     void BuildUI()
     {
-        GameObject canvasGo = new GameObject("TerminalCanvas");
-        canvasGo.transform.SetParent(transform, false);
-        Canvas canvas = canvasGo.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 410; // 比仓库面板高一点
-        CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
-        canvasGo.AddComponent<GraphicRaycaster>();
+        if (font == null) font = GameFonts.Find();
 
-        // 面板 900×580，屏幕正中
-        _panel = new GameObject("TerminalPanel", typeof(RectTransform));
-        _panel.transform.SetParent(canvasGo.transform, false);
-        _panel.AddComponent<Image>().color = PanelColor; // 挡住点击，不穿透到地图
-        RectTransform prt = (RectTransform)_panel.transform;
-        prt.anchorMin = prt.anchorMax = new Vector2(0.5f, 0.5f);
-        prt.sizeDelta = new Vector2(900, 580);
+        // 浮窗（和资源详细、任务栏浮窗同一个样式），自己一个画布
+        _popup = UiPopup.Create("TerminalPopup", 410);   // 比仓库面板高一点
+        _popup.transform.SetParent(transform, false);
+        _popup.Interactable = true;    // 挡住点击，不穿透到地图
+        _popup.KeepTether = false;     // 镜头会动：打开完就把线收掉
+        _tagText = "terminal : online";
+        _popup.SetTag(_tagText);
+        _panel = _popup.Body.gameObject;
+        _popup.Body.sizeDelta = new Vector2(W, H);
 
-        _header = NewText(_panel.transform, "Header", "", 30, Color.white, TextAlignmentOptions.Left);
-        Place(_header.rectTransform, 24, 16, 760, 44);
+        _header = NewText(_panel.transform, "Header", "", 24, UiStyle.TextMain, TextAlignmentOptions.Left);
+        Place(_header.rectTransform, 24, 30, 760, 36);
 
-        Button close = NewButton(_panel.transform, "Close", new Color(0.3f, 0.2f, 0.25f), out TMP_Text ct);
-        Place((RectTransform)close.transform, 900 - 56, 16, 40, 40);
-        ct.text = "×"; ct.fontSize = 28;
+        // 右上角关闭：和底部任务栏按钮一样的淡绿标签
+        Button close = NewTagButton(_panel.transform, "Close", "[x]", out TMP_Text ct);
+        Place((RectTransform)close.transform, W - 56, 10, 44, UiStyle.TagH + 2f);
+        StyleTagButton(close, ct, true);
         close.onClick.AddListener(Close);
 
-        // 四个分页按钮
-        string[] tabKeys = { "term_tab_upgrade", "term_tab_craft", "term_tab_tech", "term_tab_power" };
-        for (int i = 0; i < tabKeys.Length; i++)
+        // 四个分页（英文等宽字）
+        string[] tabNames = { "upgrade", "craft", "tech", "power" };
+        for (int i = 0; i < tabNames.Length; i++)
         {
             Tab t = (Tab)i;
-            _tabBtns[i] = NewButton(_panel.transform, "Tab" + i, TabColor, out TMP_Text tt);
-            tt.text = L(tabKeys[i]);
-            Place((RectTransform)_tabBtns[i].transform, 24 + i * 132, 68, 124, 38);
+            _tabBtns[i] = NewTagButton(_panel.transform, "Tab" + i, tabNames[i], out _tabTexts[i]);
+            Place((RectTransform)_tabBtns[i].transform, 24 + i * 112, 76, 104, 26);
             _tabBtns[i].onClick.AddListener(() => SwitchTab(t));
         }
+        Divider(_panel.transform, 24, 114, W - 48);
 
         // 左：列表区
         GameObject list = new GameObject("List", typeof(RectTransform));
         list.transform.SetParent(_panel.transform, false);
         _listRoot = (RectTransform)list.transform;
-        Place(_listRoot, 24, 120, 340, 340);
+        Place(_listRoot, 24, 128, 340, 320);
 
         // 右：详情区
-        _dName = NewText(_panel.transform, "DName", "", 26, Accent, TextAlignmentOptions.Left);
-        Place(_dName.rectTransform, 388, 120, 488, 36);
-        _dDesc = NewText(_panel.transform, "DDesc", "", 19, SubColor, TextAlignmentOptions.TopLeft);
+        _dName = NewText(_panel.transform, "DName", "", 22, Accent, TextAlignmentOptions.Left);
+        Place(_dName.rectTransform, 388, 128, 488, 32);
+        _dDesc = NewText(_panel.transform, "DDesc", "", 17, SubColor, TextAlignmentOptions.TopLeft);
         _dDesc.enableWordWrapping = true;
-        Place(_dDesc.rectTransform, 388, 160, 488, 96);
-        _dCost = NewText(_panel.transform, "DCost", "", 19, Color.white, TextAlignmentOptions.TopLeft);
+        Place(_dDesc.rectTransform, 388, 164, 488, 92);
+        _dCost = NewText(_panel.transform, "DCost", "", 17, UiStyle.TextMain, TextAlignmentOptions.TopLeft);
         _dCost.enableWordWrapping = true;
-        Place(_dCost.rectTransform, 388, 260, 488, 56);
-        _dReq = NewText(_panel.transform, "DReq", "", 18, SubColor, TextAlignmentOptions.TopLeft);
+        Place(_dCost.rectTransform, 388, 260, 488, 52);
+        _dReq = NewText(_panel.transform, "DReq", "", 16, SubColor, TextAlignmentOptions.TopLeft);
         _dReq.enableWordWrapping = true;
-        Place(_dReq.rectTransform, 388, 318, 488, 30);
+        Place(_dReq.rectTransform, 388, 314, 488, 28);
 
-        _actionBtn = NewButton(_panel.transform, "Action", new Color(0.2f, 0.45f, 0.85f), out _actionText);
-        Place((RectTransform)_actionBtn.transform, 388, 356, 488, 50);
+        // 操作按钮：淡绿标签样式（字用游戏字体，要显示中日文）
+        _actionBtn = NewTagButton(_panel.transform, "Action", "", out _actionText);
+        if (font != null) _actionText.font = font;
+        _actionText.richText = true;
+        _actionText.fontSize = 18;
+        Place((RectTransform)_actionBtn.transform, 388, 350, 488, 38);
         _actionBtn.onClick.AddListener(OnClickAction);
 
-        _feedback = NewText(_panel.transform, "Feedback", "", 18, Color.white, TextAlignmentOptions.Left);
+        _feedback = NewText(_panel.transform, "Feedback", "", 17, UiStyle.TextMain, TextAlignmentOptions.Left);
         _feedback.enableWordWrapping = true;
-        Place(_feedback.rectTransform, 388, 412, 488, 44);
+        Place(_feedback.rectTransform, 388, 396, 488, 44);
 
-        // 底：任务队列
-        _queueText = NewText(_panel.transform, "Queue", "", 18, Color.white, TextAlignmentOptions.TopLeft);
+        // 底：任务队列（淡绿段标题「queue」）
+        _mainOnly.Add(Divider(_panel.transform, 24, 456, W - 48));
+        _mainOnly.Add(SectionTag(_panel.transform, "queue", 24, 468));
+        _queueText = NewText(_panel.transform, "Queue", "", 17, UiStyle.TextMain, TextAlignmentOptions.TopLeft);
         _queueText.enableWordWrapping = true;
-        Place(_queueText.rectTransform, 24, 476, 852, 90);
+        Place(_queueText.rectTransform, 24, 496, 852, 92);
 
         BuildPowerUI();
+    }
+
+    // 淡绿标签样式的按钮（实心 = 选中 / 可点，只有细框 = 没选中）。字是等宽英文小字。
+    Button NewTagButton(Transform parent, string name, string text, out TMP_Text label)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        Image img = go.AddComponent<Image>();
+        img.color = Green;
+        UiStyle.Frame((RectTransform)go.transform, new Color(Green.r, Green.g, Green.b, 0.8f), 1f);
+        Button b = go.AddComponent<Button>();
+        b.targetGraphic = img;
+        b.transition = Selectable.Transition.None;
+        label = NewText(go.transform, "Label", text, UiStyle.TagFont + 1f, UiStyle.Ink, TextAlignmentOptions.Center);
+        TMP_FontAsset mono = UiStyle.Mono;
+        if (mono != null) label.font = mono;
+        RectTransform lrt = label.rectTransform;
+        lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
+        lrt.offsetMin = new Vector2(6f, 0f); lrt.offsetMax = new Vector2(-6f, 0f);
+        return b;
+    }
+
+    static void StyleTagButton(Button b, TMP_Text label, bool on)
+    {
+        b.GetComponent<Image>().color = on ? Green : new Color(Green.r, Green.g, Green.b, 0.06f);
+        label.color = on ? UiStyle.Ink : Green;
+    }
+
+    // 段标题：淡绿底色的英文小标签（和资源详细浮窗一样）。返回标签所在的物体（切换分页时显示 / 隐藏用）。
+    GameObject SectionTag(Transform parent, string text, float x, float y)
+    {
+        GameObject go = new GameObject("Section_" + text, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        Place((RectTransform)go.transform, x, y, 200, UiStyle.TagH);
+        _tags.Add(UiStyle.Tag((RectTransform)go.transform, text, Green));
+        return go;
+    }
+
+    // 一条很淡的淡绿细线（分隔用）。
+    GameObject Divider(Transform parent, float x, float y, float w)
+    {
+        GameObject go = new GameObject("Divider", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        Place((RectTransform)go.transform, x, y, w, 1f);
+        Image img = go.AddComponent<Image>();
+        img.color = new Color(Green.r, Green.g, Green.b, 0.22f);
+        img.raycastTarget = false;
+        return go;
     }
 
     // ================= 能源页 =================
@@ -389,14 +461,15 @@ public class TerminalPanelUI : MonoBehaviour
     {
         _powerRoot = new GameObject("PowerTab", typeof(RectTransform));
         _powerRoot.transform.SetParent(_panel.transform, false);
-        Place((RectTransform)_powerRoot.transform, 24, 120, 852, 446);
+        Place((RectTransform)_powerRoot.transform, 24, 128, 852, 460);
 
-        _powerSummary = NewText(_powerRoot.transform, "Summary", "", 18, Color.white, TextAlignmentOptions.TopLeft);
+        _powerSummary = NewText(_powerRoot.transform, "Summary", "", 17, UiStyle.TextMain, TextAlignmentOptions.TopLeft);
         _powerSummary.enableWordWrapping = true;
-        Place(_powerSummary.rectTransform, 0, 0, 852, 150);
+        Place(_powerSummary.rectTransform, 0, 0, 852, 154);
 
-        _powerHeader = NewText(_powerRoot.transform, "DevHeader", "", 18, SubColor, TextAlignmentOptions.Left);
-        Place(_powerHeader.rectTransform, 0, 154, 852, 26);
+        SectionTag(_powerRoot.transform, "devices", 0, 160);
+        _powerHeader = NewText(_powerRoot.transform, "DevHeader", "", 16, SubColor, TextAlignmentOptions.Left);
+        Place(_powerHeader.rectTransform, 0, 184, 852, 24);
         _powerRoot.SetActive(false);
     }
 
@@ -409,6 +482,7 @@ public class TerminalPanelUI : MonoBehaviour
         _dReq.gameObject.SetActive(on);
         _feedback.gameObject.SetActive(on);
         _queueText.gameObject.SetActive(on);
+        foreach (GameObject g in _mainOnly) if (g != null) g.SetActive(on);
         if (!on) _actionBtn.gameObject.SetActive(false);
         if (_powerRoot != null) _powerRoot.SetActive(!on);
     }
@@ -452,8 +526,8 @@ public class TerminalPanelUI : MonoBehaviour
         if (unlinked.Count > 0)
             sb.AppendLine((jp ? "<color=#FFB060>未接続：" : "<color=#FFB060>没接电线：") + string.Join("、", unlinked) + "</color>");
         sb.Append(jp
-            ? "<size=85%><color=#9AA5B8>「電線」で発電機・蓄電池・設備をつなぐ。余った電気は蓄電池へ（効率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%）。足りない時は浄水器から先に止まる。ヒーター／クーラー 1/2/3段階：消費 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "、±" + PowerGrid.DegreesPerLevel + "℃ずつ（半径" + PowerGrid.RadiusCells + "マス）。浄水器：1段階で最大 " + WaterWorks.PurifyPerLevel + " 杯、浄化した分だけ消費。</color></size>"
-            : "<size=85%><color=#9AA5B8>用「电线」把发电机、蓄电池和设备连起来。多余的电充进电池（效率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%），电不够时先停净化器。加温器/降温器 1/2/3 档耗电 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "，每档 ±" + PowerGrid.DegreesPerLevel + "℃（半径 " + PowerGrid.RadiusCells + " 格）；净化器每档最多净化 " + WaterWorks.PurifyPerLevel + " 份，按净化量耗电。</color></size>");
+            ? "<size=85%><color=#9DB3A4>「電線」で発電機・蓄電池・設備をつなぐ。余った電気は蓄電池へ（効率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%）。足りない時は浄水器から先に止まる。ヒーター／クーラー 1/2/3段階：消費 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "、±" + PowerGrid.DegreesPerLevel + "℃ずつ（半径" + PowerGrid.RadiusCells + "マス）。浄水器：1段階で最大 " + WaterWorks.PurifyPerLevel + " 杯、浄化した分だけ消費。</color></size>"
+            : "<size=85%><color=#9DB3A4>用「电线」把发电机、蓄电池和设备连起来。多余的电充进电池（效率 " + (PowerGrid.ChargeEfficiency * 100f).ToString("0") + "%），电不够时先停净化器。加温器/降温器 1/2/3 档耗电 " + PowerGrid.ClimateLevelPower[1] + "/" + PowerGrid.ClimateLevelPower[2] + "/" + PowerGrid.ClimateLevelPower[3] + "，每档 ±" + PowerGrid.DegreesPerLevel + "℃（半径 " + PowerGrid.RadiusCells + " 格）；净化器每档最多净化 " + WaterWorks.PurifyPerLevel + " 份，按净化量耗电。</color></size>");
         _powerSummary.text = sb.ToString();
 
         // 设备列表（加温器 / 降温器 / 水源净化器）
@@ -472,12 +546,12 @@ public class TerminalPanelUI : MonoBehaviour
         {
             if (r.node == null) continue;
             PowerNode d = r.node;
-            r.label.text = d.DisplayName + (jp ? "　段階 " : "　档位 ") + "<color=#4EA8FF>" + d.level + "</color>";
+            r.label.text = d.DisplayName + (jp ? "　段階 " : "　档位 ") + "<color=#B8FFC7>" + d.level + "</color>";
             string st;
-            if (!d.IsBuilt) st = jp ? "<color=#9AA5B8>建設中</color>" : "<color=#9AA5B8>施工中</color>";
-            else if (d.level == 0) st = jp ? "<color=#9AA5B8>オフ</color>" : "<color=#9AA5B8>关闭</color>";
+            if (!d.IsBuilt) st = jp ? "<color=#9DB3A4>建設中</color>" : "<color=#9DB3A4>施工中</color>";
+            else if (d.level == 0) st = jp ? "<color=#9DB3A4>オフ</color>" : "<color=#9DB3A4>关闭</color>";
             else if (d.kind == PowerNodeKind.Purifier && d.powered) st = "<color=#5FD69A>" + (jp ? "浄化中 " : "净化中 ") + d.workAmount + (jp ? "杯" : "份") + " −" + PowerGrid.PurifierPower(d.workAmount).ToString("0.#") + (jp ? "電" : "电") + "</color>";
-            else if (d.kind == PowerNodeKind.Purifier && WaterWorks.RawTotal <= 0) st = jp ? "<color=#9AA5B8>待機（雨水なし）</color>" : "<color=#9AA5B8>待机（没有雨水）</color>";
+            else if (d.kind == PowerNodeKind.Purifier && WaterWorks.RawTotal <= 0) st = jp ? "<color=#9DB3A4>待機（雨水なし）</color>" : "<color=#9DB3A4>待机（没有雨水）</color>";
             else if (d.powered) st = "<color=#5FD69A>" + (d.kind == PowerNodeKind.Heater ? "+" : "−") + (d.level * PowerGrid.DegreesPerLevel) + "℃ −" + PowerGrid.DemandOf(d).ToString("0.#") + (jp ? "電" : "电") + "</color>";
             else if (d.network == null || (d.network.Generators == 0 && d.network.Batteries == 0)) st = jp ? "<color=#FF6B6B>未接続</color>" : "<color=#FF6B6B>没接电</color>";
             else st = jp ? "<color=#FF6B6B>電力不足</color>" : "<color=#FF6B6B>电力不足</color>";
@@ -492,25 +566,25 @@ public class TerminalPanelUI : MonoBehaviour
         for (int i = 0; i < devs.Count && i < MaxDevRows; i++)
         {
             PowerNode node = devs[i];
-            float y = 186 + i * 42;
+            float y = 214 + i * 40;
             GameObject root = new GameObject("Dev_" + i, typeof(RectTransform));
             root.transform.SetParent(_powerRoot.transform, false);
-            Place((RectTransform)root.transform, 0, y, 852, 38);
+            Place((RectTransform)root.transform, 0, y, 852, 36);
             Image bg = root.AddComponent<Image>();
             bg.color = RowColor;
 
-            TMP_Text label = NewText(root.transform, "Label", "", 19, Color.white, TextAlignmentOptions.Left);
-            Place(label.rectTransform, 12, 0, 520, 38);
-            Button minus = NewButton(root.transform, "Minus", TabColor, out TMP_Text mt);
-            mt.text = "−";
-            Place((RectTransform)minus.transform, 540, 3, 44, 32);
+            TMP_Text label = NewText(root.transform, "Label", "", 18, UiStyle.TextMain, TextAlignmentOptions.Left);
+            Place(label.rectTransform, 12, 0, 520, 36);
+            Button minus = NewTagButton(root.transform, "Minus", "-", out TMP_Text mt);
+            StyleTagButton(minus, mt, false);
+            Place((RectTransform)minus.transform, 540, 5, 44, 26);
             minus.onClick.AddListener(() => { PowerGrid.SetLevel(node, node.level - 1); RefreshPower(); });
-            Button plus = NewButton(root.transform, "Plus", TabColor, out TMP_Text pt);
-            pt.text = "+";
-            Place((RectTransform)plus.transform, 592, 3, 44, 32);
+            Button plus = NewTagButton(root.transform, "Plus", "+", out TMP_Text pt);
+            StyleTagButton(plus, pt, false);
+            Place((RectTransform)plus.transform, 592, 5, 44, 26);
             plus.onClick.AddListener(() => { PowerGrid.SetLevel(node, node.level + 1); RefreshPower(); });
-            TMP_Text status = NewText(root.transform, "Status", "", 18, Color.white, TextAlignmentOptions.Left);
-            Place(status.rectTransform, 648, 0, 200, 38);
+            TMP_Text status = NewText(root.transform, "Status", "", 17, UiStyle.TextMain, TextAlignmentOptions.Left);
+            Place(status.rectTransform, 648, 0, 200, 36);
 
             _devRows.Add(new DevRow { node = node, root = root, label = label, status = status });
         }
@@ -528,6 +602,7 @@ public class TerminalPanelUI : MonoBehaviour
             Place((RectTransform)b.transform, 0, i * (rowH + gap), 340, rowH);
             label.alignment = TextAlignmentOptions.Left;
             label.margin = new Vector4(12, 0, 8, 0);
+            label.fontSize = 18;
             b.onClick.AddListener(() => OnClickRow(id));
             _rows.Add(new Row { id = id, bg = b.GetComponent<Image>(), label = label });
         }
@@ -559,7 +634,7 @@ public class TerminalPanelUI : MonoBehaviour
         Image img = go.AddComponent<Image>();
         img.color = color;
         Button b = go.AddComponent<Button>();
-        label = NewText(go.transform, "Label", "", 20, Color.white, TextAlignmentOptions.Center);
+        label = NewText(go.transform, "Label", "", 20, UiStyle.TextMain, TextAlignmentOptions.Center);
         RectTransform lrt = label.rectTransform;
         lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
         lrt.offsetMin = Vector2.zero; lrt.offsetMax = Vector2.zero;

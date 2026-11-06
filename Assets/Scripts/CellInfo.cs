@@ -3,8 +3,8 @@ using System.Text;
 using UnityEngine;
 
 // ============================================================================
-// 格子信息（鼠标在地图上停半秒后弹出的坐标浮窗，HoverInfo 负责显示）。
-// 浮窗里的每一行由一个「信息提供者」(ICellInfoProvider) 写：现在只有坐标，
+// 格子信息（左下角一直显示的位置浮窗「location」，HoverInfo 负责显示）。
+// 浮窗里的每一行由一个「信息提供者」(ICellInfoProvider) 写：现在有地形 / 资源（TerrainCellInfo）；xy 坐标不显示了，
 // 以后加地形 / 资源 / 危险度……只要新写一个提供者并注册，不用改浮窗本身：
 //
 //   public class TerrainInfoProvider : ICellInfoProvider
@@ -90,12 +90,12 @@ public static class CellInfo
     {
         if (_defaults) return;
         _defaults = true;
-        _providers.Add(new CoordinateInfoProvider());
+        // 坐标那一行（CoordinateInfoProvider）不再默认加：位置浮窗不显示 xy 坐标。要加回来就在这里 Add。
         _providers.Sort((a, b) => a.Order.CompareTo(b.Order));
     }
 }
 
-// 默认提供者：xy 坐标。
+// xy 坐标（现在没有注册，留着备用）。
 public class CoordinateInfoProvider : ICellInfoProvider
 {
     public int Order => 0;

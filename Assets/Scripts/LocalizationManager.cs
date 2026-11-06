@@ -367,6 +367,8 @@ public class LocalizationManager : MonoBehaviour
             { "toast_built",          ("{0} 建成了", "{0}が完成した") },
             { "toast_crew",           ("施工：{0}", "担当：{0}") },
             { "toast_goal_done",      ("目标完成：{0}", "目標達成：{0}") },
+            // —— 左下角坐标浮窗（HoverInfo）——
+            { "grid_idle",            ("把鼠标移到地图上查看这一格", "マウスをマップに合わせるとマスの情報を表示") },
             { "tip_power_title",      ("电力", "電力") },
             { "tip_water_title",      ("净化水", "浄化水") },
             { "tip_power_none",       ("还没有发电设备。", "発電設備がまだない。") },
