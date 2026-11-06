@@ -12,7 +12,7 @@ using TMPro;
 //     这一列跟着日志抽屉走：抽屉展开时贴在它下沿下面，收起时往上挪（HudLayout.LeftColumnTop）；不会超出屏幕下沿。
 //   · 点任意一个资源图标：在右边弹出一个大框，所有资源的详细数据都在里面（再点一下收起）。
 //     打开动画和 NPC 对话窗口一样（UiPopup）；每种资源一段，段标题是淡绿底色的英文标签（power / water / wood / stone / ore）。
-//   · 顶部中间只剩「终端机」按钮（天数在右上角，见 HudLayout）。
+//   · 顶部中间原来的「终端机」按钮先去掉了（天数现在在顶部正中，见 HudLayout）。
 //   · 颜色（HudGlow）：充足 = 淡蓝；平时 = 淡绿；不足 = 淡黄 + 不规则闪烁。
 //       电力：充足 = 电池八成以上、没断电、没有没接线的设备；不足 = 有设备断电，或电池快空了还在亏电。
 //       净化水：充足 = 刻度环满格；不足 = 有人口渴，或只够喝参谋"紧急线"以内（默认 60 秒）。
@@ -46,12 +46,11 @@ public class ResourceHud : MonoBehaviour
     {
         public string key;
         public RectTransform head;
+        public TMP_Text tag;
         public TextMeshProUGUI text;
     }
 
     TMP_FontAsset _font;
-    TextMeshProUGUI _termTitle, _termSub;
-    Image _termBg;
     RectTransform _col;
     readonly Cell[] _cells = new Cell[5];
     float _timer, _colY = -1f;
@@ -81,25 +80,7 @@ public class ResourceHud : MonoBehaviour
 
     void Build(RectTransform top, Transform canvas)
     {
-        // 顶部中间：终端机快捷按钮
-        RectTransform term = NewRect("Terminal", top);
-        term.anchorMin = term.anchorMax = new Vector2(0.5f, 1f);
-        term.pivot = new Vector2(0.5f, 1f);
-        term.anchoredPosition = new Vector2(0f, TopY);
-        term.sizeDelta = new Vector2(TermW, PanelH);
-        Image border = term.gameObject.AddComponent<Image>();
-        border.color = new Color(0.72f, 1f, 0.78f, 0.6f); // 淡绿色边框（和其它界面统一，见 UiStyle）
-        RectTransform inner = NewRect("Bg", term);
-        Stretch(inner, new Vector2(2f, 2f), new Vector2(-2f, -2f));
-        _termBg = inner.gameObject.AddComponent<Image>();
-        _termBg.color = PanelBg;
-        _termBg.raycastTarget = false;
-        Button b = term.gameObject.AddComponent<Button>();
-        b.targetGraphic = border;
-        b.onClick.AddListener(OnTerminalClicked);
-        _termTitle = Text(term, "Title", 18f, Color.white, TextAlignmentOptions.Center, new Vector2(0f, -8f), new Vector2(TermW, 26f));
-        _termTitle.fontStyle = FontStyles.Bold;
-        _termSub = Text(term, "Sub", 14f, SubColor, TextAlignmentOptions.Center, new Vector2(0f, -36f), new Vector2(TermW, 22f));
+        // 顶部中间的「终端机」按钮先去掉了（OnTerminalClicked 留着，以后要放回来直接用）
 
         // 左边：电力 | 净化水 | 木材 | 石头 | 矿石（事件 / 日志栏下面，由上到下）
         _col = NewRect("HudResourceColumn", canvas);
@@ -192,8 +173,6 @@ public class ResourceHud : MonoBehaviour
 
     void Refresh()
     {
-        bool jp = LanguageGuard.IsJp;
-
         // —— 电力 ——
         Cell pc = CellOf("power");
         PowerGrid.Summary p = PowerGrid.Total();
@@ -235,18 +214,6 @@ public class ResourceHud : MonoBehaviour
             c.glow.SetWarning(warn);
             c.glow.SetGood(!warn && have >= MatFull);
         }
-
-        // —— 终端机 ——
-        TerminalController t = TerminalController.Instance;
-        _termTitle.text = jp ? "AI端末" : "终端机";
-        if (t == null) { _termSub.text = jp ? "未建設" : "未建造"; _termTitle.color = SubColor; }
-        else if (!t.isBuilt) { _termSub.text = jp ? "建設中" : "施工中"; _termTitle.color = SubColor; }
-        else
-        {
-            int lv = WorldManager.Instance != null ? WorldManager.Instance.world.terminalLevel : 1;
-            _termSub.text = "Lv" + lv;
-            _termTitle.color = Color.white;
-        }
     }
 
     // 净化水刻度环：够喝到参谋"偏低线"的 2 倍算满格。
@@ -285,9 +252,10 @@ public class ResourceHud : MonoBehaviour
         Vector3[] c = UiPopup.ScreenCorners(from);   // 0 左下、1 左上、2 右上、3 右下
         Vector3[] col = UiPopup.ScreenCorners(_col);
         float k = _detail.UnitToPixels;
-        // 大框在资源栏右边，上沿比点的那个图标低一点：线从图标右上角斜着落到大框右上角，不压在边框上
+        // 大框在资源栏右边，上沿比点的那个图标低一点：线从图标右上角伸到大框左上角，再变成上沿往右展开
         Vector2 topLeft = new Vector2(col[2].x + 18f * k, c[2].y - 14f * k);
         _detail.Open(c[2], topLeft, size);
+        _detail.Resize(LayoutDetail());   // 打开（激活）之后再排一次：标签宽度、文字高度这时才量得准
     }
 
     void BuildDetail()
@@ -300,7 +268,7 @@ public class ResourceHud : MonoBehaviour
             s.head = NewRect("Head_" + key, _detail.Body);
             s.head.anchorMin = s.head.anchorMax = s.head.pivot = new Vector2(0f, 1f);
             s.head.sizeDelta = new Vector2(DetailW - 24f, UiStyle.TagH);
-            UiStyle.Tag(s.head, key, UiStyle.Green);           // 段标题：淡绿底色的英文标签
+            s.tag = UiStyle.Tag(s.head, key, UiStyle.Green);   // 段标题：淡绿底色的英文标签（power / water / wood / stone / ore）
             s.text = Text(_detail.Body, "Text_" + key, 14f, UiStyle.TextMain, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(DetailW - 28f, 20f));
             s.text.richText = true;
             s.text.textWrappingMode = TextWrappingModes.Normal;
@@ -325,6 +293,7 @@ public class ResourceHud : MonoBehaviour
             }
             string text = sb.ToString().TrimEnd('\n');
             s.head.anchoredPosition = new Vector2(12f, -y);
+            UiStyle.FitTag(s.tag);   // 标签是在浮窗没打开时建的，打开后要重新量宽度（不然只露出第一个字母）
             y += UiStyle.TagH + 5f;
             s.text.text = text;
             float h = Mathf.Ceil(s.text.GetPreferredValues(text, DetailW - 28f, 0f).y);

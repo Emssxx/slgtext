@@ -387,6 +387,9 @@ public class ConstructionManager : MonoBehaviour
         if (done != null) foreach (ConstructionSite s in done) Complete(s);
     }
 
+    // 一座建筑建成了（建筑名、施工的人）。左上角的建筑完成提示（HudToasts）用。
+    public static event System.Action<string, List<string>> OnSiteBuilt;
+
     void Complete(ConstructionSite site)
     {
         if (site == null) return;
@@ -415,6 +418,7 @@ public class ConstructionManager : MonoBehaviour
         else go.SendMessage("OnBuildComplete", SendMessageOptions.DontRequireReceiver);
         Say((jp ? "建設完了：" : "建成：") + siteName + (names.Count > 0 ? (jp ? "（担当：" : "（施工：") + string.Join("、", names) + "）" : ""));
         RelationshipManager.OnBuilt(crew, siteName); // 一起干活的人更亲近；其他人对施工的人多一点尊重
+        OnSiteBuilt?.Invoke(siteName, names);
     }
 
     void Release(string id, Builder b)

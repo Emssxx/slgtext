@@ -4,17 +4,16 @@ using UnityEngine.UI;
 using TMPro;
 
 // ============================================================================
-// 任务浮窗（右下角）：营地现在的目标、完成了没有、谁负责。
-//   · 右下角（建造按钮左边）一个标签按钮「goals : 2」：点一下弹出浮窗，再点一下收起。
-//     有目标完成了但你还没看到时，按钮黄绿交替闪。
-//   · 浮窗打开动画和 NPC 对话窗口一样（UiPopup：线从按钮伸出来 → 变成上沿 → 往下展开）。
+// 任务浮窗（底部任务栏 HudDock 里的「goals」）：营地现在的目标、完成了没有、谁负责。
+//   · 点任务栏上的「goals : 2」弹出浮窗，再点一下收起；有目标完成了但你还没看到时，按钮黄绿交替闪。
+//   · 浮窗打开动画：线从按钮伸到浮窗左上角 → 变成上沿 → 往下展开（UiPopup）。和其它浮窗并排，不互相遮挡（HudDock）。
 //   · 每个目标两行：
 //       □ 目标1　将营地用围墙围起来
 //         负责人：田中、铃木
 //     完成时：方块里画一个勾（两笔），接着一条线把目标文字划掉、文字变灰；过几秒从列表里拿掉。
 //     浮窗关着的时候完成的目标，下次打开时再播这段动画。
 //   · 目标从哪来、怎么算完成、负责人是谁：见 CampGoals。
-//   · 进入建造模式时按钮和浮窗都收起来（右下角给建造菜单让位）。
+//   · 进入建造模式时按钮和浮窗都收起来（HudDock 处理）。
 // 由 HudLayout.Start 调 Ensure() 创建。
 // ============================================================================
 public class NpcTaskPanel : MonoBehaviour
@@ -41,15 +40,12 @@ public class NpcTaskPanel : MonoBehaviour
         public float animT = -1f;    // -1 = 没在播；>= 0 = 播到第几秒
     }
 
-    GameObject _canvasGo;
-    RectTransform _btn;
-    TMP_Text _btnText;
-    Image _btnFill;
+    HudDock.Entry _entry;
     UiPopup _popup;
     TextMeshProUGUI _empty;
     readonly List<Row> _rows = new List<Row>();
     int _rowsVersion = -1;
-    float _refresh, _blink;
+    float _refresh;
 
     // 勾的三个点（方块左下角为原点，方块 16×16）
     static readonly Vector2 CheckA = new Vector2(3.5f, 8.5f), CheckB = new Vector2(7f, 4.5f), CheckC = new Vector2(13.5f, 13f);
@@ -74,124 +70,51 @@ public class NpcTaskPanel : MonoBehaviour
 
     void Build()
     {
-        _canvasGo = new GameObject("NpcTaskCanvas");
-        _canvasGo.transform.SetParent(transform, false);
-        Canvas canvas = _canvasGo.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 60; // 悬停信息框（70）在它上面
-        CanvasScaler scaler = _canvasGo.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
-        _canvasGo.AddComponent<GraphicRaycaster>();
-
-        // 右下角的标签按钮
-        GameObject b = new GameObject("GoalsButton", typeof(RectTransform));
-        b.transform.SetParent(_canvasGo.transform, false);
-        _btn = (RectTransform)b.transform;
-        _btn.anchorMin = _btn.anchorMax = new Vector2(1f, 0f);
-        _btn.pivot = new Vector2(1f, 0f);
-        _btn.anchoredPosition = new Vector2(-180f, 16f);
-        _btnText = UiStyle.Tag(_btn, "goals : 0", Green, 15f);
-        _btnFill = _btnText.transform.parent.GetComponent<Image>();
-        _btnFill.raycastTarget = true;
-        Button button = _btnFill.gameObject.AddComponent<Button>();
-        button.targetGraphic = _btnFill;
-        button.transition = Selectable.Transition.None;
-        button.onClick.AddListener(Toggle);
-
-        // 弹出浮窗
-        _popup = UiPopup.Create("NpcTaskPopup", 65);
-        _popup.transform.SetParent(transform, false);
-        _popup.SetTag("objectives");
+        _entry = HudDock.Ensure().Add("goals", 50, ButtonLabel, PopupSize, onToggle: OnToggle, popupTag: "objectives");
+        _popup = _entry.popup;
         _empty = NewText(_popup.Body, "Empty", 14f, OwnerColor);
         RectTransform er = _empty.rectTransform;
         er.anchorMin = er.anchorMax = er.pivot = new Vector2(0f, 1f);
         er.anchoredPosition = new Vector2(14f, -TopPad);
         er.sizeDelta = new Vector2(width - 28f, 22f);
-        RefreshButton();
     }
 
     void Update()
     {
-        bool hide = (BuildManager.Instance != null && BuildManager.Instance.IsBuildMode) || CountAlive() == 0;
-        if (_btn.gameObject.activeSelf == hide) _btn.gameObject.SetActive(!hide);
-        if (hide)
-        {
-            if (_popup.IsOpen) _popup.Close();
-            return;
-        }
-
         _refresh -= Time.unscaledDeltaTime;
         if (_refresh <= 0f)
         {
             _refresh = refreshInterval;
             CampGoals.Tick();
-            PlaceBesideBuildButton();
-            RefreshButton();
             if (_popup.IsOpen) SyncRows();
+            // 有完成了但还没看到的目标：任务栏按钮闪
+            bool unseen = false;
+            foreach (CampGoals.Goal g in CampGoals.All) if (g.Done && !g.animated) { unseen = true; break; }
+            _entry.blink = unseen;
         }
         if (_popup.IsOpen && !_popup.Animating) Animate(Time.unscaledDeltaTime);
-
-        // 有完成了但还没看到的目标：按钮黄绿交替闪
-        bool unseen = false;
-        foreach (CampGoals.Goal g in CampGoals.All) if (g.Done && !g.animated) { unseen = true; break; }
-        if (unseen && !_popup.IsOpen)
-        {
-            _blink += Time.unscaledDeltaTime;
-            _btnFill.color = Mathf.Repeat(_blink, 1f) < 0.5f ? UiStyle.Yellow : Green;
-        }
-        else if (_btnFill.color != Green) { _btnFill.color = Green; _blink = 0f; }
     }
 
-    void RefreshButton()
+    string ButtonLabel()
     {
         int open = 0;
         foreach (CampGoals.Goal g in CampGoals.All) if (!g.Done) open++;
-        UiStyle.SetTag(_btnText, "goals : " + open + (_popup != null && _popup.IsOpen ? "  [-]" : "  [+]"), _btnFill.color);
-        RectTransform tag = (RectTransform)_btnText.transform.parent;
-        tag.anchorMin = tag.anchorMax = tag.pivot = new Vector2(0f, 1f);
-        tag.anchoredPosition = Vector2.zero;
-        _btn.sizeDelta = tag.sizeDelta;
+        return "goals : " + open;
     }
 
-    // 放在建造按钮左边（右下角那一块），不挡按钮。
-    void PlaceBesideBuildButton()
+    void OnToggle(bool open)
     {
-        float x = -16f;
-        BuildModeToggle t = FindFirstObjectByType<BuildModeToggle>();
-        RectTransform rt = t != null ? t.transform as RectTransform : null;
-        if (rt != null && rt.gameObject.activeInHierarchy)
-        {
-            Canvas c = rt.GetComponentInParent<Canvas>();
-            float scale = c != null ? c.rootCanvas.transform.localScale.x : 1f;
-            float mine = _canvasGo.transform.localScale.x;
-            float w = rt.rect.width * (mine > 0f ? scale / mine : 1f);
-            x = -(16f + w + 12f);
-        }
-        _btn.anchoredPosition = new Vector2(x, 16f);
+        if (!open) return;
+        CampGoals.Tick();
+        SyncRows();
     }
 
     // ============ 浮窗 ============
 
-    public void Toggle()
-    {
-        if (_popup.IsOpen) { _popup.Close(); RefreshButton(); return; }
-        CampGoals.Tick();
-        SyncRows();
-        Vector2 size = PopupSize();
-        Vector3[] c = UiPopup.ScreenCorners(_btn);     // 0 左下、1 左上、2 右上
-        float k = _popup.UnitToPixels;
-        // 浮窗在按钮正上方、右边对齐：线从按钮右上角往上伸到浮窗右上角，再变成上沿往左展开
-        Vector2 topLeft = new Vector2(c[2].x - size.x * k, c[2].y + (14f + size.y) * k);
-        _popup.Open(c[2], topLeft, size);
-        RefreshButton();
-    }
-
     Vector2 PopupSize()
     {
         int n = Mathf.Max(1, _rows.Count);
-        return new Vector2(Mathf.Max(width, _popup.TagWidth + 24f), TopPad + n * RowH + BottomPad);
+        return new Vector2(Mathf.Max(width, (_popup != null ? _popup.TagWidth : 0f) + 24f), TopPad + n * RowH + BottomPad);
     }
 
     // 目标列表变了就重排；没变就只更新文字（负责人会变）。

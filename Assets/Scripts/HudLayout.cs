@@ -5,13 +5,14 @@ using UnityEngine.UI;
 using TMPro;
 
 // HUD 布局（运行时整理主界面，不用改场景）：
-//   左上角：事件栏 + 日志栏收进一个抽屉，点右侧的小把手滑动展开 / 收起。幸存者列表按钮跟着抽屉走。
-//   右下角：建造按钮；进入建造模式时，建造菜单从屏幕右边滑出来（菜单本身仍由 BuildManager 生成）。
-//   右上角：天数（电子表风格段码字，第 1 天显示 1……）；
-//   顶部中间：电力 | 净化水 | 「终端机」按钮（ResourceHud），下面一行是天气和气温（ClimateSystem）。
+//   右下角：底部任务栏（HudDock）一排标签按钮：crew | logs | events | goals | build，点了在上面弹出各自的浮窗，
+//           几个浮窗同时打开时并排 / 往上叠一行，不互相遮挡。
+//           events / logs = 场景里原来的事件栏、日志栏（整块挪进浮窗，逻辑不变）；crew = 幸存者列表；
+//           build = 进入 / 退出建造模式（原来的建造按钮藏起来但还在，B 键照样能用）；进入建造模式时建造菜单从右边滑出来。
+//   左上角：资源栏（ResourceHud：电力 / 水 / 木材 / 石头 / 矿石的刻度环）。
+//   右上角天气浮窗下面：任务汇报（HudToasts：建筑建成、目标完成；四个角展开 / 收回的动画，最新的在最上面）。
+//   屏幕上方正中间：天数（电子表风格段码字，第 1 天显示 1……）；右上角：常驻天气浮窗（WeatherPanel）。
 //   NPC 对话窗口在左下角（见 NpcChatWindow）。
-// 事件栏、日志栏是两个独立的识别框（UiStyle）：淡绿细边 + 左上角淡绿标签（就是原来的标题「事件」「日志」）。
-// 抽屉本身透明，只负责一起滑动。
 // 由 WorldManager.Start 调 HudLayout.Ensure() 创建。场景里原有的面板只是被"挪了位置"，各自的逻辑不变。
 public class HudLayout : MonoBehaviour
 {
@@ -26,12 +27,12 @@ public class HudLayout : MonoBehaviour
     [Tooltip("建造按钮离屏幕右下角的距离（下面留出 AI 状态文字的位置）")]
     public Vector2 buildButtonOffset = new Vector2(-16f, 60f);
 
-    [Header("天数（右上角）")]
-    [Tooltip("1 = 屏幕右上角；0.5 = 屏幕右边正中")]
+    [Header("天数（屏幕上方正中间）")]
+    [Tooltip("（已不用：天数固定在屏幕上方正中间）")]
     [Range(0f, 1f)] public float dayAnchorY = 1f;
     [Tooltip("天数框大小（原来是 96×64）")]
     public Vector2 daySize = new Vector2(150f, 100f);
-    [Tooltip("离屏幕右上角的距离")]
+    [Tooltip("离屏幕上边的距离（只用 y）")]
     public Vector2 dayOffset = new Vector2(-14f, -6f);
 
     // 建造菜单停靠的位置（右下角锚点坐标，BuildManager 生成菜单时读取）。
@@ -84,17 +85,109 @@ public class HudLayout : MonoBehaviour
             yield break;
         }
 
-        BuildLogDrawer(root.transform);
-        PlaceBuildButton();
+        DockLogs();                                // 事件栏 / 日志栏 → 底部任务栏的浮窗
+        DockCrew();                                // 幸存者列表 → 底部任务栏的浮窗
+        PlaceBuildButton();                        // 建造按钮 → 底部任务栏的 build
+        WeatherPanel.Ensure();                     // 天气浮窗：常驻在右上角
         BuildDayCounter(root.transform);
-        ResourceHud.Create(root.transform, _font); // 顶部：电力 / 净化水 + 终端机按钮；左边日志栏下面：木材 / 石头 / 矿石
+        ResourceHud.Create(root.transform, _font); // 左上角：电力 / 净化水 / 木材 / 石头 / 矿石；顶部中间：终端机按钮
+        HudToasts.Ensure();                        // 右上角天气浮窗下面：任务汇报（建筑建成、目标完成）
         HoverInfo.Ensure();                        // 鼠标悬停在 NPC / 建筑上的信息框 + 地图坐标浮窗
         CameraController.Ensure();                 // 滚轮缩放 + 中键拖动画面
         AiScheduler.Ensure();                      // AI 请求调度器（F9 调试面板）
-        NpcTaskPanel.Ensure();                     // 右下角：任务按钮 → 弹出营地目标浮窗（目标、完成打勾、负责人）
+        NpcTaskPanel.Ensure();                     // 底部任务栏的 goals：营地目标浮窗（目标、完成打勾、负责人）
     }
 
-    // ============ 左上角：事件 / 日志抽屉 ============
+    // ============ 底部任务栏：事件 / 日志 / 幸存者 ============
+
+    class LogWatch { public HudDock.Entry entry; public Transform content; public int count; }
+    readonly System.Collections.Generic.List<LogWatch> _logWatch = new System.Collections.Generic.List<LogWatch>();
+
+    void DockLogs()
+    {
+        RectTransform events = null, logs = null;
+        if (EventLogManager.Instance != null)
+            events = SectionOf(EventLogManager.Instance.scrollRect != null ? (Component)EventLogManager.Instance.scrollRect : EventLogManager.Instance.contentParent);
+        if (LogManager.Instance != null)
+            logs = SectionOf(LogManager.Instance.scrollRect != null ? (Component)LogManager.Instance.scrollRect : LogManager.Instance.contentParent);
+        if (events == null && logs == null)
+        {
+            Debug.LogWarning("[HudLayout] 没找到事件栏 / 日志栏，底部任务栏不放 events / logs。");
+            return;
+        }
+        HudDock dock = HudDock.Ensure();
+        if (events != null) DockSection(dock, "events", 40, "event_log", events, EventLogManager.Instance != null ? EventLogManager.Instance.contentParent : null);
+        if (logs != null) DockSection(dock, "logs", 30, "sys_log", logs, LogManager.Instance != null ? LogManager.Instance.contentParent : null);
+        if (EventLogManager.Instance != null) EventLogManager.Instance.eventColor = new Color(1f, 0.6f, 0.56f); // 事件 = 异常：淡红
+        if (LogManager.Instance != null) LogManager.Instance.nameColor = UiStyle.Green;                       // NPC 名字：淡绿
+        HideLegacyDialogPanel();
+    }
+
+    // 场景里的一栏整块挪进底部任务栏的浮窗：浮窗大小跟着这一栏想要的高度走（栏自己还能折叠）。有新条目时按钮闪。
+    void DockSection(HudDock dock, string id, int order, string tag, RectTransform sec, Transform content)
+    {
+        StylePopupSection(sec);
+        HudDock.Entry e = dock.Add(id, order, () => id, () => SectionSize(sec), popupTag: tag, interactable: true);
+        sec.SetParent(e.popup.Body, false);
+        sec.anchorMin = sec.anchorMax = sec.pivot = new Vector2(0f, 1f);
+        sec.anchoredPosition = Vector2.zero;
+        if (content != null) _logWatch.Add(new LogWatch { entry = e, content = content, count = content.childCount });
+    }
+
+    Vector2 SectionSize(RectTransform sec)
+    {
+        float h = LayoutUtility.GetPreferredHeight(sec);
+        if (h < 60f) h = Mathf.Max(sec.rect.height, 160f);
+        sec.sizeDelta = new Vector2(drawerWidth, h);
+        return new Vector2(drawerWidth, h);
+    }
+
+    // 浮窗里的栏：深色底（去掉圆角），标题栏透明，原来的标题字藏起来（浮窗左上角已经有英文标签），折叠箭头淡绿。
+    static void StylePopupSection(RectTransform sec)
+    {
+        if (sec == null) return;
+        Image bg = sec.GetComponent<Image>();
+        if (bg != null) { bg.sprite = null; bg.color = new Color(UiStyle.Panel.r, UiStyle.Panel.g, UiStyle.Panel.b, 0.6f); }
+        CollapsibleSection cs = sec.GetComponent<CollapsibleSection>();
+        if (cs == null || cs.headerButton == null) return;
+        Image hb = cs.headerButton.GetComponent<Image>();
+        if (hb != null) { hb.sprite = null; hb.color = Color.clear; } // 透明，但还能点
+        foreach (TMP_Text t in cs.headerButton.GetComponentsInChildren<TMP_Text>(true))
+            t.color = t == cs.toggleIcon ? UiStyle.Green : Color.clear;
+    }
+
+    // 幸存者列表（NpcListPanel 运行时生成的按钮和面板）：面板挪进底部任务栏的浮窗，原来的按钮藏起来。
+    void DockCrew()
+    {
+        GameObject btn = GameObject.Find("NpcListBtn");
+        if (btn == null) return;
+        Transform panel = btn.transform.parent != null ? btn.transform.parent.Find("NpcListPanel") : null;
+        Button ob = btn.GetComponent<Button>();
+        if (panel == null || ob == null) return;
+        HudDock.Entry e = HudDock.Ensure().Add("crew", 20, CrewLabel, () => new Vector2(180f, 290f),
+            onToggle: open => ob.onClick.Invoke(),   // 打开 / 收起都按一下原来的按钮（它负责刷新名单、显示 / 隐藏面板）
+            popupTag: "crew", interactable: true);
+        RectTransform prt = (RectTransform)panel;
+        prt.SetParent(e.popup.Body, false);
+        prt.anchorMin = Vector2.zero;
+        prt.anchorMax = Vector2.one;
+        prt.pivot = new Vector2(0.5f, 0.5f);
+        prt.offsetMin = new Vector2(4f, 4f);
+        prt.offsetMax = new Vector2(-4f, -(UiStyle.TagH + 6f));
+        Image pimg = panel.GetComponent<Image>();
+        if (pimg != null) pimg.color = Color.clear;   // 底色交给浮窗
+        btn.SetActive(false);
+    }
+
+    static string CrewLabel()
+    {
+        WorldState w = WorldManager.Instance != null ? WorldManager.Instance.world : null;
+        int k = 0;
+        if (w != null) foreach (NpcData n in w.npcs) if (n != null && !n.IsDead) k++;
+        return "crew : " + k;
+    }
+
+    // ============ 左上角：事件 / 日志抽屉（旧，已不用：事件 / 日志挪到了底部任务栏）============
 
     void BuildLogDrawer(Transform root)
     {
@@ -294,6 +387,14 @@ public class HudLayout : MonoBehaviour
     // 标题文字变了（切换语言）就更新标签。
     void Update()
     {
+        // 事件 / 日志有新条目、浮窗又关着：任务栏按钮闪
+        foreach (LogWatch lw in _logWatch)
+        {
+            if (lw.content == null) continue;
+            int n = lw.content.childCount;
+            if (n > lw.count && !lw.entry.IsOpen) lw.entry.blink = true;
+            lw.count = n;
+        }
         for (int i = 0; i < _titleSrc.Count; i++)
             if (_titleSrc[i] != null && _titleTag[i] != null && !string.IsNullOrEmpty(_titleSrc[i].text))
                 UiStyle.SetTag(_titleTag[i], _titleSrc[i].text, UiStyle.Green);
@@ -314,27 +415,32 @@ public class HudLayout : MonoBehaviour
 
     // ============ 右下角：建造按钮 ============
 
+    // 原来的建造按钮藏起来（看不见、点不到，但组件还在：B 键照样能进出建造模式），换成底部任务栏最右边的 build。
     void PlaceBuildButton()
     {
         BuildModeToggle toggle = FindFirstObjectByType<BuildModeToggle>(FindObjectsInactive.Include);
-        RectTransform rt = toggle != null ? toggle.transform as RectTransform : null;
-        if (rt == null) return;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
-        rt.anchoredPosition = buildButtonOffset;
-        BuildMenuPos = buildButtonOffset + new Vector2(0f, rt.sizeDelta.y + 8f);
+        if (toggle == null) return;
+        CanvasGroup g = toggle.GetComponent<CanvasGroup>();
+        if (g == null) g = toggle.gameObject.AddComponent<CanvasGroup>();
+        g.alpha = 0f;
+        g.blocksRaycasts = false;
+        g.interactable = false;
+        HudDock dock = HudDock.Ensure();
+        dock.Add("build", 60, () => BuildManager.Instance != null && BuildManager.Instance.IsBuildMode ? "build : on  [B]" : "build  [B]",
+                 onClick: toggle.OnClick, showInBuildMode: true);
+        BuildMenuPos = new Vector2(-dock.rightMargin, dock.bottomMargin + 22f + 10f); // 建造菜单停在任务栏上面
     }
 
     // ============ 天数 ============
 
     void BuildDayCounter(Transform root)
     {
-        bool top = dayAnchorY > 0.75f;
-
         // 透明底 + 电子表风格的段码数字（淡绿色、淡淡发光），下面一行小字 DAY（见 SegmentDisplay.cs）
+        // 位置：屏幕上方正中间（天气浮窗在右上角，见 WeatherPanel）
         RectTransform frame = NewRect("HudDay", root);
-        frame.anchorMin = frame.anchorMax = new Vector2(1f, dayAnchorY);
-        frame.pivot = new Vector2(1f, top ? 1f : 0.5f);
-        frame.anchoredPosition = new Vector2(dayOffset.x, top ? dayOffset.y : 0f);
+        frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 1f);
+        frame.pivot = new Vector2(0.5f, 1f);
+        frame.anchoredPosition = new Vector2(0f, dayOffset.y);
         frame.sizeDelta = daySize;
 
         RectTransform digits = NewRect("Day", frame);
@@ -348,29 +454,15 @@ public class HudLayout : MonoBehaviour
         HudDayCounter counter = frame.gameObject.AddComponent<HudDayCounter>();
         counter.segments = seg;
 
-        // 天气 + 气温（顶部中间，电力 / 水那一排下面）
-        const float resRowH = 64f; // ResourceHud 那一排的高度
-        RectTransform wx = NewRect("HudWeather", root);
-        wx.anchorMin = wx.anchorMax = new Vector2(0.5f, 1f);
-        wx.pivot = new Vector2(0.5f, 1f);
-        wx.anchoredPosition = new Vector2(0f, -(8f + resRowH + 4f));
-        wx.sizeDelta = new Vector2(440f, 28f);
-        Image wbg = wx.gameObject.AddComponent<Image>();
-        wbg.color = new Color(0.06f, 0.07f, 0.1f, 0.7f);
-        wbg.raycastTarget = false;
-        TextMeshProUGUI wt = NewText(wx, "Text", 17f);
-        Stretch(wt.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
-        HudWeather hw = wx.gameObject.AddComponent<HudWeather>();
-        hw.label = wt;
-        hw.background = wbg;
+        // 天气改成天数下面常驻的天气浮窗（WeatherPanel），这里不再放天气文字条
 
         // 顶部中间的状态卡区域往下让一让，别被天数挡住
         if (StatusPanelManager.Instance != null)
         {
             RectTransform sp = StatusPanelManager.Instance.transform as RectTransform;
-            if (sp != null && sp.anchorMin.y > 0.99f)
+            if (sp != null && sp.anchorMin.y > 0.99f && sp.anchorMin.x > 0.3f && sp.anchorMin.x < 0.7f)
             {
-                float y = -(8f + resRowH + 4f + 28f + 6f);
+                float y = -(-dayOffset.y + daySize.y + 6f);
                 if (sp.anchoredPosition.y > y) sp.anchoredPosition = new Vector2(sp.anchoredPosition.x, y);
             }
         }

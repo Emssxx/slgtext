@@ -3,20 +3,21 @@ using UnityEngine.UI;
 using TMPro;
 
 // ============================================================================
-// 弹出浮窗（识别框样式：深色底 + 淡绿细框 + 左上角标签），打开动画和 NPC 对话窗口一样：
-//   ① 一条线从"起点"（鼠标指着的资源、任务按钮……）伸到浮窗右上角
-//   ② 到了右上角拐成水平，往左伸到左上角，变成浮窗上沿
+// 弹出浮窗（识别框样式：深色底 + 淡绿细框 + 左上角标签），打开动画：
+//   ① 一条细线从"起点"（点的那个图标 / 按钮）伸到浮窗【左上角】
+//   ② 到了左上角拐成水平，往右伸到右上角，变成浮窗上沿
 //   ③ 浮窗从上沿往下展开（内容不动，被窗口边缘逐渐露出来）
-//   打开后那条线一直连着起点和浮窗右上角。
+//   KeepTether = true：打开后那条线一直连着起点和浮窗左上角；false：打开后线就收掉（底部任务栏那一排用）。
 // 用法：
-//   UiPopup p = UiPopup.Create("名字", 层级);  p.SetTag("power : detail");
+//   UiPopup p = UiPopup.Create("名字", 层级);  p.SetTag("power");
 //   往 p.Body 里放内容（Body 固定为完整大小，左上角对齐）；
-//   p.Open(起点, 浮窗左上角, 大小) —— 起点和左上角都是屏幕坐标（像素）；内容变高了 p.Resize(新大小)；不用了 p.Close()。
-// 资源悬停信息（ResourceHud）和任务浮窗（NpcTaskPanel）都用它。
+//   p.Open(起点, 浮窗左上角, 大小)（屏幕坐标）或 p.OpenCanvas(...)（画布坐标：1920×1080 参考分辨率下的界面单位，左下角为原点）；
+//   内容变高了 p.Resize(新大小)；挪位置 p.PlaceCanvas(左上角)；不用了 p.Close()。
+// 资源详细数据（ResourceHud）、底部任务栏那一排浮窗（HudDock）、建筑完成提示（HudToasts）都用它。
 // ============================================================================
 public class UiPopup : MonoBehaviour
 {
-    [Header("打开动画（秒，和 NPC 对话窗口一样）")]
+    [Header("打开动画（秒）")]
     public float lineTime = 0.16f;
     public float edgeTime = 0.16f;
     public float unfoldTime = 0.2f;
@@ -25,7 +26,10 @@ public class UiPopup : MonoBehaviour
     public RectTransform Window => _window;
     public bool IsOpen => _window != null && _window.gameObject.activeSelf;
     public bool Animating => _animating;
-    public bool Interactable { get; set; }   // true：浮窗挡鼠标（里面有能点的东西）；false：鼠标穿过去
+    public bool Interactable { get; set; }        // true：浮窗挡鼠标（里面有能点 / 能滚的东西）；false：鼠标穿过去
+    public bool KeepTether { get; set; } = true;  // 打开后连线留着
+    public Vector2 Size => _size;
+    public Vector2 CanvasSize => _canvasRt != null ? _canvasRt.rect.size : new Vector2(1920f, 1080f);
 
     static readonly Color Green = UiStyle.Green;
     const float LineWidth = 1f;   // 动画里那条线的粗细（和窗口边框差不多细）
@@ -34,7 +38,7 @@ public class UiPopup : MonoBehaviour
     CanvasGroup _group;
     TextMeshProUGUI _tag;
     bool _animating, _hasOrigin;
-    float _t;
+    float _t, _alpha = 1f;
     Vector2 _origin, _tl, _size;   // 画布左下角为原点
 
     public static UiPopup Create(string name, int sortingOrder)
@@ -71,25 +75,37 @@ public class UiPopup : MonoBehaviour
 
         UiStyle.Frame(_window, new Color(Green.r, Green.g, Green.b, 0.8f));
         _tag = UiStyle.Tag(_window, "info", Green);
+        _tag.transform.parent.SetAsLastSibling();   // 标签压在内容上面
 
         _segLine = NewSegment("Tether", transform);
         _segEdge = NewSegment("OpenEdge", transform);
         _window.gameObject.SetActive(false);
     }
 
-    public void SetTag(string text) { UiStyle.SetTag(_tag, text, Green); }
+    public void SetTag(string text)
+    {
+        UiStyle.SetTag(_tag, text, Green);
+        if (IsOpen) UiStyle.FitTag(_tag);
+    }
     public float TagWidth => UiStyle.TagWidth(_tag);
 
     // 打开（重新打开会重放动画）。origin / topLeft：屏幕坐标。
     public void Open(Vector2 originScreen, Vector2 topLeftScreen, Vector2 size)
     {
+        OpenCanvas(ToCanvas(originScreen), ToCanvas(topLeftScreen), size, true);
+    }
+
+    // 同上，画布坐标；hasOrigin = false：没有起点，跳过斜线那一段。
+    public void OpenCanvas(Vector2 origin, Vector2 topLeft, Vector2 size, bool hasOrigin = true)
+    {
         _size = size;
         Body.sizeDelta = size;
         _window.gameObject.SetActive(true);
-        _tl = ClampTopLeft(ToCanvas(topLeftScreen), size);
+        UiStyle.FitTag(_tag);   // 标签是在没激活的时候建的，第一次量出来的宽度不对：激活后重新量
+        _tl = ClampTopLeft(topLeft, size);
         _window.anchoredPosition = _tl;
-        _origin = ToCanvas(originScreen);
-        _hasOrigin = (_origin - (_tl + new Vector2(size.x, 0f))).sqrMagnitude > 16f;
+        _origin = origin;
+        _hasOrigin = hasOrigin && (_origin - _tl).sqrMagnitude > 16f;
 
         _t = 0f;
         _animating = true;
@@ -101,7 +117,7 @@ public class UiPopup : MonoBehaviour
         Tick(0f);
     }
 
-    // 内容变了：改大小（不重放动画）。
+    // 内容变了：改大小（不重放动画；左上角不动）。
     public void Resize(Vector2 size)
     {
         _size = size;
@@ -110,6 +126,20 @@ public class UiPopup : MonoBehaviour
         _tl = ClampTopLeft(_tl, size);
         _window.anchoredPosition = _tl;
         if (!_animating) _window.sizeDelta = size;
+    }
+
+    // 挪到新位置（画布坐标的左上角；不重放动画）。
+    public void PlaceCanvas(Vector2 topLeft)
+    {
+        _tl = ClampTopLeft(topLeft, _size);
+        if (IsOpen) _window.anchoredPosition = _tl;
+    }
+
+    // 整个浮窗的透明度（提示淡出用）。
+    public void SetAlpha(float a)
+    {
+        _alpha = Mathf.Clamp01(a);
+        if (!_animating) _group.alpha = _alpha;
     }
 
     public void Close()
@@ -124,7 +154,7 @@ public class UiPopup : MonoBehaviour
     {
         if (!IsOpen) return;
         if (_animating) { Tick(Time.unscaledDeltaTime); return; }
-        if (_hasOrigin) SetSegment(_segLine, _origin, _window.anchoredPosition + new Vector2(_window.sizeDelta.x, 0f)); // 连线一直留着
+        if (_hasOrigin && KeepTether) SetSegment(_segLine, _origin, _window.anchoredPosition); // 连线一直连着左上角
     }
 
     void Tick(float dt)
@@ -134,27 +164,27 @@ public class UiPopup : MonoBehaviour
         float b = Mathf.Max(0.0001f, edgeTime);
         float c = Mathf.Max(0.0001f, unfoldTime);
         float t = _t;
-        Vector2 tr = _tl + new Vector2(_size.x, 0f);
+        Vector2 tl = _tl, tr = _tl + new Vector2(_size.x, 0f);
 
         if (t < a)
         {
-            // ① 线从起点伸向窗口右上角
-            SetSegment(_segLine, _origin, Vector2.Lerp(_origin, tr, EaseOut(t / a)));
+            // ① 线从起点伸向窗口左上角
+            SetSegment(_segLine, _origin, Vector2.Lerp(_origin, tl, EaseOut(t / a)));
             _segEdge.gameObject.SetActive(false);
             return;
         }
         t -= a;
-        if (_hasOrigin) SetSegment(_segLine, _origin, tr);
+        if (_hasOrigin) SetSegment(_segLine, _origin, tl);
         else _segLine.gameObject.SetActive(false);
         if (t < b)
         {
-            // ② 拐成水平，往左伸到左上角，变成窗口上沿
-            SetSegment(_segEdge, tr, Vector2.Lerp(tr, _tl, EaseInOut(t / b)));
+            // ② 拐成水平，往右伸到右上角，变成窗口上沿
+            SetSegment(_segEdge, tl, Vector2.Lerp(tl, tr, EaseInOut(t / b)));
             return;
         }
         t -= b;
-        SetSegment(_segEdge, tr, _tl);
-        _group.alpha = 1f;
+        SetSegment(_segEdge, tl, tr);
+        _group.alpha = _alpha;
         if (t < c)
         {
             // ③ 窗口从上沿往下展开
@@ -163,13 +193,14 @@ public class UiPopup : MonoBehaviour
         }
         _animating = false;
         _window.sizeDelta = _size;
-        _group.alpha = 1f;
+        _group.alpha = _alpha;
         _group.blocksRaycasts = Interactable;
-        _segEdge.gameObject.SetActive(false);   // 上沿交给窗口自己的边框
+        _segEdge.gameObject.SetActive(false);                                   // 上沿交给窗口自己的边框
+        if (!KeepTether) _segLine.gameObject.SetActive(false);
     }
 
     // 屏幕坐标 → 画布坐标（画布左下角为原点）。
-    Vector2 ToCanvas(Vector2 screen)
+    public Vector2 ToCanvas(Vector2 screen)
     {
         RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRt, screen, null, out Vector2 local);
         return local + Vector2.Scale(_canvasRt.rect.size, _canvasRt.pivot);
@@ -197,7 +228,7 @@ public class UiPopup : MonoBehaviour
         return c;
     }
 
-    // 浮窗的 1 个界面单位 = 多少屏幕像素（摆位置时把界面单位换成像素用）。
+    // 浮窗的 1 个界面单位 = 多少屏幕像素。
     public float UnitToPixels => _canvasRt != null && _canvasRt.localScale.x > 0f ? _canvasRt.localScale.x : 1f;
 
     // ============ 小工具 ============
@@ -246,7 +277,7 @@ public class UiPopup : MonoBehaviour
     static float EaseInOut(float x) { x = Mathf.Clamp01(x); return x * x * (3f - 2f * x); }
 }
 
-// 鼠标移进 / 移出一块界面时回调（资源悬停信息用）。这块界面要有一个能接收射线的 Graphic。
+// 鼠标移进 / 移出一块界面时回调。这块界面要有一个能接收射线的 Graphic。
 public class UiHoverZone : MonoBehaviour, UnityEngine.EventSystems.IPointerEnterHandler, UnityEngine.EventSystems.IPointerExitHandler
 {
     public System.Action onEnter, onExit;

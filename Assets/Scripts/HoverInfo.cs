@@ -285,7 +285,10 @@ public class HoverInfo : MonoBehaviour
         _npcRoot.gameObject.SetActive(false);
     }
 
-    const float CornerSize = 32f, CornerPad = 9f, CornerArm = 14f, CornerThick = 2.5f;
+    public const float CornerSize = 32f, CornerPad = 9f, CornerArm = 14f, CornerThick = 2.5f;
+
+    // 角框贴图给别的界面用（建筑完成提示 HudToasts 也是四个角展开 / 收回）。
+    public static Texture2D SharedCornerTexture() => CornerTexture();
 
     // 一个左上角的角框（┌），四周留出发光的位置；颜色和天数数字一样（淡绿 + 微光）。
     static Texture2D _cornerTex;
@@ -807,7 +810,7 @@ public class HoverInfo : MonoBehaviour
             if (h == null) continue;
             NpcView v = h.GetComponentInParent<NpcView>();
             if (v != null && !string.IsNullOrEmpty(v.npcId)) { npc = v; target = v.gameObject; return; } // NPC 优先
-            if (building == null && IsBuilding(h.gameObject)) building = h.gameObject;
+            if (building == null && IsBuilding(h.gameObject) && OverBuilding(h, wp)) building = h.gameObject;
         }
         if (building != null) { target = building; return; }
 
@@ -830,6 +833,23 @@ public class HoverInfo : MonoBehaviour
         _cellName = occ;
         _cellAnchor.transform.position = g.CellToWorld(cell);
         target = _cellAnchor;
+    }
+
+    // 碰撞体可能比建筑本身大（比如终端机的碰撞框）：鼠标要真的在这座建筑的占地格子里，或者在它的图片范围里，
+    // 才算指着它；两样都没有（没占地信息也没图片）才信碰撞体。
+    static bool OverBuilding(Collider2D h, Vector3 wp)
+    {
+        GridManager g = GridManager.Instance;
+        BuildingFootprint fp = h.GetComponentInParent<BuildingFootprint>();
+        if (fp != null && g != null && fp.Contains(g.WorldToCell(wp))) return true;
+        SpriteRenderer sr = h.GetComponentInParent<SpriteRenderer>();
+        if (sr == null) sr = h.GetComponentInChildren<SpriteRenderer>();
+        if (sr != null)
+        {
+            Bounds b = sr.bounds;
+            return wp.x >= b.min.x && wp.x <= b.max.x && wp.y >= b.min.y && wp.y <= b.max.y;
+        }
+        return fp == null;
     }
 
     static bool IsBuilding(GameObject go)

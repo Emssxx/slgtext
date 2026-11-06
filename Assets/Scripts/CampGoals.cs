@@ -34,6 +34,7 @@ public static class CampGoals
     static readonly List<Goal> _goals = new List<Goal>();
     public static IReadOnlyList<Goal> All => _goals;
     public static int Version { get; private set; }   // 列表里多了 / 少了目标就 +1（浮窗重排）
+    public static event System.Action<Goal> OnGoalDone;   // 有目标完成了（右上角的任务汇报 HudToasts 用）
     static WorldState _world;
 
     // ============ 每 0.5 秒 ============
@@ -76,7 +77,7 @@ public static class CampGoals
         for (int i = _goals.Count - 1; i >= 0; i--)
         {
             Goal g = _goals[i];
-            if (!g.Done && Reached(g, w)) g.doneAt = now;
+            if (!g.Done && Reached(g, w)) { g.doneAt = now; OnGoalDone?.Invoke(g); }
             bool remove = g.Done
                 ? (g.animated ? now - g.animatedAt > doneKeepSeconds : now - g.doneAt > doneWaitSeconds)
                 : now - g.lastWanted > staleSeconds;

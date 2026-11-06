@@ -159,6 +159,17 @@ public static class UiStyle
         if (img != null) img.color = fill;
     }
 
+    // 重新量一次标签宽度：标签建在没激活的物体下面时，第一次量出来是 0（只露出第一个字母），激活之后要再量。
+    public static void FitTag(TMP_Text t)
+    {
+        if (t == null) return;
+        RectTransform rt = t.transform.parent as RectTransform;
+        if (rt == null) return;
+        t.ForceMeshUpdate();
+        float w = Mathf.Ceil(t.GetPreferredValues(t.text).x) + 12f;
+        if (w > 13f) rt.sizeDelta = new Vector2(w, rt.sizeDelta.y);
+    }
+
     // 标签现在有多宽（框的最小宽度要比它大）。
     public static float TagWidth(TMP_Text t)
     {
