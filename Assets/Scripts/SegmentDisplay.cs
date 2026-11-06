@@ -402,27 +402,54 @@ public class HudGlow : MonoBehaviour
     public static readonly Color GreenGlow = new Color(0.45f, 1f, 0.6f, 1f);
     public static readonly Color Yellow = new Color(1f, 0.93f, 0.55f, 1f);
     public static readonly Color YellowGlow = new Color(1f, 0.82f, 0.32f, 1f);
+    public static readonly Color Blue = new Color(0.66f, 0.88f, 1f, 1f);       // 充足：淡蓝
+    public static readonly Color BlueGlow = new Color(0.38f, 0.72f, 1f, 1f);
 
-    class Target { public Graphic g; public SegmentText seg; public Texture normalTex, warnTex; public float alpha; }
+    class Target { public Graphic g; public SegmentText seg; public Texture normalTex, warnTex, goodTex; public float alpha; }
     readonly List<Target> _targets = new List<Target>();
 
     public bool Warning { get; private set; }
+    public bool Good { get; private set; }     // 充足（淡蓝）；不足（Warning，淡黄闪烁）优先
+    Color Base => Warning ? Yellow : Good ? Blue : Green;
+    Color Glow => Warning ? YellowGlow : Good ? BlueGlow : GreenGlow;
     float _flick = 1f, _next;
 
     public void AddSegment(SegmentText s, float alpha = 1f)
     {
         if (s == null) return;
         _targets.Add(new Target { g = s.GetComponent<Graphic>(), seg = s, alpha = alpha });
-        s.SetPalette(Warning ? Yellow : Green, Warning ? YellowGlow : GreenGlow);
+        s.SetPalette(Base, Glow);
         Apply();
     }
 
-    public void AddIcon(RawImage img, Texture normal, Texture warn, float alpha = 1f)
+    // good：充足时用的淡蓝贴图（可空 = 充足时也用平时那张）。
+    public void AddIcon(RawImage img, Texture normal, Texture warn, float alpha = 1f, Texture good = null)
     {
         if (img == null) return;
-        _targets.Add(new Target { g = img, normalTex = normal, warnTex = warn, alpha = alpha });
-        img.texture = Warning ? warn : normal;
+        Target t = new Target { g = img, normalTex = normal, warnTex = warn, goodTex = good, alpha = alpha };
+        _targets.Add(t);
+        img.texture = TexOf(t);
         Apply();
+    }
+
+    Texture TexOf(Target t) => Warning ? t.warnTex : Good && t.goodTex != null ? t.goodTex : t.normalTex;
+
+    // 充足 / 不充足（淡蓝 / 平时的淡绿）。
+    public void SetGood(bool on)
+    {
+        if (on == Good) return;
+        Good = on;
+        RefreshPalette();
+        Apply();
+    }
+
+    void RefreshPalette()
+    {
+        foreach (Target t in _targets)
+        {
+            if (t.seg != null) t.seg.SetPalette(Base, Glow);
+            else if (t.normalTex != null && t.g is RawImage ri) ri.texture = TexOf(t);
+        }
     }
 
     public void AddGraphic(Graphic g, float alpha = 1f)
@@ -436,11 +463,7 @@ public class HudGlow : MonoBehaviour
     {
         if (on == Warning) return;
         Warning = on;
-        foreach (Target t in _targets)
-        {
-            if (t.seg != null) t.seg.SetPalette(on ? Yellow : Green, on ? YellowGlow : GreenGlow);
-            else if (t.normalTex != null && t.g is RawImage ri) ri.texture = on ? t.warnTex : t.normalTex;
-        }
+        RefreshPalette();
         _flick = 1f;
         _next = Time.unscaledTime + UnityEngine.Random.Range(0.1f, 0.5f);
         Apply();
@@ -469,7 +492,7 @@ public class HudGlow : MonoBehaviour
 
     void Apply()
     {
-        Color baseCol = Warning ? Yellow : Green;
+        Color baseCol = Base;
         float f = Warning ? _flick : 1f;
         foreach (Target t in _targets)
         {

@@ -1,35 +1,58 @@
 using System.Collections.Generic;
-using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
-using UnityEngine.EventSystems;
 using TMPro;
 
 // ============================================================================
-// NPC 任务栏（右下角，替换原来的 AI 调试文字）：大家是怎么分组的、每个人此刻在干什么。
-//   · 识别框样式（UiStyle）：左上角标签「crew : 06」，点标签可以收起 / 展开。
-//   · 第一行是领导；下面按今天的分工分组（建造组 / 采集组 / 搜寻组 / 医护组 / 休整），没分工的在「自由行动」。
-//   · 每人一行：名字 + 正在做的事（NpcData.currentAction）。安全感不足的名字后面有红色「!」，领导的名字是黄色。
-//   · 点名字 → 打开和他的对话窗口。
-//   · 进入建造模式时自动隐藏（右下角给建造菜单让位）。
+// 任务浮窗（右下角）：营地现在的目标、完成了没有、谁负责。
+//   · 右下角（建造按钮左边）一个标签按钮「goals : 2」：点一下弹出浮窗，再点一下收起。
+//     有目标完成了但你还没看到时，按钮黄绿交替闪。
+//   · 浮窗打开动画和 NPC 对话窗口一样（UiPopup：线从按钮伸出来 → 变成上沿 → 往下展开）。
+//   · 每个目标两行：
+//       □ 目标1　将营地用围墙围起来
+//         负责人：田中、铃木
+//     完成时：方块里画一个勾（两笔），接着一条线把目标文字划掉、文字变灰；过几秒从列表里拿掉。
+//     浮窗关着的时候完成的目标，下次打开时再播这段动画。
+//   · 目标从哪来、怎么算完成、负责人是谁：见 CampGoals。
+//   · 进入建造模式时按钮和浮窗都收起来（右下角给建造菜单让位）。
 // 由 HudLayout.Start 调 Ensure() 创建。
 // ============================================================================
-public class NpcTaskPanel : MonoBehaviour, IPointerClickHandler
+public class NpcTaskPanel : MonoBehaviour
 {
     public static NpcTaskPanel Instance { get; private set; }
 
-    public float width = 380f;
+    public float width = 400f;
     public float refreshInterval = 0.5f;
-    public int maxActionChars = 18;      // "正在做的事"最多显示几个字
+    [Header("完成动画（秒）")]
+    public float checkTime = 0.3f;    // 方块里画勾
+    public float strikeTime = 0.4f;   // 划掉目标文字
+
+    const float RowH = 46f, BottomPad = 10f, BoxSize = 16f, TextX = 38f;
+    static float TopPad => UiStyle.TagH + 10f;
+    static readonly Color Green = UiStyle.Green;
+    static readonly Color DoneGray = new Color(0.56f, 0.58f, 0.56f, 1f);
+    static readonly Color OwnerColor = new Color(0.62f, 0.7f, 0.65f, 1f);
+
+    class Row
+    {
+        public CampGoals.Goal goal;
+        public RectTransform root, stroke1, stroke2, strike;
+        public TextMeshProUGUI title, owner;
+        public float animT = -1f;    // -1 = 没在播；>= 0 = 播到第几秒
+    }
 
     GameObject _canvasGo;
-    RectTransform _box, _tagRt;
-    TextMeshProUGUI _text;
-    TMP_Text _tag;
-    bool _collapsed;
-    float _refresh;
+    RectTransform _btn;
+    TMP_Text _btnText;
+    Image _btnFill;
+    UiPopup _popup;
+    TextMeshProUGUI _empty;
+    readonly List<Row> _rows = new List<Row>();
+    int _rowsVersion = -1;
+    float _refresh, _blink;
 
-    const float NameX = 14f, ActionX = 118f;
+    // 勾的三个点（方块左下角为原点，方块 16×16）
+    static readonly Vector2 CheckA = new Vector2(3.5f, 8.5f), CheckB = new Vector2(7f, 4.5f), CheckC = new Vector2(13.5f, 13f);
 
     public static NpcTaskPanel Ensure()
     {
@@ -62,50 +85,74 @@ public class NpcTaskPanel : MonoBehaviour, IPointerClickHandler
         scaler.matchWidthOrHeight = 0.5f;
         _canvasGo.AddComponent<GraphicRaycaster>();
 
-        GameObject box = new GameObject("Box", typeof(RectTransform));
-        box.transform.SetParent(_canvasGo.transform, false);
-        _box = (RectTransform)box.transform;
-        _box.anchorMin = _box.anchorMax = _box.pivot = new Vector2(1f, 0f);
-        _box.anchoredPosition = new Vector2(-180f, 16f);
-        _box.sizeDelta = new Vector2(width, 120f);
-        Image bg = box.AddComponent<Image>();
-        bg.color = new Color(UiStyle.Panel.r, UiStyle.Panel.g, UiStyle.Panel.b, 0.82f);
-        bg.raycastTarget = true; // 点在面板上不要穿透到地图
+        // 右下角的标签按钮
+        GameObject b = new GameObject("GoalsButton", typeof(RectTransform));
+        b.transform.SetParent(_canvasGo.transform, false);
+        _btn = (RectTransform)b.transform;
+        _btn.anchorMin = _btn.anchorMax = new Vector2(1f, 0f);
+        _btn.pivot = new Vector2(1f, 0f);
+        _btn.anchoredPosition = new Vector2(-180f, 16f);
+        _btnText = UiStyle.Tag(_btn, "goals : 0", Green, 15f);
+        _btnFill = _btnText.transform.parent.GetComponent<Image>();
+        _btnFill.raycastTarget = true;
+        Button button = _btnFill.gameObject.AddComponent<Button>();
+        button.targetGraphic = _btnFill;
+        button.transition = Selectable.Transition.None;
+        button.onClick.AddListener(Toggle);
 
-        UiStyle.Frame(_box, new Color(UiStyle.Green.r, UiStyle.Green.g, UiStyle.Green.b, 0.75f));
-        _tag = UiStyle.Tag(_box, "crew : 00", UiStyle.Green);
-        _tagRt = (RectTransform)_tag.transform.parent;
-
-        GameObject tgo = new GameObject("Text", typeof(RectTransform));
-        tgo.transform.SetParent(_box, false);
-        _text = tgo.AddComponent<TextMeshProUGUI>();
-        TMP_FontAsset f = GameFonts.Find();
-        if (f != null) _text.font = f;
-        _text.fontSize = 15f;
-        _text.color = UiStyle.TextMain;
-        _text.richText = true;
-        _text.alignment = TextAlignmentOptions.TopLeft;
-        _text.textWrappingMode = TextWrappingModes.NoWrap;
-        _text.overflowMode = TextOverflowModes.Overflow;
-        _text.raycastTarget = true;
-        RectTransform tr = _text.rectTransform;
-        tr.anchorMin = Vector2.zero;
-        tr.anchorMax = Vector2.one;
-        tr.offsetMin = new Vector2(0f, 8f);
-        tr.offsetMax = new Vector2(-10f, -(UiStyle.TagH + 6f));
+        // 弹出浮窗
+        _popup = UiPopup.Create("NpcTaskPopup", 65);
+        _popup.transform.SetParent(transform, false);
+        _popup.SetTag("objectives");
+        _empty = NewText(_popup.Body, "Empty", 14f, OwnerColor);
+        RectTransform er = _empty.rectTransform;
+        er.anchorMin = er.anchorMax = er.pivot = new Vector2(0f, 1f);
+        er.anchoredPosition = new Vector2(14f, -TopPad);
+        er.sizeDelta = new Vector2(width - 28f, 22f);
+        RefreshButton();
     }
 
     void Update()
     {
         bool hide = (BuildManager.Instance != null && BuildManager.Instance.IsBuildMode) || CountAlive() == 0;
-        if (_box.gameObject.activeSelf == hide) _box.gameObject.SetActive(!hide);
-        if (hide) return;
+        if (_btn.gameObject.activeSelf == hide) _btn.gameObject.SetActive(!hide);
+        if (hide)
+        {
+            if (_popup.IsOpen) _popup.Close();
+            return;
+        }
 
         _refresh -= Time.unscaledDeltaTime;
-        if (_refresh > 0f) return;
-        _refresh = refreshInterval;
-        PlaceBesideBuildButton();
-        Refresh();
+        if (_refresh <= 0f)
+        {
+            _refresh = refreshInterval;
+            CampGoals.Tick();
+            PlaceBesideBuildButton();
+            RefreshButton();
+            if (_popup.IsOpen) SyncRows();
+        }
+        if (_popup.IsOpen && !_popup.Animating) Animate(Time.unscaledDeltaTime);
+
+        // 有完成了但还没看到的目标：按钮黄绿交替闪
+        bool unseen = false;
+        foreach (CampGoals.Goal g in CampGoals.All) if (g.Done && !g.animated) { unseen = true; break; }
+        if (unseen && !_popup.IsOpen)
+        {
+            _blink += Time.unscaledDeltaTime;
+            _btnFill.color = Mathf.Repeat(_blink, 1f) < 0.5f ? UiStyle.Yellow : Green;
+        }
+        else if (_btnFill.color != Green) { _btnFill.color = Green; _blink = 0f; }
+    }
+
+    void RefreshButton()
+    {
+        int open = 0;
+        foreach (CampGoals.Goal g in CampGoals.All) if (!g.Done) open++;
+        UiStyle.SetTag(_btnText, "goals : " + open + (_popup != null && _popup.IsOpen ? "  [-]" : "  [+]"), _btnFill.color);
+        RectTransform tag = (RectTransform)_btnText.transform.parent;
+        tag.anchorMin = tag.anchorMax = tag.pivot = new Vector2(0f, 1f);
+        tag.anchoredPosition = Vector2.zero;
+        _btn.sizeDelta = tag.sizeDelta;
     }
 
     // 放在建造按钮左边（右下角那一块），不挡按钮。
@@ -122,79 +169,189 @@ public class NpcTaskPanel : MonoBehaviour, IPointerClickHandler
             float w = rt.rect.width * (mine > 0f ? scale / mine : 1f);
             x = -(16f + w + 12f);
         }
-        _box.anchoredPosition = new Vector2(x, 16f);
+        _btn.anchoredPosition = new Vector2(x, 16f);
     }
 
-    void Refresh()
+    // ============ 浮窗 ============
+
+    public void Toggle()
     {
-        WorldState w = WorldManager.Instance != null ? WorldManager.Instance.world : null;
-        if (w == null) return;
-        bool jp = LanguageGuard.IsJp;
-        int alive = CountAlive();
-        UiStyle.SetTag(_tag, "crew : " + alive.ToString("00") + (_collapsed ? "  [+]" : "  [-]"), UiStyle.Green);
+        if (_popup.IsOpen) { _popup.Close(); RefreshButton(); return; }
+        CampGoals.Tick();
+        SyncRows();
+        Vector2 size = PopupSize();
+        Vector3[] c = UiPopup.ScreenCorners(_btn);     // 0 左下、1 左上、2 右上
+        float k = _popup.UnitToPixels;
+        // 浮窗在按钮正上方、右边对齐：线从按钮右上角往上伸到浮窗右上角，再变成上沿往左展开
+        Vector2 topLeft = new Vector2(c[2].x - size.x * k, c[2].y + (14f + size.y) * k);
+        _popup.Open(c[2], topLeft, size);
+        RefreshButton();
+    }
 
-        StringBuilder sb = new StringBuilder();
-        NpcData leader = NpcSociety.Leader;
-        sb.Append("<color=#8E9490>").Append(L("taskpanel_leader")).Append("</color><pos=").Append(ActionX).Append(">")
-          .Append(leader != null ? "<color=#FFE36A>" + Esc(leader.npcName) + "</color>" : "<color=#8E9490>—</color>").Append('\n');
+    Vector2 PopupSize()
+    {
+        int n = Mathf.Max(1, _rows.Count);
+        return new Vector2(Mathf.Max(width, _popup.TagWidth + 24f), TopPad + n * RowH + BottomPad);
+    }
 
-        if (!_collapsed)
+    // 目标列表变了就重排；没变就只更新文字（负责人会变）。
+    void SyncRows()
+    {
+        IReadOnlyList<CampGoals.Goal> goals = CampGoals.All;
+        bool same = _rowsVersion == CampGoals.Version && _rows.Count == goals.Count;
+        if (!same)
         {
-            // 按分工分组：建造 / 采集 / 搜寻 / 医护 / 休整，最后是没分工的
-            Dictionary<string, List<NpcData>> groups = new Dictionary<string, List<NpcData>>();
-            List<NpcData> free = new List<NpcData>();
-            foreach (NpcData n in w.npcs)
+            foreach (Row r in _rows) if (r.root != null) Destroy(r.root.gameObject);
+            _rows.Clear();
+            for (int i = 0; i < goals.Count; i++) _rows.Add(MakeRow(goals[i], i));
+            _rowsVersion = CampGoals.Version;
+            _popup.Resize(PopupSize());
+        }
+        _empty.gameObject.SetActive(_rows.Count == 0);
+        _empty.text = L("taskpanel_empty");
+
+        for (int i = 0; i < _rows.Count; i++)
+        {
+            Row r = _rows[i];
+            r.title.text = LF("taskpanel_goal_no", i + 1) + "　" + CampGoals.Text(r.goal);
+            List<string> owners = CampGoals.Owners(r.goal);
+            r.owner.text = owners == null ? LF("taskpanel_owner", L("taskpanel_owner_ai"))
+                         : owners.Count == 0 ? L("taskpanel_owner_none")
+                         : LF("taskpanel_owner", string.Join(LanguageGuard.Pick("、", "・"), owners));
+            if (r.animT < 0f) ShowDone(r, r.goal.Done && r.goal.animated);
+        }
+    }
+
+    Row MakeRow(CampGoals.Goal g, int i)
+    {
+        Row r = new Row { goal = g };
+        r.root = NewRect("Goal" + i, _popup.Body);
+        r.root.anchorMin = r.root.anchorMax = r.root.pivot = new Vector2(0f, 1f);
+        r.root.anchoredPosition = new Vector2(0f, -(TopPad + i * RowH));
+        r.root.sizeDelta = new Vector2(width, RowH);
+
+        RectTransform box = NewRect("Box", r.root);
+        box.anchorMin = box.anchorMax = box.pivot = new Vector2(0f, 1f);
+        box.anchoredPosition = new Vector2(14f, -3f);
+        box.sizeDelta = new Vector2(BoxSize, BoxSize);
+        UiStyle.Frame(box, new Color(Green.r, Green.g, Green.b, 0.9f), 1.5f);
+        r.stroke1 = Stroke(box);
+        r.stroke2 = Stroke(box);
+
+        r.title = NewText(r.root, "Title", 15f, UiStyle.TextMain);
+        RectTransform tr = r.title.rectTransform;
+        tr.anchorMin = tr.anchorMax = tr.pivot = new Vector2(0f, 1f);
+        tr.anchoredPosition = new Vector2(TextX, 0f);
+        tr.sizeDelta = new Vector2(width - TextX - 12f, 22f);
+
+        r.strike = NewRect("Strike", tr);
+        r.strike.anchorMin = r.strike.anchorMax = new Vector2(0f, 0.5f);
+        r.strike.pivot = new Vector2(0f, 0.5f);
+        r.strike.anchoredPosition = Vector2.zero;
+        r.strike.sizeDelta = new Vector2(0f, 2f);
+        Image si = r.strike.gameObject.AddComponent<Image>();
+        si.color = new Color(Green.r, Green.g, Green.b, 0.85f);
+        si.raycastTarget = false;
+
+        r.owner = NewText(r.root, "Owner", 13f, OwnerColor);
+        RectTransform or = r.owner.rectTransform;
+        or.anchorMin = or.anchorMax = or.pivot = new Vector2(0f, 1f);
+        or.anchoredPosition = new Vector2(TextX, -22f);
+        or.sizeDelta = new Vector2(width - TextX - 12f, 20f);
+        return r;
+    }
+
+    // 已完成（并且动画放过了）：勾画满、文字划掉变灰；没完成：都收起来。
+    void ShowDone(Row r, bool done)
+    {
+        SetSegment(r.stroke1, CheckA, done ? CheckB : CheckA);
+        SetSegment(r.stroke2, CheckB, done ? CheckC : CheckB);
+        r.strike.sizeDelta = new Vector2(done ? StrikeWidth(r) : 0f, 2f);
+        r.title.color = done ? DoneGray : UiStyle.TextMain;
+        r.owner.color = done ? DoneGray : OwnerColor;
+    }
+
+    // 刚完成的目标：画勾（两笔）→ 划掉文字。
+    void Animate(float dt)
+    {
+        foreach (Row r in _rows)
+        {
+            if (r.goal == null || !r.goal.Done || r.goal.animated) continue;
+            if (r.animT < 0f) r.animT = 0f;
+            r.animT += dt;
+            float t = r.animT;
+            float first = checkTime * 0.4f, second = checkTime - first;
+            SetSegment(r.stroke1, CheckA, Vector2.Lerp(CheckA, CheckB, EaseOut(t / Mathf.Max(0.001f, first))));
+            SetSegment(r.stroke2, CheckB, Vector2.Lerp(CheckB, CheckC, EaseOut((t - first) / Mathf.Max(0.001f, second))));
+            float s = EaseOut((t - checkTime) / Mathf.Max(0.001f, strikeTime));
+            r.strike.sizeDelta = new Vector2(StrikeWidth(r) * s, 2f);
+            r.title.color = Color.Lerp(UiStyle.TextMain, DoneGray, s);
+            r.owner.color = Color.Lerp(OwnerColor, DoneGray, s);
+            if (t >= checkTime + strikeTime)
             {
-                if (n == null || n.IsDead) continue;
-                if (NpcSociety.HasRole(n))
-                {
-                    if (!groups.TryGetValue(n.role, out List<NpcData> list)) { list = new List<NpcData>(); groups[n.role] = list; }
-                    list.Add(n);
-                }
-                else free.Add(n);
+                r.goal.animated = true;
+                r.goal.animatedAt = Time.time;
+                r.animT = -1f;
+                ShowDone(r, true);
             }
-            foreach (string role in NpcSociety.Roles)
-                if (groups.TryGetValue(role, out List<NpcData> list)) AppendGroup(sb, NpcSociety.RoleName(role), list, leader, true);
-            if (free.Count > 0) AppendGroup(sb, L("taskpanel_free"), free, leader, false);
-        }
-
-        string text = sb.ToString().TrimEnd('\n');
-        _text.text = text;
-        float h = Mathf.Ceil(_text.GetPreferredValues(text, width - 10f, 0f).y);
-        _box.sizeDelta = new Vector2(width, h + UiStyle.TagH + 16f);
-    }
-
-    void AppendGroup(StringBuilder sb, string title, List<NpcData> list, NpcData leader, bool assigned)
-    {
-        sb.Append(assigned ? "<color=#B8FFC7>" : "<color=#8E9490>").Append("■ ").Append(title)
-          .Append("  <size=80%>").Append(list.Count).Append("</size></color>\n");
-        foreach (NpcData n in list)
-        {
-            string name = Esc(n.npcName);
-            if (n == leader) name = "<color=#FFE36A>" + name + "</color>";
-            if (n.isBroken) name = "<color=#C77DFF>" + name + "</color>";
-            string mark = NpcSecurity.Insecure(n) ? "<color=#FF6A60>!</color>" : "";
-            string act = string.IsNullOrEmpty(n.currentAction) ? L("taskpanel_idle") : n.currentAction;
-            if (act.Length > maxActionChars) act = act.Substring(0, maxActionChars) + "…";
-            sb.Append("<pos=").Append(NameX).Append("><link=\"").Append(n.id).Append("\">").Append(name).Append("</link>").Append(mark)
-              .Append("<pos=").Append(ActionX).Append("><color=#C3C9C4>").Append(Esc(act)).Append("</color>\n");
         }
     }
 
-    // 点标签：收起 / 展开；点名字：打开和他的对话窗口。
-    public void OnPointerClick(PointerEventData e)
+    static float StrikeWidth(Row r)
     {
-        if (_tagRt != null && RectTransformUtility.RectangleContainsScreenPoint(_tagRt, e.position, null))
-        {
-            _collapsed = !_collapsed;
-            _refresh = 0f;
-            return;
-        }
-        if (_text == null) return;
-        int link = TMP_TextUtilities.FindIntersectingLink(_text, e.position, null);
-        if (link < 0) return;
-        string id = _text.textInfo.linkInfo[link].GetLinkID();
-        if (!string.IsNullOrEmpty(id)) NpcChatWindow.Ensure().Open(id);
+        float w = r.title.GetPreferredValues(r.title.text).x;
+        return Mathf.Min(w + 4f, r.title.rectTransform.rect.width);
+    }
+
+    // ============ 小工具 ============
+
+    RectTransform Stroke(RectTransform box)
+    {
+        RectTransform s = NewRect("Check", box);
+        s.anchorMin = s.anchorMax = Vector2.zero;   // 方块左下角为原点
+        s.pivot = new Vector2(0f, 0.5f);
+        s.sizeDelta = new Vector2(0f, 2.5f);
+        Image img = s.gameObject.AddComponent<Image>();
+        img.color = Green;
+        img.raycastTarget = false;
+        s.gameObject.SetActive(false);
+        return s;
+    }
+
+    static void SetSegment(RectTransform seg, Vector2 from, Vector2 to)
+    {
+        Vector2 d = to - from;
+        float len = d.magnitude;
+        bool on = len > 0.3f;
+        if (seg.gameObject.activeSelf != on) seg.gameObject.SetActive(on);
+        if (!on) return;
+        seg.anchoredPosition = from;
+        seg.sizeDelta = new Vector2(len + 1f, seg.sizeDelta.y);   // +1：两笔接头处不留缝
+        seg.localEulerAngles = new Vector3(0f, 0f, Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg);
+    }
+
+    static TextMeshProUGUI NewText(Transform parent, string name, float size, Color color)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        TextMeshProUGUI t = go.AddComponent<TextMeshProUGUI>();
+        TMP_FontAsset f = GameFonts.Find();
+        if (f != null) t.font = f;
+        t.fontSize = size;
+        t.color = color;
+        t.richText = true;
+        t.alignment = TextAlignmentOptions.TopLeft;
+        t.textWrappingMode = TextWrappingModes.NoWrap;
+        t.overflowMode = TextOverflowModes.Ellipsis;
+        t.raycastTarget = false;
+        return t;
+    }
+
+    static RectTransform NewRect(string name, Transform parent)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        return (RectTransform)go.transform;
     }
 
     static int CountAlive()
@@ -206,6 +363,7 @@ public class NpcTaskPanel : MonoBehaviour, IPointerClickHandler
         return k;
     }
 
-    static string Esc(string s) => string.IsNullOrEmpty(s) ? "" : s.Replace("<", "‹").Replace(">", "›");
+    static float EaseOut(float x) { x = Mathf.Clamp01(x); return 1f - (1f - x) * (1f - x) * (1f - x); }
     static string L(string key) => LocalizationManager.Instance != null ? LocalizationManager.Instance.Get(key) : key;
+    static string LF(string key, params object[] args) => LocalizationManager.Instance != null ? LocalizationManager.Instance.GetFormat(key, args) : key;
 }

@@ -87,11 +87,11 @@ public class HudLayout : MonoBehaviour
         BuildLogDrawer(root.transform);
         PlaceBuildButton();
         BuildDayCounter(root.transform);
-        ResourceHud.Create(root.transform, _font); // 天数两边：电力 / 净化水 + 终端机按钮
+        ResourceHud.Create(root.transform, _font); // 顶部：电力 / 净化水 + 终端机按钮；左边日志栏下面：木材 / 石头 / 矿石
         HoverInfo.Ensure();                        // 鼠标悬停在 NPC / 建筑上的信息框 + 地图坐标浮窗
         CameraController.Ensure();                 // 滚轮缩放 + 中键拖动画面
         AiScheduler.Ensure();                      // AI 请求调度器（F9 调试面板）
-        NpcTaskPanel.Ensure();                     // 右下角：NPC 任务栏（谁在哪个组、在干什么）
+        NpcTaskPanel.Ensure();                     // 右下角：任务按钮 → 弹出营地目标浮窗（目标、完成打勾、负责人）
     }
 
     // ============ 左上角：事件 / 日志抽屉 ============
@@ -201,6 +201,25 @@ public class HudLayout : MonoBehaviour
     }
 
     public void ToggleDrawer() { SetDrawer(!_drawerOpen); }
+
+    // 左边那一列（资源栏，ResourceHud）从哪里开始往下排（离画布顶边的距离）：
+    // 事件 / 日志抽屉展开时贴在它下沿下面；收起时排在把手、幸存者列表下面。
+    public float LeftColumnTop()
+    {
+        if (_drawer == null) return margin;
+        if (_drawerOpen) return margin + _drawer.rect.height + 10f;
+        float bottom = TabHeight;
+        foreach (Transform c in _drawer)
+        {
+            RectTransform rt = c as RectTransform;
+            LayoutElement le = rt != null ? rt.GetComponent<LayoutElement>() : null;
+            if (rt == null || le == null || !le.ignoreLayout || !rt.gameObject.activeSelf) continue;
+            bottom = Mathf.Max(bottom, -rt.anchoredPosition.y + rt.rect.height);
+        }
+        return margin + bottom + 10f;
+    }
+
+    public float LeftMargin => margin;
 
     public void SetDrawer(bool open)
     {

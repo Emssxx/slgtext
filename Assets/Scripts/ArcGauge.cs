@@ -1,61 +1,63 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
 // ============================================================================
-// 3/4 圆的格子刻度进度（顶部资源栏用）：缺口朝下，从左下（225°）顺时针转到右下（-45°），一共 270°。
-//   一圈切成 segments 个小格，格子之间留 gapDeg 度的缝；fill（0~1）决定亮几格（有一点就亮一格）。
-//   常用法：同一个位置放两层——底层 fill = 1、很淡（刻度底），上层 fill = 比例、正常亮度。
-//   颜色用 Graphic.color（交给 HudGlow 管：平时淡绿，不足时淡黄 + 闪烁）。
+// 圆形格子刻度环（资源栏用）：一圈 segments 个一样大的小方格，从正上方顺时针排。
+//   fill（0~1）决定亮几格（有一点就亮一格）：没亮的格子直接隐藏。
+//   常用法：同一个位置放两层——底层 SetFill(1)、很淡（刻度底），上层 SetFill(比例)、正常亮度。
+//   每一格都是普通的 Image（不用自定义网格，保证一定画得出来），颜色交给 HudGlow 管（见 Segments）。
+//   所有格子大小完全一样，没有长短刻度。
+// 用法：ArcGauge g = go.AddComponent<ArcGauge>(); g.Build(直径); g.SetFill(0.4f);
 // ============================================================================
-public class ArcGauge : MaskableGraphic
+public class ArcGauge : MonoBehaviour
 {
-    [Range(4, 60)] public int segments = 18;
-    public float thickness = 4f;          // 环的粗细（界面单位）
+    [Range(4, 60)] public int segments = 24;
+    public float thickness = 5f;          // 格子的径向厚度（界面单位）
     public float gapDeg = 4f;             // 格子之间的缝（度）
-    public float startDeg = 225f;         // 起点（0° = 右，90° = 上）
-    public float sweepDeg = 270f;         // 一共转多少度（顺时针）
+    public float startDeg = 90f;          // 起点（0° = 右，90° = 上），顺时针排
     [Range(0f, 1f)] public float fill = 1f;
-    [Tooltip("每隔几格画一个长一点的刻度（0 = 不画）")]
-    public int majorEvery = 3;
-    public float majorExtra = 2f;         // 长刻度往外多出多少
+
+    readonly List<Image> _segs = new List<Image>();
+    public IReadOnlyList<Image> Segments => _segs;
+
+    // 按直径生成格子（重复调用会重建）。
+    public void Build(float diameter)
+    {
+        foreach (Image s in _segs) if (s != null) Destroy(s.gameObject);
+        _segs.Clear();
+        int n = Mathf.Max(4, segments);
+        float step = 360f / n;
+        float rc = diameter * 0.5f - thickness * 0.5f;                                  // 格子中心所在的半径
+        float w = 2f * rc * Mathf.Sin(Mathf.Max(1f, step - gapDeg) * 0.5f * Mathf.Deg2Rad); // 格子的切向宽度（弦长）
+        for (int i = 0; i < n; i++)
+        {
+            float a = startDeg - (i + 0.5f) * step;
+            GameObject go = new GameObject("Seg" + i, typeof(RectTransform));
+            go.transform.SetParent(transform, false);
+            RectTransform rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(Mathf.Cos(a * Mathf.Deg2Rad), Mathf.Sin(a * Mathf.Deg2Rad)) * rc;
+            rt.sizeDelta = new Vector2(w, thickness);
+            rt.localEulerAngles = new Vector3(0f, 0f, a - 90f);                         // 宽边沿着圆周
+            Image img = go.AddComponent<Image>();
+            img.raycastTarget = false;
+            _segs.Add(img);
+        }
+        Apply();
+    }
 
     public void SetFill(float f)
     {
-        f = Mathf.Clamp01(f);
-        if (Mathf.Abs(f - fill) < 0.0005f) return;
-        fill = f;
-        SetVerticesDirty();
+        fill = Mathf.Clamp01(f);
+        Apply();
     }
 
-    protected override void OnPopulateMesh(VertexHelper vh)
+    void Apply()
     {
-        vh.Clear();
-        Rect r = GetPixelAdjustedRect();
-        Vector2 c = r.center;
-        float outer = Mathf.Min(r.width, r.height) * 0.5f - majorExtra;
-        float inner = Mathf.Max(0f, outer - thickness);
-        int lit = fill <= 0f ? 0 : Mathf.Clamp(Mathf.CeilToInt(fill * segments - 0.0001f), 1, segments);
-        float step = sweepDeg / segments;
-        Color32 col = color;
-        for (int i = 0; i < lit; i++)
-        {
-            float a0 = (startDeg - i * step - gapDeg * 0.5f) * Mathf.Deg2Rad;
-            float a1 = (startDeg - (i + 1) * step + gapDeg * 0.5f) * Mathf.Deg2Rad;
-            float o = outer + (majorEvery > 0 && i % majorEvery == 0 ? majorExtra : 0f);
-            Quad(vh, c, a0, a1, inner, o, col);
-        }
-    }
-
-    static void Quad(VertexHelper vh, Vector2 c, float a0, float a1, float rIn, float rOut, Color32 col)
-    {
-        Vector2 d0 = new Vector2(Mathf.Cos(a0), Mathf.Sin(a0));
-        Vector2 d1 = new Vector2(Mathf.Cos(a1), Mathf.Sin(a1));
-        int k = vh.currentVertCount;
-        vh.AddVert(c + d0 * rIn, col, Vector2.zero);
-        vh.AddVert(c + d0 * rOut, col, Vector2.zero);
-        vh.AddVert(c + d1 * rOut, col, Vector2.zero);
-        vh.AddVert(c + d1 * rIn, col, Vector2.zero);
-        vh.AddTriangle(k, k + 1, k + 2);
-        vh.AddTriangle(k + 2, k + 3, k);
+        int n = _segs.Count;
+        int lit = fill <= 0f ? 0 : Mathf.Clamp(Mathf.CeilToInt(fill * n - 0.0001f), 1, n);
+        for (int i = 0; i < n; i++)
+            if (_segs[i] != null && _segs[i].gameObject.activeSelf != (i < lit)) _segs[i].gameObject.SetActive(i < lit);
     }
 }

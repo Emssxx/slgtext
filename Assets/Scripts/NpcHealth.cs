@@ -27,7 +27,7 @@ public enum InjuryCause { Generic, Hail, Field, Combat }
 //   每秒 -0.3；吃东西回复；为 0 时每秒掉 0.5 生命。偏低时获得「饥饿」。
 // 【水分】NpcData.water：100 = 不渴。每秒 -WaterPerSecond（炎热时按 ClimateSystem.EnergyFactor 加快）；
 //   低于 DrinkBelow 时自动从仓库喝一份净化水（WaterWorks.TryDrink）；为 0 时每秒掉 0.5 生命。
-// 【体力】移动每走 1 格 -1；施工每秒 -1；战斗每秒 -2（ConsumeCombat，留给以后的战斗系统）；超过 30℃ 每高 1 度消耗 +5%；
+// 【体力】走路不消耗（energyPerUnitMoved = 0）；施工每秒 -0.3；战斗每秒 -2（ConsumeCombat，留给以后的战斗系统）；超过 30℃ 每高 1 度消耗 +5%；
 //   原地休息每秒 +0.3，同时额外消耗饥饿值。偏低时获得「疲惫」，NPC 会自己去休息，闲置活动也变少。
 // 【理智】沿用原来的（WorldRules），这里只加上各词条带来的每秒下降。
 // 【生命】受伤 / 致命伤 / 濒死 / 生病 / 精神病，具体效果见 HealthTag。
@@ -38,8 +38,8 @@ public class NpcHealth : MonoBehaviour
     public static NpcHealth Instance { get; private set; }
 
     [Header("体力")]
-    public float energyPerUnitMoved = 0.3f;      // 每走 1 格消耗
-    public float buildEnergyPerSecond = 1f;    // 施工每秒消耗
+    public float energyPerUnitMoved = 0f;        // 每走 1 格消耗（0 = 走路不累：原来 0.3 时 NPC 走几趟就累得不动了）
+    public float buildEnergyPerSecond = 0.3f;  // 施工每秒消耗（原来 1）
     public float combatEnergyPerSecond = 2f;   // 战斗每秒消耗
     public float restEnergyPerSecond = 0.3f;   // 原地休息每秒恢复
     [Tooltip("休息时每恢复 1 点体力，额外消耗多少饥饿值")]

@@ -47,8 +47,8 @@ public class CampAdvisor : MonoBehaviour
     // 换算成"天"（局势表、搬运都用）。现在一天 = NpcHealth.secondsPerDay 秒（= AIDirector.secondsPerTurn）。
     public static float WaterUrgentDays => (Instance != null ? Instance.waterUrgentSeconds : 60f) / SecondsPerDay;
     public static float WaterLowDays => (Instance != null ? Instance.waterLowSeconds : 180f) / SecondsPerDay;
-    static float FoodUrgentDays => (Instance != null ? Instance.foodUrgentSeconds : 60f) / SecondsPerDay;
-    static float FoodLowDays => (Instance != null ? Instance.foodLowSeconds : 180f) / SecondsPerDay;
+    public static float FoodUrgentDays => (Instance != null ? Instance.foodUrgentSeconds : 60f) / SecondsPerDay;
+    public static float FoodLowDays => (Instance != null ? Instance.foodLowSeconds : 180f) / SecondsPerDay;
     static float SecondsPerDay => NpcHealth.Instance != null && NpcHealth.Instance.secondsPerDay > 0.01f ? NpcHealth.Instance.secondsPerDay : 20f;
 
     // 一条建议
@@ -715,7 +715,7 @@ public class CampAdvisor : MonoBehaviour
     // ============ 小工具 ============
 
     // 有没有一台净化器接在有电源（发电机 / 电池 / 终端机）的电网上。
-    static bool PurifierLinked()
+    public static bool PurifierLinked()
     {
         foreach (PowerGrid.Network n in PowerGrid.Networks)
         {
@@ -727,7 +727,7 @@ public class CampAdvisor : MonoBehaviour
     }
 
     // 仓库里的食物还够全营地吃几天（按每种食物能顶多少饥饿 / 每人每天消耗多少饱腹算）。
-    static float FoodDays(WorldState w)
+    public static float FoodDays(WorldState w)
     {
         NpcHealth h = NpcHealth.Instance;
         if (w == null || h == null || ItemDatabase.Instance == null) return float.PositiveInfinity;
