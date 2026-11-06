@@ -45,6 +45,7 @@ public enum AiKind
     ChatTone,       // 小模型：读一遍 NPC 闲聊实际说的话，判断两人的语气（友好 / 普通 / 冷淡 / 敌意）
     SocialLine,     // 小模型：NPC 被别人请求 / 指挥时的一句回答（答不答应由代码决定）
     LeaderPlan,     // 领导每天早会给所有人分工（一次调用安排所有人）
+    LeaderObserve,  // 小模型当观察者：读大家的数值，判断谁最适合当领导
 }
 
 [Serializable]
@@ -118,6 +119,7 @@ public class AiScheduler : MonoBehaviour
             new AiKindRule(AiKind.ChatTone,      AiLane.Lite,  40, 20f, 0, false),
             new AiKindRule(AiKind.SocialLine,    AiLane.Lite,  70, 10f, 0, false),
             new AiKindRule(AiKind.LeaderPlan,    AiLane.Main,  55, 30f, 2, false),   // 每天最多 2 次（换了领导时会再分一次）
+            new AiKindRule(AiKind.LeaderObserve, AiLane.Lite,  30, 30f, 0, false),
         };
     }
 

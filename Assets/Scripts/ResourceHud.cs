@@ -2,9 +2,12 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
-// 顶部资源栏（运行时生成，不用改场景）：顶部中间并排 电力 | 净化水 | 「终端机」按钮（天数在右上角，见 HudLayout）。
+// 顶部资源栏（运行时生成，不用改场景）：顶部中间并排 电力 | 净化水 | 基础材料 | 「终端机」按钮（天数在右上角，见 HudLayout）。
 //   电力：储电 / 电池容量、本回合发电和用电、断电提示；净化水：库存、每天喝多少、还够几天、收集器里的雨水。
-//   电力和水：透明底，数字用电子表段码字（SegmentText），图标 / 标题 / 数字 / 进度条都是淡绿色发光；
+//   基础材料：木材 / 石头 / 矿石 / 纤维 各一格：3/4 圆刻度环（满 MatFull 个算满格）+ 中间一个字 + 段码数字。
+//            营地还没围好、石头又不够修一段墙时，石头那一格转黄闪烁。
+//   进度都用 3/4 圆的格子刻度环（ArcGauge）围在图标外面。
+//   电力和水：透明底，数字用电子表段码字（SegmentText），图标 / 标题 / 数字 / 刻度环都是淡绿色发光；
 //   不足时（断电、电快用完 / 水不够 2 天、有人口渴）整块转成淡黄色并不规则闪烁（HudGlow）。
 // 由 HudLayout 在生成天数之后调用 ResourceHud.Create。数据每半秒刷新一次（用不受暂停影响的时间）。
 public class ResourceHud : MonoBehaviour
@@ -12,7 +15,10 @@ public class ResourceHud : MonoBehaviour
     public static ResourceHud Instance { get; private set; }
 
     const float PanelW = 300f, PanelH = 64f, Gap = 8f, TermW = 92f, TopY = -8f;
-    const float GroupLeft = -(PanelW * 2f + TermW + Gap * 2f) * 0.5f; // 三块整体居中
+    const float MatCellW = 100f, MatW = MatCellW * 4f;               // 基础材料：4 格
+    const float GroupLeft = -(PanelW * 2f + MatW + TermW + Gap * 3f) * 0.5f; // 四块整体居中
+    const int MatFull = 20;                                           // 材料到这么多算刻度环满格
+    static readonly string[] MatIds = { ResourceInfo.WoodItem, ResourceInfo.StoneItem, ResourceInfo.OreItem, ResourceInfo.FiberItem };
 
     static readonly Color PanelBg = new Color(0.06f, 0.07f, 0.1f, 0.85f);
     static readonly Color PowerColor = new Color(1f, 0.82f, 0.3f);
@@ -24,10 +30,14 @@ public class ResourceHud : MonoBehaviour
 
     TMP_FontAsset _font;
     TextMeshProUGUI _powerTitle, _powerSub, _waterTitle, _waterSub, _termTitle, _termSub;
-    RectTransform _powerFill, _waterFill;
-    Image _powerFillImg, _waterFillImg, _termBg;
+    ArcGauge _powerArc, _waterArc;
+    Image _termBg;
     SegmentText _powerDigits, _waterDigits;
     HudGlow _powerGlow, _waterGlow;
+    readonly ArcGauge[] _matArcs = new ArcGauge[4];
+    readonly SegmentText[] _matDigits = new SegmentText[4];
+    readonly TextMeshProUGUI[] _matGlyphs = new TextMeshProUGUI[4], _matNames = new TextMeshProUGUI[4];
+    readonly HudGlow[] _matGlows = new HudGlow[4];
     float _timer;
 
     // root = 主界面 Canvas。
@@ -52,15 +62,18 @@ public class ResourceHud : MonoBehaviour
     {
         // 电力 | 净化水 并排（透明底、淡绿发光）
         RectTransform power = Panel(root, "Power", new Vector2(0f, 1f), new Vector2(GroupLeft, TopY), PowerColor);
-        BuildInfo(power, true, out _powerGlow, out _powerTitle, out _powerDigits, out _powerFill, out _powerFillImg, out _powerSub);
+        BuildInfo(power, true, out _powerGlow, out _powerTitle, out _powerDigits, out _powerArc, out _powerSub);
         RectTransform water = Panel(root, "Water", new Vector2(0f, 1f), new Vector2(GroupLeft + PanelW + Gap, TopY), WaterColor);
-        BuildInfo(water, false, out _waterGlow, out _waterTitle, out _waterDigits, out _waterFill, out _waterFillImg, out _waterSub);
+        BuildInfo(water, false, out _waterGlow, out _waterTitle, out _waterDigits, out _waterArc, out _waterSub);
 
-        // 终端机快捷按钮：净化水右边
+        // 基础材料：净化水右边
+        BuildMaterials(root, GroupLeft + (PanelW + Gap) * 2f);
+
+        // 终端机快捷按钮：基础材料右边
         RectTransform term = NewRect("Terminal", root);
         term.anchorMin = term.anchorMax = new Vector2(0.5f, 1f);
         term.pivot = new Vector2(0f, 1f);
-        term.anchoredPosition = new Vector2(GroupLeft + (PanelW + Gap) * 2f, TopY);
+        term.anchoredPosition = new Vector2(GroupLeft + (PanelW + Gap) * 2f + MatW + Gap, TopY);
         term.sizeDelta = new Vector2(TermW, PanelH);
         Image border = term.gameObject.AddComponent<Image>();
         border.color = new Color(0.72f, 1f, 0.78f, 0.6f); // 淡绿色边框（和其它界面统一，见 UiStyle）
@@ -79,14 +92,16 @@ public class ResourceHud : MonoBehaviour
         Refresh();
     }
 
-    // 一块信息：发光图标 + 标题 + 段码数字（靠右）+ 细进度条 + 说明小字；图标 / 标题 / 数字 / 进度条归一个 HudGlow 管颜色和闪烁。
+    // 一块信息：发光图标（外面一圈 3/4 圆刻度环）+ 标题 + 段码数字（靠右）+ 说明小字；
+    // 图标 / 标题 / 数字 / 刻度环归一个 HudGlow 管颜色和闪烁。
     void BuildInfo(RectTransform panel, bool bolt, out HudGlow glow, out TextMeshProUGUI title, out SegmentText digits,
-                   out RectTransform fill, out Image fillImg, out TextMeshProUGUI sub)
+                   out ArcGauge arc, out TextMeshProUGUI sub)
     {
         glow = panel.gameObject.AddComponent<HudGlow>();
         RawImage icon = Icon(panel);
         glow.AddIcon(icon, GlowIcon(bolt, false), GlowIcon(bolt, true));
-        title = Text(panel, "Title", 17f, HudGlow.Green, TextAlignmentOptions.Left, new Vector2(52f, -6f), new Vector2(90f, 24f));
+        arc = Ring(panel, glow, 26f, 62f);
+        title = Text(panel, "Title", 17f, HudGlow.Green, TextAlignmentOptions.Left, new Vector2(64f, -6f), new Vector2(80f, 24f));
         glow.AddGraphic(title, 0.9f);
 
         RectTransform drt = NewRect("Value", panel);
@@ -104,9 +119,75 @@ public class ResourceHud : MonoBehaviour
         digits.glowRadius = 5;
         glow.AddSegment(digits);
 
-        Bar(panel, out fill, out fillImg);
-        glow.AddGraphic(fillImg, 0.9f);
-        sub = Text(panel, "Sub", 14f, GreenSub, TextAlignmentOptions.Left, new Vector2(52f, -40f), new Vector2(240f, 22f));
+        sub = Text(panel, "Sub", 14f, GreenSub, TextAlignmentOptions.Left, new Vector2(64f, -38f), new Vector2(232f, 22f));
+    }
+
+    // 基础材料：4 格，每格 = 刻度环 + 环中间一个字（材料名的第一个字）+ 段码数字 + 下面一行小字（材料名）。
+    void BuildMaterials(RectTransform root, float x)
+    {
+        RectTransform panel = NewRect("Materials", root);
+        panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 1f);
+        panel.pivot = new Vector2(0f, 1f);
+        panel.anchoredPosition = new Vector2(x, TopY);
+        panel.sizeDelta = new Vector2(MatW, PanelH);
+        for (int i = 0; i < 4; i++)
+        {
+            RectTransform cell = NewRect("Mat" + i, panel);
+            cell.anchorMin = cell.anchorMax = cell.pivot = new Vector2(0f, 1f);
+            cell.anchoredPosition = new Vector2(i * MatCellW, 0f);
+            cell.sizeDelta = new Vector2(MatCellW, PanelH);
+            HudGlow glow = cell.gameObject.AddComponent<HudGlow>();
+            _matGlows[i] = glow;
+            _matArcs[i] = Ring(cell, glow, 28f, 54f);
+
+            TextMeshProUGUI glyph = Text(cell, "Glyph", 18f, HudGlow.Green, TextAlignmentOptions.Center, new Vector2(14f, -19f), new Vector2(28f, 26f));
+            glyph.fontStyle = FontStyles.Bold;
+            glyph.overflowMode = TextOverflowModes.Overflow;
+            glow.AddGraphic(glyph, 0.9f);
+            _matGlyphs[i] = glyph;
+
+            RectTransform drt = NewRect("Value", cell);
+            drt.anchorMin = drt.anchorMax = drt.pivot = new Vector2(0f, 1f);
+            drt.anchoredPosition = new Vector2(56f, -6f);
+            drt.sizeDelta = new Vector2(42f, 30f);
+            RawImage dimg = drt.gameObject.AddComponent<RawImage>();
+            dimg.raycastTarget = false;
+            SegmentText seg = drt.gameObject.AddComponent<SegmentText>();
+            seg.subText = "";
+            seg.subHeight = 0f;
+            seg.mainHeight = 0.66f;
+            seg.align = 0f;
+            seg.ghostAlpha = 0.04f;
+            seg.glowRadius = 5;
+            glow.AddSegment(seg);
+            _matDigits[i] = seg;
+
+            _matNames[i] = Text(cell, "Name", 12f, GreenSub, TextAlignmentOptions.Left, new Vector2(57f, -38f), new Vector2(44f, 18f));
+        }
+    }
+
+    // 刻度环：底层（满格、很淡）+ 上层（按比例亮），都交给 HudGlow 管颜色。返回上层。
+    ArcGauge Ring(RectTransform panel, HudGlow glow, float centerX, float size)
+    {
+        ArcGauge back = Arc(panel, "RingBack", centerX, size);
+        back.fill = 1f;
+        glow.AddGraphic(back, 0.16f);
+        ArcGauge front = Arc(panel, "Ring", centerX, size);
+        front.fill = 0f;
+        glow.AddGraphic(front, 0.95f);
+        return front;
+    }
+
+    static ArcGauge Arc(RectTransform panel, string name, float centerX, float size)
+    {
+        RectTransform rt = NewRect(name, panel);
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(centerX, 0f);
+        rt.sizeDelta = new Vector2(size, size);
+        ArcGauge g = rt.gameObject.AddComponent<ArcGauge>();
+        g.raycastTarget = false;
+        return g;
     }
 
     void Update()
@@ -128,7 +209,7 @@ public class ResourceHud : MonoBehaviour
         {
             _powerDigits.SetText("-");
             _powerSub.text = jp ? "発電設備がまだない" : "还没有发电设备";
-            SetFill(_powerFill, 0f);
+            _powerArc.SetFill(0f);
             _powerGlow.SetWarning(false);
         }
         else
@@ -141,7 +222,7 @@ public class ResourceHud : MonoBehaviour
             if (p.shed > 0) s = "<color=#FF6B6B>" + (jp ? "電力不足 " + p.shed + "台停止" : "电力不足，断电 " + p.shed + " 台") + "</color>";
             else if (p.unlinkedDevices > 0) s += jp ? "　<color=#FFB060>未接続あり</color>" : "　<color=#FFB060>有设备没接线</color>";
             _powerSub.text = s;
-            SetFill(_powerFill, p.capacity > 0f ? p.stored / p.capacity : 0f);
+            _powerArc.SetFill(p.capacity > 0f ? p.stored / p.capacity : 0f);
             // 电力不足：有设备被断电，或者电池快空了而且还在亏电
             bool lowPower = p.shed > 0 || (p.capacity > 0f && p.stored < p.capacity * 0.15f && net < 0f);
             _powerGlow.SetWarning(lowPower);
@@ -160,8 +241,23 @@ public class ResourceHud : MonoBehaviour
         if (thirsty > 0) wsub = "<color=#FF6B6B>" + (jp ? thirsty + "人が渇き" : thirsty + " 人口渴") + "</color>　" + wsub;
         _waterSub.text = wsub;
         float ratio = float.IsInfinity(days) ? (water > 0 ? 1f : 0f) : Mathf.Clamp01(days / 10f); // 够 10 天算满格
-        SetFill(_waterFill, ratio);
+        _waterArc.SetFill(ratio);
         _waterGlow.SetWarning(days < 2f || thirsty > 0); // 水不够 2 天，或者已经有人口渴
+
+        // —— 基础材料 ——
+        WorldState world = WorldManager.Instance != null ? WorldManager.Instance.world : null;
+        bool needWalls = NpcIntentBrain.WallsNeeded();
+        for (int i = 0; i < 4; i++)
+        {
+            string id = MatIds[i];
+            int have = world != null ? ItemUseRules.GetCount(id, world) : 0;
+            string name = ItemDatabase.Instance != null ? ItemDatabase.Instance.GetName(id) : id;
+            _matDigits[i].SetText(have.ToString());
+            _matArcs[i].SetFill((float)have / MatFull);
+            _matGlyphs[i].text = string.IsNullOrEmpty(name) ? "?" : name.Substring(0, 1);
+            _matNames[i].text = name;
+            _matGlows[i].SetWarning(id == ResourceInfo.StoneItem && needWalls && have < 2); // 营地没围好、石头不够修一段墙
+        }
 
         // —— 终端机 ——
         TerminalController t = TerminalController.Instance;
@@ -213,31 +309,6 @@ public class ResourceHud : MonoBehaviour
         RawImage img = rt.gameObject.AddComponent<RawImage>();
         img.raycastTarget = false;
         return img;
-    }
-
-    void Bar(RectTransform panel, out RectTransform fill, out Image fillImg)
-    {
-        RectTransform bg = NewRect("Bar", panel);
-        bg.anchorMin = bg.anchorMax = bg.pivot = new Vector2(0f, 1f);
-        bg.anchoredPosition = new Vector2(52f, -33f);
-        bg.sizeDelta = new Vector2(238f, 4f);
-        Image bgImg = bg.gameObject.AddComponent<Image>();
-        bgImg.color = new Color(0.72f, 1f, 0.78f, 0.13f);
-        bgImg.raycastTarget = false;
-        fill = NewRect("Fill", bg);
-        fill.anchorMin = Vector2.zero;
-        fill.anchorMax = new Vector2(0f, 1f);
-        fill.offsetMin = fill.offsetMax = Vector2.zero;
-        fillImg = fill.gameObject.AddComponent<Image>();
-        fillImg.color = HudGlow.Green;
-        fillImg.raycastTarget = false;
-    }
-
-    static void SetFill(RectTransform fill, float ratio)
-    {
-        if (fill == null) return;
-        fill.anchorMax = new Vector2(Mathf.Clamp01(ratio), 1f);
-        fill.offsetMin = fill.offsetMax = Vector2.zero;
     }
 
     TextMeshProUGUI Text(RectTransform parent, string name, float size, Color color, TextAlignmentOptions align, Vector2 pos, Vector2 sizeDelta)

@@ -19,7 +19,8 @@ public class AIStatusIndicator : MonoBehaviour
 
     void Start()
     {
-        BuildUI();
+        // 右下角改成 NPC 任务栏（NpcTaskPanel），这里不再显示；AI 状态看 F9 的 AI 调度面板。
+        // BuildUI();
     }
 
     void Update()

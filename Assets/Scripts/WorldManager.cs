@@ -11,7 +11,8 @@ public class WorldManager : MonoBehaviour
     public WorldState world = new WorldState();
 
     [Header("生成设置")]
-    public int npcCount = 3; // 开局生成几个 NPC
+    // 开局生成几个 NPC。（字段从 npcCount 改名而来：场景里存的旧值 3 不再生效，默认 4 人；想改在 Inspector 里改这个。）
+    public int startNpcCount = 4;
 
     void Awake()
     {
@@ -51,9 +52,9 @@ public class WorldManager : MonoBehaviour
         world.timeOfDay = "白天";
         world.globalSituation = "你们刚被卷入亚空间，在一处废弃营地中醒来。";
 
-        // 随机生成 npcCount 个各不相同的 NPC。
+        // 随机生成 startNpcCount 个各不相同的 NPC。
         NpcGenerator.ResetUsedNames();   // 重置已用名字，避免跨局累积导致名字重复
-        for (int i = 0; i < npcCount; i++)
+        for (int i = 0; i < startNpcCount; i++)
         {
             string id = "npc_" + (i + 1).ToString("00"); // npc_01, npc_02...
             NpcData npc = NpcGenerator.Generate(id);

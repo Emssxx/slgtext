@@ -91,6 +91,7 @@ public class HudLayout : MonoBehaviour
         HoverInfo.Ensure();                        // 鼠标悬停在 NPC / 建筑上的信息框 + 地图坐标浮窗
         CameraController.Ensure();                 // 滚轮缩放 + 中键拖动画面
         AiScheduler.Ensure();                      // AI 请求调度器（F9 调试面板）
+        NpcTaskPanel.Ensure();                     // 右下角：NPC 任务栏（谁在哪个组、在干什么）
     }
 
     // ============ 左上角：事件 / 日志抽屉 ============

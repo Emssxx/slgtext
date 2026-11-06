@@ -21,7 +21,8 @@ public class AIModelDebugUI : MonoBehaviour
 
     void Awake()
     {
-        BuildUI();
+        // 右下角改成 NPC 任务栏（NpcTaskPanel），这里不再显示；用的是哪个模型看 F9 的 AI 调度面板。
+        // BuildUI();
         RefreshModelLabel();
     }
 

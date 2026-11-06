@@ -10,6 +10,7 @@ using UnityEngine;
 //     · 身边有同伴 → 加；异常度高 / 刚有危险的东西靠近过 / 人在营地外面 / 身体不好 → 减。
 //   每个人的"底线"不一样：越勇敢底线越低（不怕空旷），越胆小底线越高。词条「勇敢」「怯懦」再各挪一截。
 //   安全感低于底线 = 安全感不足 → NpcIntentBrain 让他自己决定怎么办（多半会去修围墙）。
+// 营地范围（CampZone）就绪后，围合度 / 封闭 / 人在不在营地里都按营地范围那一圈墙位来算；没就绪时用下面的射线 + 灌水兜底。
 // 由 NpcBehaviorDriver.Start 自动挂上。数值都在 Inspector 里可调。
 // ============================================================================
 public class NpcSecurity : MonoBehaviour
@@ -79,6 +80,9 @@ public class NpcSecurity : MonoBehaviour
         if (Instance != null) Instance._danger = Mathf.Min(30f, Instance._danger + amount);
     }
 
+    // 眼下的"余悸"（危险生物 / 诡异事件刚发生过，0~30，慢慢消退）。
+    public static float Danger => Instance != null ? Instance._danger : 0f;
+
     // 这个人的底线。
     public static float Need(NpcData n)
     {
@@ -110,6 +114,8 @@ public class NpcSecurity : MonoBehaviour
     public static float SideCover(string side)
     {
         if (Instance == null) return 0f;
+        CampZone z = CampZone.Instance;
+        if (z != null && z.Ready) return z.SideClosure(side);
         float center = side == "east" ? 0f : side == "north" ? 90f : side == "west" ? 180f : 270f;
         int hit = 0, total = 0;
         for (int i = 0; i < Rays; i++)
@@ -138,7 +144,10 @@ public class NpcSecurity : MonoBehaviour
 
         List<string> why = new List<string>();
         int cover = Mathf.RoundToInt(s.Coverage * 100f);
-        if (!s.Enclosed)
+        CampZone zone = CampZone.Instance != null && CampZone.Instance.Ready ? CampZone.Instance : null;
+        if (!s.Enclosed && zone != null)
+            why.Add(jp ? $"拠点の囲いがまだできていない（{cover}%）" : $"营地还没围好（围合 {cover}%）");
+        else if (!s.Enclosed)
         {
             List<string> open = new List<string>();
             foreach (string side in new[] { "north", "east", "south", "west" })
@@ -154,6 +163,7 @@ public class NpcSecurity : MonoBehaviour
         if (!s.InCamp(n)) why.Add(jp ? "拠点の外にいる" : "你在营地外面");
         if (n.health < 50f) why.Add(jp ? "体の調子が悪い" : "身体状况不好");
         if (why.Count > 0) sb.AppendLine((jp ? "理由：" : "原因：") + string.Join(jp ? "。" : "；", why) + (jp ? "。" : "。"));
+        if (zone != null) sb.AppendLine(zone.Describe(jp)); // 营地范围那一圈：还差几段、哪边空着
         if (s.Enclosed) sb.AppendLine(jp ? "（拠点はもう壁で囲まれている。）" : "（营地已经被围起来了。）");
         else sb.AppendLine(jp ? "（壁や建物で拠点のまわりを塞げば安心できる。拠点をぐるりと囲めば、みんなかなり落ち着く。）"
                               : "（用围墙、建筑把营地四周挡起来会安心；把营地整个围起来，大家会安心很多。）");
@@ -209,6 +219,7 @@ public class NpcSecurity : MonoBehaviour
     {
         NpcMover m = NpcView.GetMover(n.id);
         if (m == null) return true;
+        if (CampZone.Instance != null && CampZone.Instance.Ready) return CampZone.Contains(m.transform.position, 0.5f);
         Vector3 camp = NpcNav.CampCenter(m.transform.position);
         return Vector2.Distance(m.transform.position, camp) <= NpcNav.CampRadius + 0.5f;
     }
@@ -253,6 +264,8 @@ public class NpcSecurity : MonoBehaviour
     // 从营地中心往 32 个方向看，统计被挡住的比例；再从营地中心往外"灌水"，出不去 = 封闭。
     void Scan()
     {
+        CampZone z = CampZone.Instance;
+        if (z != null && z.Ready) { Coverage = z.Closure; Enclosed = z.Enclosed; return; } // 按营地范围那一圈墙位算
         GridManager g = GridManager.Instance;
         if (g == null) { Coverage = 0f; Enclosed = false; return; }
         PrepareBlockers();

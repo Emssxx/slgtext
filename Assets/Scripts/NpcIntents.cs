@@ -45,7 +45,25 @@ public class NpcIntentBrain : MonoBehaviour
     public float phaseTimeout = 240f;     // 某一步卡住超过这么久就放弃（防止状态卡死）
 
     [Header("分工（领导早会分配，NpcSociety）")]
-    public float roleCooldown = 8f;       // 按分工干完一件，歇多久再干下一件
+    public float roleCooldown = 2f;       // 按分工干完一件，歇多久再干下一件
+    public int maxStagedWalls = 2;        // 搬运：最多先运好几段墙的材料等人来建（多了就先去干别的）
+
+    // 每种分工的"活的优先顺序"：前面的没活可干，才轮到后面的。
+    //   活：build 建筑 / haul 搬运 / gather 采集 / care 医疗 / scavenge 探寻 / rest 休息
+    [Serializable]
+    public class RolePriority
+    {
+        public string role;
+        public string[] jobs;
+    }
+    public List<RolePriority> rolePriorities = new List<RolePriority>
+    {
+        new RolePriority { role = "build",    jobs = new[] { "build", "haul", "gather", "care", "scavenge" } },
+        new RolePriority { role = "gather",   jobs = new[] { "gather", "scavenge", "haul", "build", "care" } },
+        new RolePriority { role = "scavenge", jobs = new[] { "scavenge", "gather", "haul", "build", "care" } },
+        new RolePriority { role = "care",     jobs = new[] { "care", "haul", "gather", "scavenge", "build" } },
+        new RolePriority { role = "rest",     jobs = new[] { "rest", "haul", "gather", "scavenge", "build" } },
+    };
 
     [Header("限制")]
     public int maxThinking = 2;           // 同时最多几个人在"想"
@@ -66,6 +84,7 @@ public class NpcIntentBrain : MonoBehaviour
         public int gatherTrips;
         public readonly List<string> buildHelpers = new List<string>(); // 答应了一起施工、等开工的人
         public float nextRole;      // 下次按分工干活的时间
+        public string lastJob;      // 上一次干的是哪种活（换了才写日志）
         public int roleLogDay = -1; // 今天写过"按分工去干什么"的日志了（一天只写一次，免得刷屏）
         public int token;      // 每开始一个新的异步步骤 +1：旧的回调回来时对不上就忽略
     }
@@ -135,18 +154,19 @@ public class NpcIntentBrain : MonoBehaviour
             {
                 case Phase.Idle:
                     if (!autonomy) break;
-                    // 有动机（安全感不足）才想
-                    if (now >= s.nextThink && thinking < maxThinking && NpcSecurity.Insecure(n) && CanThink(n, w, true) && Think(n, s))
+                    // 有分工的人：只干自己的活（代码执行，不调 AI），不再自己琢磨
+                    if (NpcSociety.HasRole(n))
                     {
-                        thinking++;
+                        if (now >= s.nextRole && CanWorkRole(n, w))
+                        {
+                            s.nextRole = now + roleCooldown;
+                            DoRoleWork(n, s);
+                        }
                         break;
                     }
-                    // 没有自己的打算：按今天的分工干（代码执行，不调 AI）
-                    if (now >= s.nextRole && NpcSociety.HasRole(n) && CanThink(n, w, false))
-                    {
-                        s.nextRole = now + roleCooldown;
-                        DoRoleWork(n, s);
-                    }
+                    // 没分工的人：有动机（安全感不足）才想
+                    if (now >= s.nextThink && thinking < maxThinking && NpcSecurity.Insecure(n) && CanThink(n, w, true) && Think(n, s))
+                        thinking++;
                     break;
                 case Phase.Building:
                     CheckBuilding(n, s);
@@ -192,6 +212,22 @@ public class NpcIntentBrain : MonoBehaviour
         if (!full) return true;
         if (AiScheduler.QuotaLeft(AiKind.NpcIntent, n.id) == 0) return false;               // 今天想够了
         if (AiScheduler.HasPending(AiKind.NpcIntent, n.id)) return false;
+        return true;
+    }
+
+    // 能不能按分工干活：和 CanThink 一样，但"仓库食物见底"不算有需求（那是搜寻组的事），自己饿了才算。
+    bool CanWorkRole(NpcData n, WorldState w)
+    {
+        if (n == null || n.IsDead || n.isBroken || !NpcHealth.CanWork(n)) return false;
+        NpcDecisionRules.Behavior need = NpcDecisionRules.Decide(n, w);
+        bool storageLowOnly = need == NpcDecisionRules.Behavior.Gather && n.hunger < 90f - n.personality.caution * 0.2f;
+        if (need != NpcDecisionRules.Behavior.Idle && !storageLowOnly) return false;
+        if (NpcBusy.IsBusy(n.id)) return false;
+        NpcTaskRunner r = Runner(n.id);
+        if (r == null || r.IsBusy) return false;
+        if (ConstructionManager.Instance != null && ConstructionManager.Instance.SiteOf(n.id) != null) return false;
+        NpcChatWindow cw = NpcChatWindow.Instance;
+        if (cw != null && cw.IsOpen && cw.CurrentNpcId == n.id) return false;
         return true;
     }
 
@@ -408,6 +444,21 @@ public class NpcIntentBrain : MonoBehaviour
         best = Vector2Int.zero;
         GridManager g = GridManager.Instance;
         if (g == null) return false;
+
+        // 营地范围（CampZone）就绪：墙只修在范围那一圈的墙位上；其他建筑放在营地里面（不压墙位）
+        CampZone z = CampZone.Instance;
+        if (z != null && z.Ready)
+        {
+            if (d.id == "wall")
+            {
+                CampZone.Slot slot = z.PickWallSlot(area);
+                if (slot == null) return false;
+                best = slot.center;
+                return true;
+            }
+            return PickInside(g, z, d, area, out best);
+        }
+
         Vector3 camp = NpcNav.CampCenter(Vector3.zero);
         float r0 = NpcNav.CampRadius;
         float areaDeg = AreaDeg(area);
@@ -439,6 +490,29 @@ public class NpcIntentBrain : MonoBehaviour
                 if (score > bestScore) { bestScore = score; best = c; found = true; }
             }
         }
+        return found;
+    }
+
+    // 营地里面挑一块地（不压墙位那一圈）：AI 说的那一边优先，离中心不远不近。
+    static bool PickInside(GridManager g, CampZone z, BuildableData d, string area, out Vector2Int best)
+    {
+        best = Vector2Int.zero;
+        Vector2Int size = d.FootprintSize(g.cellSize);
+        Vector2 center = new Vector2(z.Origin.x + z.Size.x * 0.5f, z.Origin.y + z.Size.y * 0.5f);
+        Vector2 dir = AreaDeg(area) == 90f ? Vector2.up : AreaDeg(area) == 270f ? Vector2.down : AreaDeg(area) == 0f ? Vector2.right : Vector2.left;
+        float bestScore = float.MinValue;
+        bool found = false;
+        int step = Mathf.Max(1, GridManager.Subdivision);
+        for (int x = z.Origin.x; x <= z.Origin.x + z.Size.x - size.x; x += step)
+            for (int y = z.Origin.y; y <= z.Origin.y + z.Size.y - size.y; y += step)
+            {
+                Vector2Int o = new Vector2Int(x, y);
+                if (!z.Inner(o, size) || !g.IsAreaBuildable(o, size)) continue;
+                Vector2 c = new Vector2(x + size.x * 0.5f, y + size.y * 0.5f);
+                Vector2 off = c - center;
+                float score = Vector2.Dot(off.normalized, dir) * 2f - Mathf.Abs(off.magnitude - z.Size.x * 0.25f) * 0.05f + UnityEngine.Random.Range(0f, 0.2f);
+                if (score > bestScore) { bestScore = score; best = new Vector2Int(x + (size.x - 1) / 2, y + (size.y - 1) / 2); found = true; }
+            }
         return found;
     }
 
@@ -578,6 +652,7 @@ public class NpcIntentBrain : MonoBehaviour
             }
         sb.Append(jp ? "建物：" : "已有建筑：").AppendLine(Count(built, jp));
         if (planned.Count > 0) sb.Append(jp ? "計画中：" : "规划中：").AppendLine(Count(planned, jp));
+        if (CampZone.Instance != null && CampZone.Instance.Ready) sb.AppendLine(CampZone.Instance.Describe(jp)); // 营地范围那一圈的围墙进度
 
         sb.Append(jp ? "異常度 " : "异常度 ").Append(Mathf.RoundToInt(w.anomalyLevel)).Append("（").Append(w.anomalyMood).Append("）　")
           .Append(jp ? "時間帯 " : "时段 ").AppendLine(w.timeOfDay);
@@ -661,60 +736,203 @@ public class NpcIntentBrain : MonoBehaviour
         return Instance != null && Instance._states.TryGetValue(id ?? "", out State s) && s.phase == Phase.Doing && s.goal == "meeting";
     }
 
-    // 按今天的分工干一件事（代码执行，不调 AI）。这会儿没有能干的返回 false。
+    // 按分工干活（代码执行，不调 AI）：按这个分工的"活的优先顺序"一项项看，第一项有活可干就干它。
+    // 都没活可干返回 false。
     bool DoRoleWork(NpcData n, State s)
     {
         WorldState w = World;
         if (w == null) return false;
-        bool log = s.roleLogDay != w.day;
-        switch (n.role)
+        foreach (string job in JobsFor(n.role))
         {
-            case "gather":
+            string desc = null;
+            bool started;
+            switch (job)
             {
-                string mat = Array.IndexOf(Materials, n.roleTarget) >= 0 ? n.roleTarget : LowestMaterial();
-                if (log) Log(n, LF("role_log_gather", n.npcName, ItemName(mat)), false);
-                RunChain(n, s, Phase.Doing, null, new NpcTask { action = "harvest", target = mat });
-                break;
+                case "build":    started = JobBuild(n, s, out desc); break;
+                case "haul":     started = JobHaul(n, s, out desc); break;
+                case "gather":   started = JobGather(n, s, out desc); break;
+                case "care":     started = JobCare(n, s, w, out desc); break;
+                case "scavenge": started = JobScavenge(n, s, out desc); break;
+                case "rest":     started = JobRest(n, s, out desc); break;
+                default:         started = false; break;
             }
-            case "scavenge":
-                if (log) Log(n, LF("role_log_scavenge", n.npcName), false);
-                RunChain(n, s, Phase.Doing, null, new NpcTask { action = "search_item", target = "" });
-                break;
-            case "build":
-            {
-                ConstructionSite site = OpenSite();
-                if (site == null) // 没有待建的蓝图：给修墙备料
-                {
-                    if (log) Log(n, LF("role_log_gather", n.npcName, ItemName(ResourceInfo.StoneItem)), false);
-                    RunChain(n, s, Phase.Doing, null, new NpcTask { action = "harvest", target = ResourceInfo.StoneItem });
-                    break;
-                }
-                ConstructionManager.Ensure().Assign(n.id, site);
-                s.token++;
-                SetPhase(s, Phase.Building);
-                if (log) Log(n, LF("role_log_build", n.npcName, site.DisplayName), false);
-                break;
-            }
-            case "care":
-            {
-                NpcData patient = MostHurt(n);
-                string item = ItemDatabase.Instance != null ? ItemDatabase.Instance.FindFirstInStorage(ItemCategory.Medical, w) : null;
-                if (patient == null || item == null) return false;
-                Log(n, LF("role_log_care", n.npcName, patient.npcName), false);
-                RunChain(n, s, Phase.Doing, null, new NpcTask { action = "use_item", target = item, destination = "@npc:" + patient.id });
-                break;
-            }
-            case "rest":
-                if (n.energy >= 80f) return false;
-                RunChain(n, s, Phase.Doing, null, new NpcTask { action = "rest" });
-                break;
-            default:
-                return false;
+            if (!started || s.phase == Phase.Idle) continue;
+            s.goal = "role";
+            // 换了一种活才写日志（同一种活一直干不刷屏）
+            if (job != s.lastJob && !string.IsNullOrEmpty(desc)) Log(n, LF("role_log_job", n.npcName, NpcSociety.RoleName(n.role), desc), false);
+            s.lastJob = job;
+            return true;
         }
-        if (s.phase == Phase.Idle) return false;
-        s.goal = "role";
-        if (log) s.roleLogDay = w.day;
+        return false;
+    }
+
+    string[] JobsFor(string role)
+    {
+        if (rolePriorities != null)
+            foreach (RolePriority rp in rolePriorities)
+                if (rp != null && rp.role == role && rp.jobs != null && rp.jobs.Length > 0) return rp.jobs;
+        return new[] { "gather", "scavenge" };
+    }
+
+    // —— 建筑：去建还没建完的蓝图（不是别人正在凑材料的那块）——
+    bool JobBuild(NpcData n, State s, out string desc)
+    {
+        desc = null;
+        ConstructionSite site = OpenSite();
+        if (site == null) return false;
+        ConstructionManager.Ensure().Assign(n.id, site);
+        s.token++;
+        SetPhase(s, Phase.Building);
+        desc = LF("job_desc_build", site.DisplayName);
         return true;
+    }
+
+    // —— 搬运：①把修墙的石头从仓库运到营地那一圈的空墙位，放下蓝图（材料到位，建筑的人就能开工）；
+    //          ②营地还不缺墙时：从湖边打水倒进雨水收集器 ——
+    bool JobHaul(NpcData n, State s, out string desc)
+    {
+        desc = null;
+        if (HaulWall(n, s, out desc)) return true;
+        if (WaterWorks.CollectorCount > 0 && WaterWorks.RawTotal < WaterWorks.RawCapacity && WaterWorks.DaysLeft < 3f)
+        {
+            RunChain(n, s, Phase.Doing, null, new NpcTask { action = "harvest", target = "water" });
+            desc = L("job_desc_haul_water");
+            return true;
+        }
+        return false;
+    }
+
+    bool HaulWall(NpcData n, State s, out string desc)
+    {
+        desc = null;
+        CampZone z = CampZone.Instance;
+        BuildableData wall = CampZone.WallData();
+        GridManager g = GridManager.Instance;
+        if (!WallsNeeded(z, wall) || g == null) return false;
+        if (StagedWalls() >= maxStagedWalls) return false;           // 已经有够多的墙等着人建了
+        MaterialCost[] cost = CostOf(wall);
+        if (FirstMissing(cost, out _) != null) return false;          // 石头不够：没东西可搬（采集的人会去采）
+        CampZone.Slot slot = z.PickWallSlot(z.MostOpenSide());
+        if (slot == null) return false;
+        string label = g.CellToLabel(slot.center.x, slot.center.y);
+        string where = CampZone.SideName(slot.side, LanguageGuard.IsJp) + "（" + label + "）";
+        desc = LF("job_desc_haul_wall", CostText(cost), where);
+        n.currentAction = desc;
+        string id = n.id;
+        RunChain(n, s, Phase.Fetching, ok =>
+        {
+            NpcData me = Npc(id);
+            if (!ok || me == null) { EndIntent(me, s, false, null); return; }
+            if (!ProgressionRules.ConsumeMaterials(cost)) { EndIntent(me, s, true, null); return; } // 半路被别人用掉了
+            ConstructionSite site = null;
+            GridManager gg = GridManager.Instance;
+            if (gg != null && gg.IsAreaBuildable(slot.origin, z.SlotSize) && BuildManager.Instance != null)
+                site = BuildManager.Instance.PlaceBlueprint(wall, slot.center);
+            if (site == null) site = PlaceNextWall(wall, out _);       // 那个位置被占了：就近换一个
+            if (site == null)
+            {
+                foreach (MaterialCost c in cost) if (c != null && c.amount > 0 && WorldManager.Instance != null) WorldManager.Instance.AddToStorage(c.materialName, c.amount);
+                EndIntent(me, s, true, null);
+                return;
+            }
+            Log(me, LF("role_log_wall_ready", me.npcName, site.DisplayName), false);
+            EndIntent(me, s, true, null);
+        },
+        new NpcTask { action = "go", destination = "@storage" },
+        new NpcTask { action = "act" },
+        new NpcTask { action = "go", destination = label },
+        new NpcTask { action = "act" });
+        return true;
+    }
+
+    // 已经放下、还没人施工的墙（材料都已运到）。
+    static int StagedWalls()
+    {
+        int k = 0;
+        foreach (ConstructionSite site in ConstructionSite.All)
+            if (site != null && site.data != null && site.data.id == "wall" && site.builders.Count == 0) k++;
+        return k;
+    }
+
+    // 营地还没围好、还有能修墙的缺口、围墙已解锁（顶部资源栏的石头提示也用它）
+    public static bool WallsNeeded() => WallsNeeded(CampZone.Instance, CampZone.WallData());
+
+    static bool WallsNeeded(CampZone z, BuildableData wall)
+    {
+        return z != null && z.Ready && !z.Enclosed && z.OpenCount > 0 && wall != null && ProgressionRules.IsBuildableUnlocked(wall, out _);
+    }
+
+    // —— 采集：采集组按分到的材料；其他人：营地还缺墙就采石头，否则采最缺的。附近采不到就换一种 ——
+    bool JobGather(NpcData n, State s, out string desc)
+    {
+        desc = null;
+        List<string> order = new List<string>();
+        if (n.role == "gather" && Array.IndexOf(Materials, n.roleTarget) >= 0) order.Add(n.roleTarget);
+        order.Add(WallsNeeded(CampZone.Instance, CampZone.WallData()) ? ResourceInfo.StoneItem : LowestMaterial());
+        foreach (string m in new[] { ResourceInfo.StoneItem, ResourceInfo.WoodItem, ResourceInfo.OreItem, ResourceInfo.FiberItem })
+            if (!order.Contains(m)) order.Add(m);
+        NpcMover mover = NpcView.GetMover(n.id);
+        Vector3 pos = mover != null ? mover.transform.position : Vector3.zero;
+        foreach (string m in order)
+        {
+            if (!ResourceInfo.TryParseKind(m, out ResourceKind kind)) continue;
+            if (TerrainSystem.FindNearest(kind, pos, n.id, null) == null) continue; // 附近没有能采的
+            RunChain(n, s, Phase.Doing, null, new NpcTask { action = "harvest", target = m });
+            desc = LF("job_desc_gather", ItemName(m));
+            return true;
+        }
+        return false;
+    }
+
+    // —— 医疗：有伤病的人、仓库里有药 ——
+    bool JobCare(NpcData n, State s, WorldState w, out string desc)
+    {
+        desc = null;
+        NpcData patient = MostHurt(n);
+        string item = ItemDatabase.Instance != null ? ItemDatabase.Instance.FindFirstInStorage(ItemCategory.Medical, w) : null;
+        if (patient == null || item == null) return false;
+        RunChain(n, s, Phase.Doing, null, new NpcTask { action = "use_item", target = item, destination = "@npc:" + patient.id });
+        desc = LF("job_desc_care", patient.npcName);
+        return true;
+    }
+
+    // —— 探寻：出营地找吃的和物资 ——
+    bool JobScavenge(NpcData n, State s, out string desc)
+    {
+        RunChain(n, s, Phase.Doing, null, new NpcTask { action = "search_item", target = "" });
+        desc = L("job_desc_scavenge");
+        return true;
+    }
+
+    // —— 休息：还累才歇 ——
+    bool JobRest(NpcData n, State s, out string desc)
+    {
+        desc = null;
+        if (n.energy >= 80f) return false;
+        RunChain(n, s, Phase.Doing, null, new NpcTask { action = "rest" });
+        desc = L("job_desc_rest");
+        return true;
+    }
+
+    // 在营地范围那一圈开下一段墙：空得最多的那一边优先、挨着已有墙优先；位置被占了就换下一个。
+    static ConstructionSite PlaceNextWall(BuildableData wall, out CampZone.Slot used)
+    {
+        used = null;
+        CampZone z = CampZone.Instance;
+        GridManager g = GridManager.Instance;
+        if (z == null || g == null || BuildManager.Instance == null) return null;
+        string side = z.MostOpenSide();
+        HashSet<CampZone.Slot> skip = new HashSet<CampZone.Slot>();
+        for (int i = 0; i < 8; i++)
+        {
+            CampZone.Slot slot = z.PickWallSlot(side, skip);
+            if (slot == null) return null;
+            skip.Add(slot);
+            if (!g.IsAreaBuildable(slot.origin, z.SlotSize)) continue;
+            ConstructionSite site = BuildManager.Instance.PlaceBlueprint(wall, slot.center);
+            if (site != null) { used = slot; return site; }
+        }
+        return null;
     }
 
     // 仓库里最少的材料（木 / 石 / 矿）。
@@ -788,6 +1006,7 @@ public class NpcIntentBrain : MonoBehaviour
         string what = job == "gather" ? LF("social_job_gather", ItemName(mat)) : LF("social_job_build", askerState.build.LocalizedName);
         Bubble(asker, LF("social_ask_bubble", t.npcName, what));
         Log(asker, LF("social_log_ask", asker.npcName, t.npcName, what), true);
+        NpcSociety.NoteHelpRequest(); // 第一次集体行动：出现领导的契机之一
 
         string excuse = Excuse(t, false);
         bool yes = excuse == null && Willingness(t, asker, job, askerState.build) >= 50f;
