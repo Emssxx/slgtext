@@ -26,7 +26,7 @@ The usual problems with putting an LLM in a game are that it is slow, unstable, 
 |---|---|---|
 | ① Compute | Rule-based code | Turns the world into numbers and facts: how many seconds of clean water are left, how many wall segments are missing, who is injured… |
 | ② Judge | Small model (qwen3:4b, an invisible "camp advisor") | Reads a rulebook plus the situation table and works out the 1–3 most urgent things for the camp |
-| ③ Decide & perform | Main model (14B class, or cloud) | The leader's division of labor, NPCs' own intentions, dialogue, director events, understanding the player's orders — using the 4B's judgment as reference |
+| ③ Decide & perform | Main model (14B class, or cloud) | Plays the camp leader (division of labor, building projects), the opening scene, dialogue with any NPC the player talks to, director events, understanding the player's orders — using the 4B's judgment as reference |
 | ④ Execute | Rule-based code | Validates the AI's choice and breaks it into task chains (pathfinding, fetching materials, construction); resolves all values |
 
 The AI can decide *what* to do, but it never changes the world directly:
@@ -55,12 +55,13 @@ Before adding any AI feature, it must pass three questions:
 
 ### Game systems
 
-- **Camp society**: each NPC has a sense of safety computed by code (how enclosed the camp is, companions, anomaly level, danger). When it drops below their personal threshold, or the advisor spots an emergency, they decide on their own what to do. A leader emerges after a few days (the 4B observes everyone's personality values); the leader assigns everyone to a group, and whether people obey depends on respect. NPCs can ask each other for help, and code decides whether they agree.
+- **Camp society — only the leader uses AI**: on day one the survivors vote for a leader (in practice the 4B reads everyone's personality values and picks one). From then on the 14B plays only the leader: it assigns everyone to a group and sets building projects, with the invisible 4B advisor feeding it the camp's most urgent problems. Everyone else works like a classic SLG NPC — code carries out their assigned role and the player's orders, and whether they obey depends on respect. While the leader is "thinking", they stand still; in the meantime code keeps people busy with useful work. Each NPC also has a sense of safety computed by code (how enclosed the camp is, companions, anomaly level, danger).
+- **Opening scene**: a black screen where only the survivors' speech bubbles are visible (lines written live by the 14B, with local fallbacks), then the player — an AI inside a protective suit — boots up. The boot log checks the **real** state: Ollama version, model size / quantization / whether it is loaded in VRAM, the 4B helper, knowledge-base entries, persona generation and terrain. The black screen then opens like a helmet visor and the HUD lights up piece by piece.
 - **NPC autonomy**: eat when hungry, rest when tired, scavenge when supplies run low, flee from danger; otherwise idle, wander and chat with others. Personality values shift the thresholds (brave NPCs flee later).
 - **Health**: satiety, water and stamina tick every second; status tags such as injured, sick, thirsty, fatigued and psychosis affect movement, work and relationships.
 - **Mental state**: sanity decides lucid / dazed / hallucinating / broken; broken NPCs mutate.
 - **AI terminal**: the player's "body" — crafting, tech tree, level upgrades, build unlocks.
-- **Building**: blueprint zones → assign NPCs to construct; multi-tile buildings with footprint preview; walls block movement and the navmesh is rebaked.
+- **Blueprints**: building happens in a planning program styled like an old computer (time keeps running). The map becomes a geometric schematic; place buildings with a corner-bracket cursor (click, drag a row, Shift-drag a ring), run a **pathfinding test** that reports unreachable spots, then send the blueprint to an NPC who directs the construction. NPCs can also design blueprints and hand them to the player to **approve / reject / edit**, and telling an NPC "go build the AI terminal" makes code draw the blueprint for them. Materials are taken only when delivered to the site; walls block movement and the navmesh is rebaked.
 - **Weather & temperature**: rain, wind, snow, hail; heavy rain plus strong wind triggers a "subspace storm"; heat and cold affect stamina and health.
 - **Power & water**: wind turbines, batteries, wires forming grids, priority-based load shedding; rain collection → purifier → daily water rations.
 - **Map seed & terrain**: the same seed always gives the same map; soil, camp tiles, swamps and lakes, plus harvestable trees, rocks and ore.
@@ -74,7 +75,7 @@ Before adding any AI feature, it must pass three questions:
 3. **Cloud model (optional)**: choose Claude / OpenAI / Gemini in the main menu and put your own API key under `Application.persistentDataPath` (Claude: `apikey.txt`, OpenAI: `openai_key.txt`, Gemini: `gemini_key.txt`). Key files live outside the project and never go into Git.
 4. It is playable with no model at all: dialogue and events fall back to local lines.
 
-Controls: `B` build mode · `Y` open chat · `I` storage · mouse wheel to zoom · middle mouse / WASD to move the camera · `H` back to camp
+Controls: `B` blueprint planner · `Y` open chat · `I` storage · mouse wheel to zoom · middle mouse / WASD to move the camera · `H` back to camp
 
 ### Development log
 
@@ -106,7 +107,7 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 |---|---|---|
 | ① 計算 | ルールベースのコード | 世界を数字と事実に整理する：浄水があと何秒もつか、壁があと何区画足りないか、誰がけがをしているか…… |
 | ② 判断 | 小さなモデル（qwen3:4b、見えない「拠点の参謀」） | ルールブックと状況表を読み、拠点にとっていま一番大事なことを 1〜3 個導き出す |
-| ③ 決定・演技 | メインモデル（14B クラス、またはクラウド） | リーダーの役割分担、NPC 自身の意図、会話、ディレクターのイベント、プレイヤーの指示の理解。4B の判断を参考にする |
+| ③ 決定・演技 | メインモデル（14B クラス、またはクラウド） | リーダーを演じる（役割分担・建設プロジェクト）、オープニング、プレイヤーが話しかけた NPC との会話、ディレクターのイベント、プレイヤーの指示の理解。4B の判断を参考にする |
 | ④ 実行 | ルールベースのコード | AI の選択をチェックし、タスクの連鎖（経路探索・材料の運搬・施工）に分解する。数値の処理はすべてコード |
 
 AI は「何をするか」を決められますが、世界を直接書き換えることはありません。
@@ -135,12 +136,13 @@ AI を使う機能を入れる前に、次の 3 つを確認します。
 
 ### ゲームシステム
 
-- **拠点の社会**：NPC ごとに、コードで計算する「安心感」があります（拠点の囲まれ具合・仲間・異常度・危険）。それが本人のしきい値を下回るか、参謀が緊急事態を見つけると、自分で何をするか決めます。数日たつとリーダーが現れ（4B が全員の性格の数値を見て判断）、リーダーが全員を班に分けます。従うかどうかは尊敬の度合いで決まります。NPC 同士で手伝いを頼むこともでき、引き受けるかどうかはコードが決めます。
+- **拠点の社会――AI を使うのはリーダーだけ**：1 日目に生存者たちが投票でリーダーを選びます（実際は 4B が全員の性格の数値を見て一人を選ぶ）。それ以降、14B はリーダーだけを演じ、全員を班に分けて建設プロジェクトを決めます。見えない 4B の参謀が、拠点のいちばん差し迫った問題をリーダーに伝えます。ほかの NPC は一般的な SLG の NPC と同じで、割り当てられた役割とプレイヤーの指示をコードが実行し、従うかどうかは尊敬の度合いで決まります。リーダーが「考え中」の間は立ち止まり、その間もコードがほかの人に役立つ作業をさせます。NPC ごとに、コードで計算する「安心感」もあります（拠点の囲まれ具合・仲間・異常度・危険）。
+- **オープニング**：真っ暗な画面に生存者たちの吹き出しだけが浮かび（セリフは 14B がその場で書き、だめならローカルのセリフ）、そのあと防護服の中の AI＝プレイヤーが起動します。起動ログは**本当の状態**を確認します：Ollama のバージョン、モデルのサイズ / 量子化 / VRAM に載っているか、4B、知識ベースの件数、人格の生成、地形。最後に黒い画面がヘルメットのバイザーのように上下に開き、HUD が一つずつ点灯します。
 - **NPC の自律行動**：お腹が空けば食べ、疲れれば休み、物資が減れば探索に出て、危険なら逃げる。何もないときはぼんやりしたり、うろついたり、仲間と雑談したり。性格の数値で判断のしきい値が変わります（勇敢な人ほど逃げるのが遅い）。
 - **健康**：満腹度・水分・体力を毎秒処理。けが・病気・のどの渇き・疲労・精神病などの状態タグが、移動・作業・人間関係に影響します。
 - **精神状態**：正気度で「正常 / 朦朧 / 幻覚 / 崩壊」が決まり、崩壊すると体が変異します。
 - **AI 端末**：プレイヤーの「体」。クラフト・技術ツリー・レベルアップ・建築の解放。
-- **建築**：計画区域（設計図）→ NPC を割り当てて施工。複数マスの建物と設置プレビュー。壁は通行をふさぎ、完成後にナビメッシュを焼き直します。
+- **設計図**：建築は古いコンピューター風の計画プログラムで行います（時間は止まりません）。マップは幾何学的な略図になり、四隅だけの枠で建物を置き（クリック・ドラッグで一列・Shift ドラッグで一周）、**経路テスト**で行けない場所を確認してから、設計図を NPC に送って施工を指揮してもらいます。NPC が自分で設計図を作ってプレイヤーに出し、**承認 / 却下 / 修正**を求めることもあります。NPC に「AI 端末を建ててきて」と言えば、コードが設計図を描いて渡します。材料は現場に運ばれたときに使われます。壁は通行をふさぎ、完成後にナビメッシュを焼き直します。
 - **天気と気温**：雨・風・雪・ひょう。豪雨と強風が重なると「亜空間の嵐」。暑さ・寒さが体力と HP に影響します。
 - **電力と水**：風力発電・蓄電池・電線でつなぐ電力網・優先度に応じた停電。雨水の収集 → 浄水器 → 毎日の給水。
 - **マップシードと地形**：同じシードなら必ず同じマップ。土・キャンプの床タイル・沼・湖に加え、木・岩・鉱石などの採集できる資源。
@@ -154,7 +156,7 @@ AI を使う機能を入れる前に、次の 3 つを確認します。
 3. **クラウドモデル（任意）**：メインメニューで Claude / OpenAI / Gemini を選び、自分の API キーを `Application.persistentDataPath` に置きます（Claude：`apikey.txt`、OpenAI：`openai_key.txt`、Gemini：`gemini_key.txt`）。キーのファイルはプロジェクトの外にあり、Git には入りません。
 4. モデルを使わなくても遊べます。会話とイベントはローカルのセリフで補います。
 
-操作：`B` 建築モード・`Y` 会話を開く・`I` 倉庫・ホイールでズーム・中ボタン / WASD でカメラ移動・`H` キャンプに戻る
+操作：`B` 設計図プランナー・`Y` 会話を開く・`I` 倉庫・ホイールでズーム・中ボタン / WASD でカメラ移動・`H` キャンプに戻る
 
 ### 開発記録
 
@@ -186,7 +188,7 @@ AI を使う機能を入れる前に、次の 3 つを確認します。
 |---|---|---|
 | ① 算数 | 规则代码 | 把世界整理成数字和事实：净化水还够几秒、围墙还差几段、谁受伤了…… |
 | ② 判断 | 小模型（qwen3:4b，隐形的「营地参谋」） | 读「规则手册」+ 局势表，推出营地眼下最要紧的 1～3 件事 |
-| ③ 决策与演绎 | 主模型（14B 级，或云端） | 领导分工、NPC 自主意图、对话、导演事件、理解玩家指令；参考 4B 的判断 |
+| ③ 决策与演绎 | 主模型（14B 级，或云端） | 扮演领导（分工、定建造项目）、开场演出、玩家对话的 NPC、导演事件、理解玩家指令；参考 4B 的判断 |
 | ④ 执行 | 规则代码 | 审核 AI 的选择，拆成任务链（寻路、取材料、施工）；所有数值结算 |
 
 AI 可以决定「做什么」，但永远不直接改世界：
@@ -215,12 +217,13 @@ AI 可以决定「做什么」，但永远不直接改世界：
 
 ### 游戏系统
 
-- **营地社会**：每个 NPC 有一个由代码计算的安全感（营地围合度、同伴、异常度、危险）。低于自己的底线，或者参谋发现了紧急情况，他会自己决定怎么办。几天后会出现领导（4B 读大家的性格数值判断），领导给每个人分组，听不听由尊重值决定。NPC 之间可以请人帮忙，答不答应由代码算。
+- **营地社会——只有领导用 AI**：第一天幸存者们投票选出领导（实际由 4B 读大家的性格数值挑一个人）。之后 14B 只扮演领导：给每个人分组、定建造项目，隐形的 4B 参谋把营地眼下最要紧的问题告诉他。其他人和普通 SLG 的 NPC 一样，按分工和玩家的指令由代码干活，听不听由尊重值决定。领导「正在思考」时站着不动，这段时间代码先让其他人干点有用的事。每个 NPC 还有一个由代码计算的安全感（营地围合度、同伴、异常度、危险）。
+- **开场演出**：黑屏中只看得见幸存者们的对话框（台词由 14B 现场写，写不出来用本地台词），然后玩家——防护服里的 AI——开机。启动日志检查的是**真实状态**：Ollama 版本、模型参数量 / 量化 / 是否已在显存、4B、知识库条目数、人格建模、地形。最后黑幕像头盔面罩一样上下拉开，HUD 一块块亮起来。
 - **NPC 自主行为**：饿了去吃、累了休息、物资不足外出搜寻、危险时逃跑；没事时发呆、闲逛、找同伴闲聊。性格数值影响行为阈值（勇敢的人更晚逃跑）。
 - **健康系统**：饥饿值、水分、体力每秒结算；受伤、生病、口渴、疲惫、精神病等状态词条影响移动、工作和人际关系。
 - **精神状态**：理智值决定清醒 / 恍惚 / 幻觉 / 崩解，崩解后身体异变。
 - **AI 终端机**：玩家的「身体」。合成、科技树、等级升级、建造解锁。
-- **建造**：规划区蓝图 → 指派 NPC 施工；多格建筑、占地预览；墙会挡路，建成后重新烘焙寻路。
+- **蓝图**：建造在一台老电脑风格的规划程序里进行（时间不暂停）。地图变成几何示意图，用四角框放建筑（点一下、拖一排、Shift 拖一圈），**测试寻路**找出走不到的地方，然后把蓝图发给一个 NPC 指挥建造。NPC 也会自己设计蓝图交给玩家**批准 / 不允许 / 修改**；对 NPC 说「去把 AI 终端机建起来」，代码会替他画好蓝图。材料送到工地时才扣；墙会挡路，建成后重新烘焙寻路。
 - **天气与气温**：雨、风、雪、冰雹，暴雨加大风触发「亚空间风暴」；炎热、寒冷影响体力与生命。
 - **电力与水源**：风力发电、电池储电、电线连网、按优先级断电；雨水收集 → 净化器净化 → 每日饮水。
 - **地图种子与地形**：同一个种子生成同一张地图；土地、营地地砖、沼泽、湖泊，以及树、石头、矿石等可采集资源。
@@ -234,7 +237,7 @@ AI 可以决定「做什么」，但永远不直接改世界：
 3. **云端模型（可选）**：在主菜单选择 Claude / OpenAI / Gemini，把自己的 API key 放到 `Application.persistentDataPath` 下（Claude：`apikey.txt`，OpenAI：`openai_key.txt`，Gemini：`gemini_key.txt`）。key 文件在工程外面，不会进 Git。
 4. 不开任何模型也能玩：对话和事件会使用本地台词兜底。
 
-常用操作：`B` 建造模式 · `Y` 打开对话 · `I` 仓库 · 滚轮缩放 · 中键 / WASD 移动镜头 · `H` 回营地
+常用操作：`B` 蓝图规划 · `Y` 打开对话 · `I` 仓库 · 滚轮缩放 · 中键 / WASD 移动镜头 · `H` 回营地
 
 ### 开发记录
 
