@@ -415,7 +415,7 @@ public class HudLayout : MonoBehaviour
 
     // ============ 右下角：建造按钮 ============
 
-    // 原来的建造按钮藏起来（看不见、点不到，但组件还在：B 键照样能进出建造模式），换成底部任务栏最右边的 build。
+    // 原来的建造按钮藏起来（看不见、点不到，但组件还在：B 键照样能开关蓝图规划），换成底部任务栏最右边的 blueprint。
     void PlaceBuildButton()
     {
         BuildModeToggle toggle = FindFirstObjectByType<BuildModeToggle>(FindObjectsInactive.Include);
@@ -426,7 +426,7 @@ public class HudLayout : MonoBehaviour
         g.blocksRaycasts = false;
         g.interactable = false;
         HudDock dock = HudDock.Ensure();
-        dock.Add("build", 60, () => BuildManager.Instance != null && BuildManager.Instance.IsBuildMode ? "build : on  [B]" : "build  [B]",
+        dock.Add("build", 60, () => BlueprintDesigner.IsOpenNow ? "blueprint : on  [B]" : "blueprint  [B]",
                  onClick: toggle.OnClick, showInBuildMode: true);
         BuildMenuPos = new Vector2(-dock.rightMargin, dock.bottomMargin + 22f + 10f); // 建造菜单停在任务栏上面
     }

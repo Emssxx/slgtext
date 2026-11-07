@@ -6,7 +6,7 @@ using System.Collections.Generic;
 //   输入：地图布局 TerrainLayout（多大、哪些格是墙、营地在哪）+ 种子（整数，见 MapSeed）
 //   输出：TerrainMap = 每个小格的地形 + 天然资源的位置和大小
 // 同样的布局 + 同样的种子 → 永远是同一张地图（用自带的随机数，不用 UnityEngine.Random，换电脑也一样）。
-// 地图多大都行：湖的个数、沼泽和资源的数量都按面积自动放大（默认地图 72×33 块地砖 = 216×99 小格）。
+// 地图多大都行：湖的个数、沼泽和资源的数量都按面积自动放大（默认地图 144×66 块地砖 = 432×198 小格）。
 //
 // 规则（对应设计）：
 //   【土地】默认地形；连成片的范围不小于 3×3（零碎的一两格土地并进旁边的沼泽 / 水面）。
@@ -179,10 +179,10 @@ public class TerrainLayout
     public bool IsBlocked(int x, int y) => blocked != null && blocked[y * width + x];
 
     // 主菜单预览的默认布局（还没进过游戏场景、没有缓存时用）：和默认地图一致
-    // （GridManager.mapSize = 72×33 块地砖，以 (0,0) 为中心；营地 8×6 块砖）。
+    // （GridManager.mapSize = 144×66 块地砖，以 (0,0) 为中心；营地 8×6 块砖）。
     public static TerrainLayout Default()
     {
-        return new TerrainLayout { width = 216, height = 99, sub = 3, campX = 96, campY = 39, campW = 24, campH = 18, spawnX = 108, spawnY = 48 };
+        return new TerrainLayout { width = 432, height = 198, sub = 3, campX = 204, campY = 90, campW = 24, campH = 18, spawnX = 216, spawnY = 99 };
     }
 
     // 存进 PlayerPrefs 的文字（主菜单预览用：进过一次游戏后，预览和实际地图一模一样）。

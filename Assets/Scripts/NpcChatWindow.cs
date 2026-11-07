@@ -20,6 +20,8 @@ using TMPro;
 //       点这条线：镜头锁定这个 NPC，把他放在画面中心并一直跟随；再点一次、手动移动镜头或关窗口就解除。
 // 操作：Enter 发送、Esc 先退出输入再关窗口、Y 重新打开上次的窗口；拖窗口可以挪动（拖不出屏幕）。
 // 窗口只负责显示和输入；玩家发出的话交给 NpcAgent 处理（OnPlayerMessage）。
+// 计划文件：NPC 交来的 / 玩家发出去的建造蓝图显示成一张文件卡片（缩略图 + 名称 + 内容 + 签名 + 状态），
+//           点一下在蓝图规划里打开（批准 / 不允许 / 修改）；蓝图状态变了卡片跟着变色。
 public class NpcChatWindow : MonoBehaviour
 {
     public static NpcChatWindow Instance { get; private set; }
@@ -101,12 +103,14 @@ public class NpcChatWindow : MonoBehaviour
         _window.gameObject.SetActive(false);
         NpcChat.OnPosted += HandlePosted;
         LocalizationManager.OnLanguageChanged += RefreshTexts;
+        BlueprintSystem.OnChanged += RefreshPlanCards;
     }
 
     void OnDestroy()
     {
         NpcChat.OnPosted -= HandlePosted;
         LocalizationManager.OnLanguageChanged -= RefreshTexts;
+        BlueprintSystem.OnChanged -= RefreshPlanCards;
         if (Instance == this) Instance = null;
     }
 
@@ -421,6 +425,7 @@ public class NpcChatWindow : MonoBehaviour
 
     void RebuildMessages()
     {
+        _cards.Clear();
         for (int i = _content.childCount - 1; i >= 0; i--)
         {
             Transform c = _content.GetChild(i);
@@ -445,7 +450,10 @@ public class NpcChatWindow : MonoBehaviour
         {
             case ChatRole.Player: AddBubble(L("chatwin_you"), Quote(e.text), true); break;
             case ChatRole.Npc:    AddBubble(e.speaker, Quote(e.text), false); break;
-            default:              AddSystemLine(e.text); break;
+            default:
+                if (BlueprintSystem.TryParseMarker(e.text, out string bpId)) AddPlanCard(bpId);   // 计划文件
+                else AddSystemLine(e.text);
+                break;
         }
         if (_thinking != null) _thinking.transform.SetAsLastSibling();
 
@@ -520,6 +528,176 @@ public class NpcChatWindow : MonoBehaviour
         t.richText = true;
         t.color = SystemColor;
         t.text = "<noparse>>> " + s + "</noparse>";
+    }
+
+    // ============ 计划文件（建造蓝图）卡片 ============
+
+    class PlanCard
+    {
+        public string id;
+        public RectTransform root;
+        public Image bg, frame;
+        public TMP_Text tag, title, info, status, open;
+        public bool hover;
+    }
+
+    readonly List<PlanCard> _cards = new List<PlanCard>();
+    static readonly Color PlanBg = new Color(0.035f, 0.07f, 0.055f, 1f);
+    static readonly Color PlanBgHover = new Color(0.06f, 0.12f, 0.09f, 1f);
+    static readonly Color PlanRed = new Color(1f, 0.42f, 0.42f, 1f);
+
+    // 一张计划文件卡片：玩家（AI）发出去的靠右，NPC 交来的靠左。点一下在蓝图规划里打开。
+    void AddPlanCard(string bpId)
+    {
+        Blueprint bp = BlueprintSystem.Find(bpId);
+        bool mine = bp != null && bp.ByAI;
+        float w = Mathf.Round(ContentWidth * 0.86f);
+        const float h = 104f;
+
+        RectTransform item = NewRect("Plan", _content);
+        LayoutElement le = item.gameObject.AddComponent<LayoutElement>();
+        le.preferredHeight = h + 4f;
+
+        RectTransform card = NewRect("Card", item);
+        card.anchorMin = card.anchorMax = card.pivot = new Vector2(mine ? 1f : 0f, 1f);
+        card.anchoredPosition = new Vector2(mine ? -2f : 2f, -2f);
+        card.sizeDelta = new Vector2(w, h);
+        PlanCard pc = new PlanCard { id = bpId, root = card };
+        pc.bg = card.gameObject.AddComponent<Image>();
+        pc.bg.color = PlanBg;
+        Button btn = card.gameObject.AddComponent<Button>();
+        btn.transition = Selectable.Transition.None;
+        btn.targetGraphic = pc.bg;
+        btn.onClick.AddListener(() => BlueprintDesigner.OpenFile(bpId));
+        UiHoverZone hz = card.gameObject.AddComponent<UiHoverZone>();
+        hz.onEnter = () => { pc.hover = true; StyleCard(pc); };
+        hz.onExit = () => { pc.hover = false; StyleCard(pc); };
+        pc.frame = UiStyle.Frame(card, Green, 1.2f);
+        pc.tag = UiStyle.Tag(card, "file : " + (bp != null ? bp.FileName : bpId + ".plan"), Green, 12f);
+
+        // 缩略图：几何示意（青色方块 = 蓝图里的建筑）
+        RectTransform thumb = NewRect("Thumb", card);
+        thumb.anchorMin = thumb.anchorMax = thumb.pivot = new Vector2(0f, 1f);
+        thumb.anchoredPosition = new Vector2(10f, -27f);
+        thumb.sizeDelta = new Vector2(72f, 54f);
+        RawImage ri = thumb.gameObject.AddComponent<RawImage>();
+        ri.raycastTarget = false;
+        Texture2D tex = PlanThumbnail(bp, 72, 54);
+        ri.texture = tex;
+        thumb.gameObject.AddComponent<OwnedTexture>().tex = tex;   // 卡片销毁时贴图一起销毁
+        UiStyle.Frame(thumb, new Color(Green.r, Green.g, Green.b, 0.35f), 1f);
+
+        float tx = 92f, tw = w - tx - 10f;
+        pc.title = PlanText(card, 14f, tx, -26f, tw, UiStyle.TextMain, false);
+        pc.info = PlanText(card, 12.5f, tx, -46f, tw, UiStyle.TextSub, false);
+        pc.status = PlanText(card, 12f, tx, -65f, tw, Green, true);
+        pc.open = PlanText(card, 12f, 10f, -84f, w - 20f, Green, true);
+        _cards.Add(pc);
+        StyleCard(pc);
+    }
+
+    TMP_Text PlanText(RectTransform parent, float size, float x, float y, float w, Color color, bool mono)
+    {
+        TextMeshProUGUI t = NewText(parent, "Text", size, TextAlignmentOptions.TopLeft);
+        if (mono && UiStyle.Mono != null) t.font = UiStyle.Mono;
+        t.color = color;
+        t.richText = true;
+        t.textWrappingMode = TextWrappingModes.NoWrap;
+        t.overflowMode = TextOverflowModes.Ellipsis;
+        RectTransform rt = t.rectTransform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 1f);
+        rt.anchoredPosition = new Vector2(x, y);
+        rt.sizeDelta = new Vector2(w, size + 6f);
+        return t;
+    }
+
+    // 卡片颜色跟着蓝图状态：等批准 = 黄、否决 = 红、被修改 = 灰、其他（已批准 / 建造中 / 建成 / 已保存）= 绿。
+    void StyleCard(PlanCard pc)
+    {
+        if (pc == null || pc.root == null) return;
+        Blueprint bp = BlueprintSystem.Find(pc.id);
+        Color c;
+        string st;
+        if (bp == null) { c = UiStyle.Gray; st = L("chatwin_plan_missing"); }
+        else
+        {
+            switch (bp.status)
+            {
+                case BlueprintStatus.Pending: c = UiStyle.Yellow; break;
+                case BlueprintStatus.Rejected: c = PlanRed; break;
+                case BlueprintStatus.Modified: c = UiStyle.Gray; break;
+                default: c = Green; break;
+            }
+            st = BlueprintSystem.StatusText(bp.status);
+            if (bp.status == BlueprintStatus.Building) st += "  " + bp.built + "/" + bp.placed;
+        }
+        pc.bg.color = pc.hover ? PlanBgHover : PlanBg;
+        pc.frame.color = new Color(c.r, c.g, c.b, pc.hover ? 1f : 0.8f);
+        UiStyle.SetTag(pc.tag, "file : " + (bp != null ? bp.FileName : pc.id + ".plan"), c);
+        pc.title.text = "<noparse>" + (bp != null ? bp.name : pc.id) + "</noparse>";
+        pc.info.text = bp != null ? BlueprintSystem.ItemLine(bp) : "";
+        pc.status.text = (bp != null ? "SIGN: " + bp.authorName + "  ·  " : "") + "<color=#" + Hex(c) + ">" + st + "</color>";
+        bool review = bp != null && bp.status == BlueprintStatus.Pending;
+        pc.open.text = (pc.hover ? "> " : "  ") + L(review ? "chatwin_plan_review" : "chatwin_plan_open") + (pc.hover ? "_" : "");
+        pc.open.color = review ? UiStyle.Yellow : Green;
+    }
+
+    void RefreshPlanCards()
+    {
+        for (int i = _cards.Count - 1; i >= 0; i--)
+        {
+            if (_cards[i].root == null) { _cards.RemoveAt(i); continue; }
+            StyleCard(_cards[i]);
+        }
+    }
+
+    static string Hex(Color c)
+    {
+        return Mathf.RoundToInt(Mathf.Clamp01(c.r) * 255f).ToString("X2") + Mathf.RoundToInt(Mathf.Clamp01(c.g) * 255f).ToString("X2") + Mathf.RoundToInt(Mathf.Clamp01(c.b) * 255f).ToString("X2");
+    }
+
+    // 计划文件的缩略图：深绿底 + 网格点 + 每一项一个青色方块（按整份蓝图的范围缩放）。
+    static Texture2D PlanThumbnail(Blueprint bp, int w, int h)
+    {
+        const int S = 2;   // 2 倍分辨率
+        int W = w * S, H = h * S;
+        Texture2D t = new Texture2D(W, H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, name = "PlanThumb" };
+        Color32[] px = new Color32[W * H];
+        Color32 bg = new Color32(6, 16, 11, 255), dot = new Color32(26, 56, 37, 255), fill = new Color32(30, 96, 112, 255), edge = new Color32(115, 242, 255, 255);
+        for (int i = 0; i < px.Length; i++) px[i] = bg;
+        for (int y = 3; y < H; y += 8)
+            for (int x = 3; x < W; x += 8) px[y * W + x] = dot;
+        if (bp != null && bp.items.Count > 0)
+        {
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+            foreach (BlueprintItem it in bp.items)
+            {
+                minX = Mathf.Min(minX, it.origin.x);
+                minY = Mathf.Min(minY, it.origin.y);
+                maxX = Mathf.Max(maxX, it.origin.x + it.size.x);
+                maxY = Mathf.Max(maxY, it.origin.y + it.size.y);
+            }
+            float bw = maxX - minX, bh = maxY - minY;
+            float scale = Mathf.Min(10f, Mathf.Min((W - 12f) / Mathf.Max(1f, bw), (H - 12f) / Mathf.Max(1f, bh)));
+            float ox = (W - bw * scale) * 0.5f, oy = (H - bh * scale) * 0.5f;
+            foreach (BlueprintItem it in bp.items)
+            {
+                int x0 = Mathf.RoundToInt(ox + (it.origin.x - minX) * scale);
+                int y0 = Mathf.RoundToInt(oy + (it.origin.y - minY) * scale);
+                int x1 = Mathf.Max(x0 + 1, Mathf.RoundToInt(ox + (it.origin.x + it.size.x - minX) * scale) - 1);
+                int y1 = Mathf.Max(y0 + 1, Mathf.RoundToInt(oy + (it.origin.y + it.size.y - minY) * scale) - 1);
+                for (int y = y0; y <= y1; y++)
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+                        bool border = x == x0 || x == x1 || y == y0 || y == y1;
+                        px[y * W + x] = border ? edge : fill;
+                    }
+            }
+        }
+        t.SetPixels32(px);
+        t.Apply(false);
+        return t;
     }
 
     void ScrollToBottom()
@@ -897,4 +1075,11 @@ public static class GameFonts
         Debug.LogWarning("[NpcChatWindow] 没找到中日文字体，对话窗口的字可能显示成方块。请把 NPC 列表用的 TMP 字体拖到 NpcChatWindow.font。");
         return null;
     }
+}
+
+// 跟着物体一起销毁的贴图（对话框里计划文件的缩略图）。
+public class OwnedTexture : MonoBehaviour
+{
+    public Texture tex;
+    void OnDestroy() { if (tex != null) Destroy(tex); }
 }

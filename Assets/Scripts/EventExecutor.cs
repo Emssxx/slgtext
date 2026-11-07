@@ -189,9 +189,11 @@ public class EventExecutor : MonoBehaviour
         //    以后有 SoundManager 时，在这里播放低语 AudioClip。
         // if (SoundManager.Instance != null) SoundManager.Instance.Play("whisper");
 
-        // 3. 让这个NPC头顶冒出一句受幻象影响的话（本地台词，不调 LLM），同时记进他的对话记录。
+        // 3. 让这个NPC头顶冒出一句受幻象影响的话（本地台词，不调 LLM）。
+        //    只冒气泡，不写进和 AI 的对话框（事件反应不进聊天栏；事件本身已记进事件编年史）。
         string[] lines = LanguageGuard.IsJp ? WhisperLinesJa : WhisperLinesZh;
-        NpcChat.Post(chosen.id, ChatRole.Npc, lines[Random.Range(0, lines.Length)], true);
+        NpcMover whisperMover = NpcView.GetMover(chosen.id);
+        if (whisperMover != null) NpcSpeechBubble.Show(whisperMover.transform, lines[Random.Range(0, lines.Length)], 4f);
 
         // 4. 记录事件日志。
         if (EventLogManager.Instance != null)

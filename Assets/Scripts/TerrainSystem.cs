@@ -22,7 +22,7 @@ using NavMeshPlus.Components;
 //   · 寻路：水 / 挡路的资源 = Not Walkable，沼泽 = 区域 3；生成完立刻重新烘焙 NavMesh，然后 NPC 才生成。
 //   · 坐标浮窗：多了"地形 / 资源"两行（TerrainCellInfo）。
 //   · 每回合 OnTurn：湖里的鱼慢慢恢复（以后植物生长也放这里）。
-// 【地图大小】由 GridManager.mapSize 决定（默认 72×33 块地砖，是原来测试地图的 9 倍）。
+// 【地图大小】由 GridManager.mapSize 决定（默认 144×66 块地砖，长宽是以前 72×33 的 2 倍）。
 //   地图比场景里墙围起来的范围大时，那圈墙是测试用的：自动关掉，在新地图四周外面围一圈墙（replaceTestWalls）。
 // 【前后遮挡】镜头改成按 Y 轴排序（ySortWithNpcs）：树 / 石头 / 矿石和 NPC 同一层，谁更靠下谁在前面。
 // 场景原来的 ground 地砖层只是不显示了（renderer 关掉），它的碰撞体 / NavMeshModifier 照旧当可行走的底。

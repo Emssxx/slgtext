@@ -29,6 +29,12 @@ public class ConstructionSite : MonoBehaviour
     public float progress;            // 已完成的工作量
     public readonly List<string> builders = new List<string>(); // 指派的施工者（npc id）
 
+    // —— 来自蓝图（BlueprintSystem.Send）的规划区 ——
+    public string blueprintId;        // 哪份蓝图（空 = 以前直接放下的规划区）
+    public string foremanId;          // 指挥建造的人
+    public MaterialCost[] cost;       // 开工前要从仓库取的材料
+    public bool materialsIn = true;   // 材料到位了没有（蓝图的工地放下时是 false：搬运的人送来 / 开工时从仓库取）
+
     SpriteRenderer[] _renderers;
     Color[] _colors;
     Transform _bar, _fill;
@@ -171,6 +177,8 @@ public class ConstructionManager : MonoBehaviour
     public float pauseEnergy = 1f;
     [Tooltip("体力恢复到这个值才回来接着干")]
     public float resumeEnergy = 30f;
+    [Tooltip("蓝图的工地材料不够时，施工的人最多等几秒（之后先去干别的）")]
+    public float materialWait = 8f;
 
     class Builder
     {
@@ -181,6 +189,7 @@ public class ConstructionManager : MonoBehaviour
         public string reason;
         public float moveCmdTimer;
         public int moveTries;      // 走不到自己的位置时重试了几次（多次走不到就在附近干）
+        public float waitMat;      // 到了工地但材料不够，已经等了多久
     }
 
     readonly Dictionary<string, Builder> _builders = new Dictionary<string, Builder>();
@@ -371,6 +380,25 @@ public class ConstructionManager : MonoBehaviour
             if (m.IsMoving) m.Stop();
             m.FaceTowards(center);
 
+            // 蓝图的工地：材料还没送到 → 开工前从仓库取；仓库不够就等一会儿，等太久先去干别的（采集的人会去采）
+            if (!b.site.materialsIn)
+            {
+                if (ProgressionRules.ConsumeMaterials(b.site.cost))
+                {
+                    b.site.materialsIn = true;
+                    b.waitMat = 0f;
+                }
+                else
+                {
+                    b.waitMat += dt;
+                    b.reason = jp ? "素材待ち" : "等材料";
+                    n.currentAction = (jp ? "素材待ち：" : "等材料：") + b.site.DisplayName;
+                    if (b.waitMat > materialWait) Unassign(id);
+                    continue;
+                }
+            }
+            b.reason = null;
+
             // 干活
             if (dt > 0f)
             {
@@ -389,6 +417,8 @@ public class ConstructionManager : MonoBehaviour
 
     // 一座建筑建成了（建筑名、施工的人）。左上角的建筑完成提示（HudToasts）用。
     public static event System.Action<string, List<string>> OnSiteBuilt;
+    // 一块规划区建成了（组件删掉之前调，能读到它来自哪份蓝图）。蓝图完工的统计用。
+    public static event System.Action<ConstructionSite> OnSiteCompleted;
 
     void Complete(ConstructionSite site)
     {
@@ -411,6 +441,8 @@ public class ConstructionManager : MonoBehaviour
         GameObject go = site.gameObject;
         string siteName = site.DisplayName;
         bool blocks = site.data != null && site.data.blocksMovement;
+        try { OnSiteCompleted?.Invoke(site); }
+        catch (System.Exception e) { Debug.LogException(e); }
         site.RestoreLook();
         Destroy(site);
         if (_panelSite == site) ClosePanel();
@@ -433,6 +465,7 @@ public class ConstructionManager : MonoBehaviour
     {
         if (!_builders.TryGetValue(npcId, out Builder b)) return null;
         if (b.paused) return (jp ? "中断：" : "暂停：") + b.reason;
+        if (!string.IsNullOrEmpty(b.reason)) return b.reason;
         return jp ? "建設中" : "施工中";
     }
 

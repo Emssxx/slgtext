@@ -57,7 +57,8 @@ public class TerminalConsole
     readonly TextMeshProUGUI _statusL, _statusR, _prompt, _feedback, _measure, _hint;
     readonly CanvasGroup _group;
     readonly Image _crtImg;
-    readonly float _w, _h;
+    readonly RawImage _scan;
+    float _w, _h;
     float _linesW, _linesH;
     readonly List<Line> _pool = new List<Line>();
     readonly List<Spec> _specs = new List<Spec>();
@@ -167,6 +168,7 @@ public class TerminalConsole
         si.uvRect = new Rect(0f, 0f, 1f, h / 3f);
         si.color = new Color(0f, 0f, 0f, 0.28f);
         si.raycastTarget = false;
+        _scan = si;
 
         // 显像管开机 / 关机的亮线
         _crt = NewRect("CrtLine", _screen);
@@ -194,6 +196,39 @@ public class TerminalConsole
         Place(_lines, 10f, top, _linesW, _linesH);
         _ruleW = -1f;
     }
+
+    // 改屏幕的位置和大小（蓝图规划的命令行要列 NPC 名单时往上长高）。x, y：左上角（相对 parent）。
+    public void SetRect(float x, float y, float w, float h)
+    {
+        _w = w; _h = h;
+        Place(_screen, x, y, w, h);
+        _statusBar.sizeDelta = new Vector2(w, 22f);
+        Place(_feedbackRt, 10f, h - 52f, w - 20f, LineH);
+        Place(_promptRt, 10f, h - 28f, w - 20f, LineH);
+        Place(_hint.rectTransform, 10f, h - 24f, w - 20f, 20f);
+        if (_scan != null) _scan.uvRect = new Rect(0f, 0f, 1f, h / 3f);
+        SetChrome(_chrome);
+        Render();
+    }
+
+    // 换一页，但前面 keepLines 行直接显示、只有后面新加的行像打字一样打出来（命令行一行行往下写用）。
+    public void SetPageFrom(List<Spec> specs, int keepLines, float charsPerSecond = 900f)
+    {
+        _specs.Clear();
+        _specs.AddRange(specs);
+        if (_hover >= _specs.Count) _hover = -1;
+        _reveal = -1f;
+        Render();
+        if (keepLines >= _specs.Count) return;
+        int acc = 0;
+        for (int i = 0; i < keepLines && i < _pool.Count; i++) acc += _pool[i].len + 3;
+        _reveal = acc;
+        _revealSpeed = Mathf.Max(60f, charsPerSecond);
+        ApplyReveal();
+    }
+
+    public bool Revealing => _reveal >= 0f;
+    public float Height => _h;
 
     // 开机时：点屏幕跳过 + 右下角提示。
     public void SetSkipZone(bool on, string hint = null)

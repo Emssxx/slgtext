@@ -47,6 +47,7 @@ public enum AiKind
     LeaderPlan,     // 领导每天早会给所有人分工（一次调用安排所有人）
     LeaderObserve,  // 小模型当观察者：读大家的数值，判断谁最适合当领导
     Advisor,        // 小模型当营地参谋（隐形）：按规则手册 + 局势表判断营地眼下最要紧的事，交给 14B 演绎（CampAdvisor）
+    Story,          // 剧情演出（开场第一场戏的台词、领导当选时说的话）：玩家在看着等，主模型优先写
 }
 
 [Serializable]
@@ -122,6 +123,7 @@ public class AiScheduler : MonoBehaviour
             new AiKindRule(AiKind.LeaderPlan,    AiLane.Main,  55, 30f, 0, false),   // 什么时候重新分工由 NpcSociety 按局势控制（不按天限次）
             new AiKindRule(AiKind.LeaderObserve, AiLane.Lite,  30, 30f, 0, false),
             new AiKindRule(AiKind.Advisor,       AiLane.Lite,  50, 10f, 0, false),   // 局势变了才问（CampAdvisor 控制），排队超过 10 秒就过时了
+            new AiKindRule(AiKind.Story,         AiLane.Main,  95, 0f,  0, false),   // 开场演出（OpeningDirector）：玩家在看，仅次于玩家对话
         };
     }
 

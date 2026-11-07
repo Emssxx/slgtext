@@ -83,12 +83,48 @@ public class NpcAgent : MonoBehaviour
             return;
         }
 
-        // 3. 是指令吗？（代码用词库 + 名册 + 动词表认，认不出就是普通聊天）
+        // 3. 是叫他建东西吗？（"去把 AI 终端机建起来"）→ 画成蓝图交给他指挥建造
+        BuildableData build = NpcCommands.ParseBuild(body);
+        if (build != null) { HandleBuildOrder(npc, build, body); return; }
+
+        // 4. 是指令吗？（代码用词库 + 名册 + 动词表认，认不出就是普通聊天）
         NpcCommand cmd = NpcCommands.Parse(body, npc, world);
         if (cmd != null) { HandleCommand(npc, cmd, body); return; }
 
-        // 4. 普通聊天
+        // 5. 普通聊天
         RequestReply(npc, body, null);
+    }
+
+    // ============ 建造指令 ============
+    // 代码挑位置 → 画成蓝图（签名 AI）→ 放下规划区，由他指挥建造（缺材料先采 / 送材料 / 施工，NpcIntentBrain 执行）。
+    // 回答交给 LLM（知道要建什么、要多少材料）；建不了也让他用自己的口吻说明原因。
+    void HandleBuildOrder(NpcData npc, BuildableData d, string playerText)
+    {
+        string order = LF("order_build", d.LocalizedName);
+
+        // 信任判定：这次听不听你的（规则掷骰，不调 LLM）
+        if (!TrustRules.WillObey(npc))
+        {
+            NpcChat.Post(npc.id, ChatRole.Npc, Prefix(npc) + GetRefuseLine(npc), true);
+            return;
+        }
+
+        Blueprint bp = BlueprintSystem.OrderBuild(d, npc, out int placed, out bool helping, out string why);
+        if (!helping && bp == null)
+        {
+            RequestReply(npc, playerText, LF("sit_order_fail", order, string.IsNullOrEmpty(why) ? L("fail_build_spot") : why));
+            return;
+        }
+
+        // 新指令覆盖旧指令：手上的任务先停下，马上去忙这份蓝图
+        NpcMover mover = NpcView.GetMover(npc.id);
+        NpcTaskRunner runner = mover != null ? mover.GetComponent<NpcTaskRunner>() : null;
+        if (runner != null) runner.CancelAll();
+
+        if (helping) order = LF("order_build_help", d.LocalizedName);
+        else NpcChat.Post(npc.id, ChatRole.System, LF("chatwin_order_started", npc.npcName, order));
+        string cost = NpcIntentBrain.CostText(NpcIntentBrain.CostOf(d));
+        RequestReply(npc, playerText, LF("sit_order_ok", order) + "\n" + LF("sit_build_note", cost));
     }
 
     // ============ 指令 ============

@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 // 与本地 Ollama 通信的客户端（单例）。是 LLM 调用的统一出口。
 // 支持 qwen3 这类思考型模型：自动关闭思考模式，并过滤掉回复里的 <think> 段（见 BuildRequest / StripThinking）。
@@ -13,6 +14,7 @@ using Newtonsoft.Json;
 // 同时支持"后台请求"（IAIBackgroundClient）：NPC 闲聊配音这类可随时取消的请求。
 // 小模型（助手，默认 qwen3:4b）：和主模型同时加载、同时跑，专做短活（玩家输入分类、敌人台词、记忆摘要等）。
 //   启动时检查有没有装、预先加载进显存；由 AIClientHub.SendLite 调度。没装 / 连不上时一律回调 null，调用方用代码兜底。
+// 开场的 AI 启动日志（OpeningDirector）用 Probe / WarmMain 查真实状态：Ollama 版本、模型参数量 / 量化、是否已在显存、占多少显存。
 public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
 {
     public static OllamaAIClient Instance;
@@ -269,6 +271,104 @@ public class OllamaAIClient : MonoBehaviour, IAIClient, IAIBackgroundClient
         {
             Debug.LogWarning($"[后台AI] 请求失败：{e.Message}");
             callback?.Invoke(null);
+        }
+    }
+
+    // ============ AI 启动（开场的启动日志用）：查推理服务和模型的真实状态 ============
+
+    public class ModelState
+    {
+        public string name = "";
+        public bool installed, loaded;
+        public string parameterSize = "", quantization = "";
+        public long sizeVram;   // 已载入时占的显存（字节）
+    }
+
+    public class ProbeResult
+    {
+        public bool ok;               // 连上了
+        public string version = "";   // Ollama 版本
+        public string error = "";
+        public readonly ModelState main = new ModelState(), lite = new ModelState();
+    }
+
+    // 查一遍：/api/version（连不连得上）→ /api/tags（装了哪些、参数量、量化）→ /api/ps（哪些已在显存）。
+    public async void Probe(Action<ProbeResult> done)
+    {
+        ProbeResult r = new ProbeResult();
+        r.main.name = modelName;
+        r.lite.name = liteModelName;
+        try
+        {
+            string mainBase = BaseUrl(ollamaApiUrl);
+            JObject v = JObject.Parse(await _client.GetStringAsync(mainBase + "/api/version"));
+            r.version = (string)v["version"] ?? "";
+            r.ok = true;
+            await ReadModels(mainBase, r.main);
+            string liteBase = BaseUrl(LiteUrl);
+            if (liteEnabled) await ReadModels(liteBase, r.lite);
+        }
+        catch (Exception e)
+        {
+            r.error = e.Message;
+        }
+        done?.Invoke(r);
+    }
+
+    static async System.Threading.Tasks.Task ReadModels(string baseUrl, ModelState m)
+    {
+        JObject tags = JObject.Parse(await _client.GetStringAsync(baseUrl + "/api/tags"));
+        foreach (JToken t in tags["models"] as JArray ?? new JArray())
+        {
+            if (!SameModel((string)t["name"], m.name)) continue;
+            m.installed = true;
+            m.parameterSize = (string)t["details"]?["parameter_size"] ?? "";
+            m.quantization = (string)t["details"]?["quantization_level"] ?? "";
+        }
+        JObject ps = JObject.Parse(await _client.GetStringAsync(baseUrl + "/api/ps"));
+        foreach (JToken t in ps["models"] as JArray ?? new JArray())
+        {
+            if (!SameModel((string)t["name"], m.name) && !SameModel((string)t["model"], m.name)) continue;
+            m.loaded = true;
+            m.sizeVram = t["size_vram"] != null ? (long)t["size_vram"] : 0L;
+        }
+    }
+
+    // 把主模型预先载入显存（messages 为空 = 只载入不生成；num_ctx 要和正式请求一致，否则之后会重新载入）。
+    // done(成功, 用了几秒)
+    public async void WarmMain(Action<bool, float> done)
+    {
+        float t0 = Time.realtimeSinceStartup;
+        try
+        {
+            Dictionary<string, object> req = new Dictionary<string, object>
+            {
+                { "model", modelName },
+                { "messages", new object[0] },
+                { "stream", false },
+                { "options", new Dictionary<string, object> { { "num_ctx", numCtx } } },
+            };
+            if (!string.IsNullOrEmpty(keepAlive)) req["keep_alive"] = keepAlive;
+            var content = new StringContent(JsonConvert.SerializeObject(req), Encoding.UTF8, "application/json");
+            HttpResponseMessage resp = await _client.PostAsync(ollamaApiUrl, content);
+            resp.EnsureSuccessStatusCode();
+            done?.Invoke(true, Time.realtimeSinceStartup - t0);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[主模型] 预热失败：" + e.Message);
+            done?.Invoke(false, Time.realtimeSinceStartup - t0);
+        }
+    }
+
+    // "http://localhost:11434/api/chat" → "localhost:11434"（启动日志显示用）
+    public string ServerHost
+    {
+        get
+        {
+            string b = BaseUrl(ollamaApiUrl);
+            int i = b.IndexOf("://", StringComparison.Ordinal);
+            return i >= 0 ? b.Substring(i + 3) : b;
         }
     }
 

@@ -53,6 +53,66 @@ public static class NpcCommands
     // 旧的网格编号（G7、B12…）也还认：前后不能紧挨着别的英文字母/数字。
     static readonly Regex GridLabel = new Regex(@"(?<![A-Za-z0-9])([A-Za-z])(\d{1,2})(?![0-9])");
 
+    // ============ 建造（"去把 AI 终端机建起来"）============
+    // 不走任务队列：认出要建哪种建筑后，由 NpcAgent 交给 BlueprintSystem.OrderBuild（代码挑位置画成蓝图，他来指挥建造）。
+    static readonly string[] BuildVerbs = { "建", "造", "盖", "搭", "修", "装一", "装个", "做个", "做一个", "弄个", "弄一个",
+                                            "建て", "作って", "作れ", "作ろう", "造って", "設置", "組み立て", "建設" };
+    static readonly string[] BuildNegWords = { "不要建", "别建", "不用建", "先别建", "别造", "别修", "别盖", "不建", "建てないで", "作らないで", "建てるな", "作るな" };
+    static readonly string[] AskWords = { "吗", "还是", "要不要", "该不该", "怎么样", "好不好", "能不能", "什么", "どう", "べき" };
+
+    // 玩家这句话是在叫他建某样东西吗？是就返回那种建筑（按名字在话里找，最像的那个）；不是 / 是在问问题返回 null。
+    public static BuildableData ParseBuild(string text)
+    {
+        if (string.IsNullOrEmpty(text) || BuildManager.Instance == null || BuildManager.Instance.buildables == null) return null;
+        if (!ContainsAny(text, BuildVerbs) || ContainsAny(text, BuildNegWords)) return null;
+        if ((text.Contains("?") || text.Contains("？")) && ContainsAny(text, AskWords)) return null;   // 在商量，不是下令
+        string t = text.ToLowerInvariant();
+        BuildableData best = null;
+        int bestScore = 0;
+        foreach (BuildableData d in BuildManager.Instance.buildables)
+        {
+            if (d == null) continue;
+            int score = 0;
+            foreach (string name in new[] { d.displayName, d.displayNameJa, d.id })
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                string nm = name.ToLowerInvariant();
+                if (t.Contains(nm)) score = System.Math.Max(score, nm.Length * 3);
+                else
+                {
+                    int common = LongestCommon(t, nm);
+                    if (common >= 2 && common * 2 >= nm.Length) score = System.Math.Max(score, common * 2);
+                }
+            }
+            if (score > bestScore) { bestScore = score; best = d; }
+        }
+        return best;
+    }
+
+    static bool ContainsAny(string text, string[] words)
+    {
+        foreach (string w in words) if (text.Contains(w)) return true;
+        return false;
+    }
+
+    // 两个字符串最长的公共连续片段有几个字（"收集器" 和 "雨水收集器" → 3）。
+    static int LongestCommon(string a, string b)
+    {
+        int best = 0;
+        int[] prev = new int[b.Length + 1], cur = new int[b.Length + 1];
+        for (int i = 1; i <= a.Length; i++)
+        {
+            for (int j = 1; j <= b.Length; j++)
+            {
+                cur[j] = a[i - 1] == b[j - 1] ? prev[j - 1] + 1 : 0;
+                if (cur[j] > best) best = cur[j];
+            }
+            int[] tmp = prev; prev = cur; cur = tmp;
+            System.Array.Clear(cur, 0, cur.Length);
+        }
+        return best;
+    }
+
     // ============ 解析 ============
 
     // 从玩家的话里认出指令。actor：执行指令的 NPC。认不出返回 null（当作普通聊天）。

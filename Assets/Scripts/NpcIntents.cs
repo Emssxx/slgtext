@@ -30,7 +30,14 @@ using Newtonsoft.Json.Linq;
 //   玩家的指令优先：NPC 正在做自己的计划时被玩家叫走，计划就放下（蓝图留着，玩家可以指派别人）。
 //   饿了 / 累了 / 要逃命时也会放下手上的计划，交给需求系统。
 // 材料：NPC 自己发起的建造要消耗材料（BuildableData.requiredMaterials；没填就用 DefaultCost 的默认值）。
-//       玩家自己放的蓝图目前仍然不要材料——以后统一材料系统时再一起改。
+// 【蓝图】（Blueprint.cs）：NPC 想建东西时不再直接放规划区，而是设计一份蓝图交给玩家批准（TryProposeWalls / TryProposeProject /
+//   StartBuild）。批准后 / 玩家发来的蓝图：指挥的人优先忙这份蓝图（DoBlueprintWork），搬运的人把材料送到工地（HaulSite），
+//   没分工的人有蓝图的活也会去帮忙；材料不够时采集的人先采缺的那种。
+// 【等 AI 的时候】排队问主模型那段时间先用代码找点有用的事做（StartFiller：采营地缺的材料），AI 的决定回来再换。
+// 【只有领导用 AI】（npcThinking 默认关）：AI 不再扮演每一个 NPC。14B 只扮演领导（NpcSociety：分工、定建造项目、说话），
+//   其他人和普通 SLG 的 NPC 一样——按领导的分工（DoRoleWork）和玩家的指令干活，代码执行，不调 AI。
+//   玩家和某个 NPC 对话时照样走 14B（NpcAgent，优先级最高）。
+//   领导在想分工（主模型在写）的时候站着「正在思考……」（NpcSociety.IsThinking；以后可以接思考动画），不干活。
 // 由 NpcBehaviorDriver.Start 自动挂上。
 // ============================================================================
 public class NpcIntentBrain : MonoBehaviour
@@ -39,6 +46,8 @@ public class NpcIntentBrain : MonoBehaviour
 
     [Header("开关（关掉 = NPC 不再自己想做什么）")]
     public bool autonomy = true;
+    [Tooltip("普通 NPC 自己调 AI 想事情（安全感不足 / 营地有急事时）。默认关：只有领导用 AI（分工），其他人按分工 / 指令干活")]
+    public bool npcThinking = false;
 
     [Header("节奏（秒）")]
     public float firstThinkMin = 8f;      // 开局后第一次想：在这个范围里随机，错开，不一起挤进队列
@@ -95,6 +104,8 @@ public class NpcIntentBrain : MonoBehaviour
         public int roleLogDay = -1; // 今天写过"按分工去干什么"的日志了（一天只写一次，免得刷屏）
         public int urgentSeen = -1; // 对哪一次紧急情况（CampAdvisor.UrgentVersion）已经想过了
         public string projectHaul;  // 正在给哪个建造项目运材料（同一个项目同时只让一个人运）
+        public string foremanBp;    // 指挥建造的蓝图（玩家发来的 / 自己交上去被批准的）
+        public bool filler;         // 等 AI 回话期间，先用代码干着的活（AI 的决定回来就停掉）
         public int token;      // 每开始一个新的异步步骤 +1：旧的回调回来时对不上就忽略
     }
 
@@ -164,6 +175,27 @@ public class NpcIntentBrain : MonoBehaviour
             {
                 case Phase.Idle:
                     if (!autonomy) break;
+                    // 指挥建造的人：先忙自己负责的蓝图（施工 / 送材料 / 采缺的材料），忙不了再按分工干
+                    // （玩家交代的事优先：对话窗口还开着、领导正在想分工，也马上动身）
+                    if (!string.IsNullOrEmpty(s.foremanBp))
+                    {
+                        if (!BlueprintSystem.HasOpenSites(s.foremanBp)) s.foremanBp = null;
+                        else if (now >= s.nextRole && CanWorkRole(n, w, true))
+                        {
+                            s.nextRole = now + roleCooldown;
+                            if (DoBlueprintWork(n, s, s.foremanBp)) break;
+                        }
+                    }
+                    // 领导在想分工（主模型在写）：手上的事做完就站着思考，先不接新活
+                    if (NpcSociety.IsThinking(n))
+                    {
+                        if (CanWorkRole(n, w))
+                        {
+                            n.currentAction = L("leader_thinking");
+                            NpcIdleBrain.InterruptFor(n.id, 1.2f);   // 别闲逛 / 闲聊
+                        }
+                        break;
+                    }
                     // 有分工的人：只干自己的活（代码执行，不调 AI），不再自己琢磨
                     if (NpcSociety.HasRole(n))
                     {
@@ -174,7 +206,15 @@ public class NpcIntentBrain : MonoBehaviour
                         }
                         break;
                     }
+                    // 没分工的人：蓝图有活（施工 / 送材料 / 采缺的材料）就去帮忙，不用等 AI
+                    if (now >= s.nextRole && BlueprintSystem.HasOpenSites(null) && CanWorkRole(n, w))
+                    {
+                        s.nextRole = now + roleCooldown * 2f;
+                        if (DoBlueprintWork(n, s, null)) break;
+                    }
                     // 没分工的人：有动机才想——安全感不足，或者营地参谋发现了新的紧急情况（每次最多 urgentResponders 人，每人只想一次）
+                    // （npcThinking 关着时不想：普通 NPC 不调 AI，等领导分工）
+                    if (!npcThinking) break;
                     if (now < s.nextThink || thinking >= maxThinking) break;
                     bool insecure = NpcSecurity.Insecure(n);
                     if (_urgentVersion != CampAdvisor.UrgentVersion) { _urgentVersion = CampAdvisor.UrgentVersion; _urgentCount = 0; }
@@ -220,9 +260,10 @@ public class NpcIntentBrain : MonoBehaviour
     {
         if (n == null || n.IsDead || n.isBroken || !NpcHealth.CanWork(n)) return false;
         if (NpcDecisionRules.Decide(n, w) != NpcDecisionRules.Behavior.Idle) return false; // 有需求要处理：需求系统优先
-        if (NpcBusy.IsBusy(n.id)) return false;                                           // 正在执行指令 / 施工 / 需求
+        bool filler = _states.TryGetValue(n.id, out State fs) && fs.filler && fs.phase == Phase.Thinking; // 等 AI 时先干着的活不算忙
+        if (!filler && NpcBusy.IsBusy(n.id)) return false;                                // 正在执行指令 / 施工 / 需求
         NpcTaskRunner r = Runner(n.id);
-        if (r == null || r.IsBusy) return false;
+        if (r == null || (r.IsBusy && !filler)) return false;
         if (ConstructionManager.Instance != null && ConstructionManager.Instance.SiteOf(n.id) != null) return false; // 被指派了施工
         NpcChatWindow cw = NpcChatWindow.Instance;
         if (cw != null && cw.IsOpen && cw.CurrentNpcId == n.id) return false;              // 玩家正在和他说话
@@ -233,7 +274,8 @@ public class NpcIntentBrain : MonoBehaviour
     }
 
     // 能不能按分工干活：和 CanThink 一样，但"仓库食物见底"不算有需求（那是搜寻组的事），自己饿了才算。
-    bool CanWorkRole(NpcData n, WorldState w)
+    // chatOk = true：玩家正开着和他的对话窗口也照样干（玩家刚交代的蓝图）。
+    bool CanWorkRole(NpcData n, WorldState w, bool chatOk = false)
     {
         if (n == null || n.IsDead || n.isBroken || !NpcHealth.CanWork(n)) return false;
         NpcDecisionRules.Behavior need = NpcDecisionRules.Decide(n, w);
@@ -244,7 +286,7 @@ public class NpcIntentBrain : MonoBehaviour
         if (r == null || r.IsBusy) return false;
         if (ConstructionManager.Instance != null && ConstructionManager.Instance.SiteOf(n.id) != null) return false;
         NpcChatWindow cw = NpcChatWindow.Instance;
-        if (cw != null && cw.IsOpen && cw.CurrentNpcId == n.id) return false;
+        if (!chatOk && cw != null && cw.IsOpen && cw.CurrentNpcId == n.id) return false;
         return true;
     }
 
@@ -270,7 +312,32 @@ public class NpcIntentBrain : MonoBehaviour
         }
         SetPhase(s, Phase.Thinking);
         n.currentAction = L("intent_thinking");
+        StartFiller(n, s);   // 排队等 AI 的这段时间别干站着
         return true;
+    }
+
+    // 等 AI 回话时先干着的活：采营地眼下最缺的材料（蓝图 / 项目缺的优先）。AI 的决定回来就停掉。
+    void StartFiller(NpcData n, State s)
+    {
+        NpcTaskRunner r = Runner(n.id);
+        NpcMover m = NpcView.GetMover(n.id);
+        if (r == null || r.IsBusy || m == null) return;
+        string mat = BlueprintSystem.MissingMaterial(null) ?? ProjectMissingMaterial() ?? LowestMaterial();
+        if (!ResourceInfo.TryParseKind(mat, out ResourceKind kind)) return;
+        if (TerrainSystem.FindNearest(kind, m.transform.position, n.id, null) == null) return;
+        s.filler = true;
+        int tok = s.token;
+        r.RunTasks(new List<NpcTask> { new NpcTask { action = "harvest", target = mat } }, ok => { if (s.token == tok) s.filler = false; });
+        n.currentAction = LF("intent_filler", ItemName(mat));
+    }
+
+    // AI 的决定回来了：先停掉等待期间干着的活。
+    void StopFiller(State s)
+    {
+        if (!s.filler) return;
+        s.filler = false;
+        NpcTaskRunner r = Runner(s.id);
+        if (r != null && r.IsBusy) r.CancelAll();
     }
 
     // ============ AI 的结果回来了 ============
@@ -280,9 +347,12 @@ public class NpcIntentBrain : MonoBehaviour
         if (!_states.TryGetValue(id, out State s) || s.token != tok || s.phase != Phase.Thinking) return;
         NpcData n = Npc(id);
         if (n != null && n.currentAction == L("intent_thinking")) n.currentAction = "";
-        if (n == null || n.IsDead) { EndIntent(n, s, false, null); return; }
+        if (n == null || n.IsDead) { StopFiller(s); EndIntent(n, s, false, null); return; }
 
         Choice c = Parse(raw);
+        bool keepFiller = c == null || c.goal == "none";   // AI 没给出能做的事：等待时的活接着干完
+        if (!keepFiller) StopFiller(s);
+        else s.filler = false;
         if (c == null || !CanThink(n, World, false)) { EndIntent(n, s, false, null); return; } // 没拿到 / 不能用 / 这期间有别的事了
 
         Say(n, c.dialogue);
@@ -379,27 +449,231 @@ public class NpcIntentBrain : MonoBehaviour
 
     // ============ 建造：挑地方 → 放蓝图 → 取材料 / 先采集 → 施工 ============
 
+    // 想建东西：不再自己直接放规划区，而是设计一份蓝图交给玩家批准（围墙 = 把营地还空着的墙位一次画全）。
     void StartBuild(NpcData n, State s, Choice c)
     {
         BuildableData d = FindBuildable(c.target);
         GridManager g = GridManager.Instance;
         if (d == null || g == null || BuildManager.Instance == null) { EndIntent(n, s, false, null); return; }
 
-        ConstructionSite site = null;
-        if (TryPickSpot(d, c.area, out Vector2Int cell)) site = BuildManager.Instance.PlaceBlueprint(d, cell);
-        if (site == null)
+        bool ok;
+        if (d == CampZone.WallData() || d.id == "wall")
+            ok = TryProposeWalls(n, c.reason) || BlueprintSystem.HasActive("walls");
+        else
+        {
+            string kind = "build:" + d.id;
+            ok = BlueprintSystem.HasActive(kind);
+            if (!ok && BlueprintSystem.CanPropose(kind) && TryPickSpot(d, c.area, out Vector2Int cell))
+            {
+                Vector2Int size = d.FootprintSize(g.cellSize);
+                List<BlueprintItem> items = new List<BlueprintItem> { new BlueprintItem { buildId = d.id, origin = g.FootprintOrigin(cell, size), size = size } };
+                ok = BlueprintSystem.Propose(n, kind, LF("bp_name_build", d.LocalizedName),
+                                             string.IsNullOrEmpty(c.reason) ? LF("bp_note_build", d.LocalizedName) : c.reason,
+                                             items, LF("bp_say_build", d.LocalizedName), false) != null;
+            }
+        }
+        if (!ok)
         {
             Log(n, LF("intent_no_spot", n.npcName, d.LocalizedName), false);
             EndIntent(n, s, false, null);
             return;
         }
-        s.build = d;
+        Log(n, LF("bp_log_wait", n.npcName, d.LocalizedName), true);
+        EndIntent(n, s, true, null);
+    }
+
+    // ============ 蓝图（交给玩家批准 / 按批准的蓝图干活）============
+
+    // 营地还空着的墙位（不含门）→ 一份围墙蓝图的每一项（玩家在对话里叫人修墙时用）。
+    public static List<BlueprintItem> OpenWallItems()
+    {
+        List<BlueprintItem> items = new List<BlueprintItem>();
+        CampZone z = CampZone.Instance;
+        BuildableData wall = CampZone.WallData();
+        GridManager g = GridManager.Instance;
+        if (!WallsNeeded(z, wall) || g == null) return items;
+        foreach (CampZone.Slot slot in z.Slots)
+            if (!slot.gate && slot.state == CampZone.SlotState.Open && g.IsAreaBuildable(slot.origin, z.SlotSize))
+                items.Add(new BlueprintItem { buildId = wall.id, origin = slot.origin, size = z.SlotSize });
+        return items;
+    }
+
+    // 在营地里给这种建筑挑一个位置（和 NPC 自己提计划时一样的规则）。cell = 中心格。
+    public static bool PickSpot(BuildableData d, out Vector2Int cell)
+    {
+        cell = Vector2Int.zero;
+        return Instance != null && d != null && Instance.TryPickSpot(d, Areas[UnityEngine.Random.Range(0, Areas.Length)], out cell);
+    }
+
+    // 玩家把蓝图交给这个人指挥建造（BlueprintSystem 调）。
+    public static void SetForeman(string npcId, string bpId)
+    {
+        if (Instance == null || string.IsNullOrEmpty(npcId)) return;
+        State s = Instance.Get(npcId, Time.time);
+        s.foremanBp = bpId;
+        s.nextRole = 0f;   // 马上开始
+    }
+
+    // 营地还没围好：把还空着的墙位一次画成「营地围墙」蓝图交给玩家批准（有领导就由领导提交）。
+    bool TryProposeWalls(NpcData n, string reason = null)
+    {
+        CampZone z = CampZone.Instance;
+        BuildableData wall = CampZone.WallData();
+        GridManager g = GridManager.Instance;
+        if (n == null || !WallsNeeded(z, wall) || g == null) return false;
+        if (!BlueprintSystem.CanPropose("walls")) return false;
+        List<BlueprintItem> items = new List<BlueprintItem>();
+        List<string> sides = new List<string>();
+        foreach (CampZone.Slot slot in z.Slots)
+        {
+            if (slot.gate || slot.state != CampZone.SlotState.Open || !g.IsAreaBuildable(slot.origin, z.SlotSize)) continue;
+            items.Add(new BlueprintItem { buildId = wall.id, origin = slot.origin, size = z.SlotSize });
+            string side = CampZone.SideName(slot.side, LanguageGuard.IsJp);
+            if (!sides.Contains(side)) sides.Add(side);
+        }
+        if (items.Count == 0) return false;
+        NpcData leader = NpcSociety.Leader;
+        NpcData author = leader != null && !leader.IsDead && !leader.isBroken ? leader : n;
+        string note = string.IsNullOrEmpty(reason) ? LF("bp_note_walls", string.Join("、", sides), items.Count) : reason;
+        return BlueprintSystem.Propose(author, "walls", L("bp_name_walls"), note, items, LF("bp_say_walls", string.Join("、", sides))) != null;
+    }
+
+    // 领导定的建造项目：挑好位置画成蓝图交给玩家批准（交出去就算这个项目定下来了，批不批由玩家决定）。
+    bool TryProposeProject(NpcData n)
+    {
+        BuildableData d = NpcSociety.Project;
+        GridManager g = GridManager.Instance;
+        if (n == null || d == null || g == null) return false;
+        string kind = "project:" + d.id;
+        if (!BlueprintSystem.CanPropose(kind)) return false;
+        if (!TryPickSpot(d, Areas[UnityEngine.Random.Range(0, Areas.Length)], out Vector2Int cell)) return false;
+        Vector2Int size = d.FootprintSize(g.cellSize);
+        List<BlueprintItem> items = new List<BlueprintItem> { new BlueprintItem { buildId = d.id, origin = g.FootprintOrigin(cell, size), size = size } };
+        NpcData leader = NpcSociety.Leader;
+        NpcData author = leader != null && !leader.IsDead && !leader.isBroken ? leader : n;
+        Blueprint bp = BlueprintSystem.Propose(author, kind, LF("bp_name_build", d.LocalizedName), LF("bp_note_project", d.LocalizedName), items, LF("bp_say_project", d.LocalizedName));
+        if (bp != null) NpcSociety.ProjectPlaced(d);
+        return bp != null;
+    }
+
+    // 蓝图的活（bpId = null：任何一份）：材料到位的工地去施工 → 缺材料但仓库够的工地去送材料 → 都缺就去采缺的那种。
+    bool DoBlueprintWork(NpcData n, State s, string bpId)
+    {
+        string desc;
+        string job;
+        if (JobBuildBlueprint(n, s, bpId, out desc)) job = "build";
+        else if (HaulSite(n, s, bpId, out desc)) job = "haul";
+        else
+        {
+            string mat = BlueprintSystem.MissingMaterial(bpId);
+            if (mat == null || !GatherMaterial(n, s, mat, out desc)) return false;
+            job = "gather";
+        }
+        if (s.phase == Phase.Idle) return false;
+        s.goal = "role";
+        if (job != s.lastJob && !string.IsNullOrEmpty(desc)) Log(n, LF("bp_log_job", n.npcName, desc), false);
+        s.lastJob = job;
+        return true;
+    }
+
+    bool JobBuildBlueprint(NpcData n, State s, string bpId, out string desc)
+    {
+        desc = null;
+        ConstructionSite site = BlueprintSite(n, bpId, false);
+        if (site == null) return false;
+        ConstructionManager.Ensure().Assign(n.id, site);
+        s.token++;
+        SetPhase(s, Phase.Building);
+        desc = LF("job_desc_build", site.DisplayName);
+        return true;
+    }
+
+    // 送材料：去仓库取（这时才扣）→ 走到工地 → 工地材料到位。工地半路被撤了就把材料放回仓库。
+    bool HaulSite(NpcData n, State s, string bpId, out string desc)
+    {
+        desc = null;
+        ConstructionSite site = BlueprintSite(n, bpId, true);
+        GridManager g = GridManager.Instance;
+        if (site == null || g == null) return false;
+        MaterialCost[] cost = site.cost;
+        string label = g.CellToLabel(site.cell.x, site.cell.y);
+        desc = LF("job_desc_haul_site", CostText(cost), site.DisplayName);
+        n.currentAction = desc;
+        string id = n.id;
+        RunChain(n, s, Phase.Fetching, ok =>
+        {
+            NpcData me = Npc(id);
+            if (!ok || me == null) { EndIntent(me, s, false, null); return; }
+            ConstructionSite target = s.site;
+            if (target == null || target.materialsIn) { EndIntent(me, s, true, null); return; }   // 被撤了 / 别人送到了
+            if (!ProgressionRules.ConsumeMaterials(cost)) { EndIntent(me, s, true, null); return; } // 被别人先用掉了
+            RunChain(me, s, Phase.Fetching, ok2 =>
+            {
+                NpcData me2 = Npc(id);
+                if (target == null) { Refund(cost); EndIntent(me2, s, false, null); return; }
+                target.materialsIn = true;   // 半路被打断也算送到了（材料不会凭空消失）
+                if (me2 != null) Log(me2, LF("bp_log_delivered", me2.npcName, target.DisplayName), false);
+                EndIntent(me2, s, true, null);
+            },
+            new NpcTask { action = "go", destination = label },
+            new NpcTask { action = "act" });
+            if (s.phase == Phase.Fetching) { s.site = target; s.siteGo = target.gameObject; }
+        },
+        new NpcTask { action = "go", destination = "@storage" },
+        new NpcTask { action = "act" });
+        if (s.phase != Phase.Fetching) return false;
         s.site = site;
         s.siteGo = site.gameObject;
-        s.gatherTrips = 0;
-        Log(n, LF("intent_log_build", n.npcName, L("intent_area_" + c.area) + "（" + g.CellToLabel(cell.x, cell.y) + "）", d.LocalizedName), true);
-        RequestHelp(n, s, c);
-        ProceedBuild(n, s);
+        return true;
+    }
+
+    // 采某种材料（附近有能采的才去）。
+    bool GatherMaterial(NpcData n, State s, string mat, out string desc)
+    {
+        desc = null;
+        if (!ResourceInfo.TryParseKind(mat, out ResourceKind kind)) return false;
+        NpcMover mover = NpcView.GetMover(n.id);
+        if (mover == null || TerrainSystem.FindNearest(kind, mover.transform.position, n.id, null) == null) return false;
+        RunChain(n, s, Phase.Doing, null, new NpcTask { action = "harvest", target = mat });
+        desc = LF("job_desc_gather", ItemName(mat));
+        return s.phase == Phase.Doing;
+    }
+
+    // 蓝图的工地（bpId = null：任何一份）：
+    //   forHaul = false：去施工的——材料到位（或仓库够，开工时直接取）、人没满、没人正在送材料；
+    //   forHaul = true： 要送材料的——材料没到、仓库够、没人正在送。挑离他最近的。
+    ConstructionSite BlueprintSite(NpcData n, string bpId, bool forHaul)
+    {
+        NpcMover m = NpcView.GetMover(n.id);
+        Vector3 pos = m != null ? m.transform.position : Vector3.zero;
+        ConstructionSite best = null;
+        float bestD = float.MaxValue;
+        foreach (ConstructionSite site in ConstructionSite.All)
+        {
+            if (site == null || string.IsNullOrEmpty(site.blueprintId) || (bpId != null && site.blueprintId != bpId)) continue;
+            bool reserved = false;
+            foreach (State o in _states.Values)
+                if (o.site == site && (o.phase == Phase.Fetching || o.phase == Phase.Gathering)) { reserved = true; break; }
+            if (reserved) continue;
+            if (forHaul)
+            {
+                if (site.materialsIn || site.builders.Count > 0 || !ProgressionRules.HasMaterials(site.cost)) continue;
+            }
+            else
+            {
+                if (site.builders.Count >= 4) continue;
+                if (!site.materialsIn && !ProgressionRules.HasMaterials(site.cost)) continue;
+            }
+            float d = (site.transform.position - pos).sqrMagnitude;
+            if (d < bestD) { bestD = d; best = site; }
+        }
+        return best;
+    }
+
+    static void Refund(MaterialCost[] cost)
+    {
+        if (cost == null || WorldManager.Instance == null) return;
+        foreach (MaterialCost c in cost) if (c != null && c.amount > 0) WorldManager.Instance.AddToStorage(c.materialName, c.amount);
     }
 
     // 看材料：够就去仓库取，然后施工；不够就先去采集缺的那种。
@@ -728,6 +1002,8 @@ public class NpcIntentBrain : MonoBehaviour
                   .Append(enough ? (jp ? "／倉庫にある" : "，仓库够") : (jp ? "／足りない" : "，不够")).AppendLine("）");
             }
             sb.AppendLine(jp ? "  area：拠点のどちら側に建てるか（north / south / east / west）" : "  area：建在营地哪一边（north / south / east / west）");
+            sb.AppendLine(jp ? "  ※建てる前に設計図（建設計画）を描いて AI に渡し、許可をもらう。dialogue は計画を AI に見せる時のひとこと。"
+                             : "  ※建造前要先画一份蓝图（建造计划）交给 AI，等 AI 批准。dialogue 写你把计划交给 AI 时说的话。");
             sb.AppendLine(jp ? "  helpers：一人では大変だと思ったら、ほかの人に手伝いを頼める（最大2人、頼まなくてもよい）。" +
                                "job は gather（target に採る物）か build（一緒に建てる）。誰に頼むかは関係と、その人が今していることで決める。相手が引き受けるとは限らない。"
                              : "  helpers：觉得一个人太费劲，可以请别人帮忙（最多 2 人，也可以不请）。" +
@@ -831,16 +1107,17 @@ public class NpcIntentBrain : MonoBehaviour
 
     // —— 搬运（按这个顺序看）：
     //   ① 净化水快喝完了（少于参谋的"紧急"线，默认只够 60 秒）：先去湖边打水倒进雨水收集器
-    //   ② 领导定的建造项目（NpcSociety.Project）：把材料从仓库运到营地里，放下蓝图（建造组会去施工）
-    //   ③ 修墙：把石头运到营地那一圈的空墙位，放下蓝图
+    //   ② 已经批准 / 玩家发来的蓝图：把材料从仓库送到工地（HaulSite）
+    //   ③ 领导定的建造项目、营地还没围好：画成蓝图交给玩家批准（不是活，交完接着往下看）
     //   ④ 净化水不多（少于参谋的"偏低"线，默认只够 180 秒）：打水
     //   打水要有收集器、收集器没满、有净化器（没有净化器，雨水喝不了）——
     bool JobHaul(NpcData n, State s, out string desc)
     {
         desc = null;
         if (WaterWorks.DaysLeft < CampAdvisor.WaterUrgentDays && HaulWater(n, s, out desc)) return true;
-        if (HaulProject(n, s, out desc)) return true;
-        if (HaulWall(n, s, out desc)) return true;
+        if (HaulSite(n, s, null, out desc)) return true;   // 批准了的蓝图：把材料送到工地
+        TryProposeProject(n);                               // 领导定的项目：画成蓝图交给玩家批准（不再自己直接放）
+        TryProposeWalls(n);                                 // 营地没围好：画「营地围墙」蓝图交给玩家批准
         if (WaterWorks.DaysLeft < CampAdvisor.WaterLowDays && HaulWater(n, s, out desc)) return true;
         return false;
     }
@@ -855,6 +1132,7 @@ public class NpcIntentBrain : MonoBehaviour
     }
 
     // 建造项目：材料够、还没放下蓝图、没有别人正在运 → 去仓库取材料，运到营地里挑好的位置，放下蓝图。
+    // 【已停用】改成画蓝图交给玩家批准（TryProposeProject）后不再调用，先留着备查。
     bool HaulProject(NpcData n, State s, out string desc)
     {
         desc = null;
@@ -899,6 +1177,7 @@ public class NpcIntentBrain : MonoBehaviour
         return true;
     }
 
+    // 【已停用】改成画「营地围墙」蓝图交给玩家批准（TryProposeWalls）后不再调用，先留着备查。
     bool HaulWall(NpcData n, State s, out string desc)
     {
         desc = null;
@@ -965,6 +1244,8 @@ public class NpcIntentBrain : MonoBehaviour
         desc = null;
         List<string> order = new List<string>();
         if (n.role == "gather" && Array.IndexOf(Materials, n.roleTarget) >= 0) order.Add(n.roleTarget);
+        string bpNeed = BlueprintSystem.MissingMaterial(null);              // 蓝图（建造中 / 等批准）还缺的材料
+        if (bpNeed != null && !order.Contains(bpNeed)) order.Add(bpNeed);
         string projectNeed = ProjectMissingMaterial();                       // 领导定的建造项目还缺的材料
         if (projectNeed != null && !order.Contains(projectNeed)) order.Add(projectNeed);
         string usual = WallsNeeded(CampZone.Instance, CampZone.WallData()) ? ResourceInfo.StoneItem : LowestMaterial();
@@ -1054,6 +1335,7 @@ public class NpcIntentBrain : MonoBehaviour
         foreach (ConstructionSite site in ConstructionSite.All)
         {
             if (site == null || site.builders.Count >= 4) continue;
+            if (!site.materialsIn && !ProgressionRules.HasMaterials(site.cost)) continue;   // 蓝图的工地：材料没到、仓库也不够
             bool reserved = false;
             foreach (State o in _states.Values)
                 if (o.site == site && (o.phase == Phase.Fetching || o.phase == Phase.Gathering)) { reserved = true; break; }
@@ -1079,6 +1361,7 @@ public class NpcIntentBrain : MonoBehaviour
 
     // ============ 请人帮忙（第 3 阶段）============
 
+    // 【已停用】建造改成交蓝图以后不再调用（批准后指挥的人 + 没分工的人会一起干），先留着备查。
     void RequestHelp(NpcData asker, State s, Choice c)
     {
         s.buildHelpers.Clear();
@@ -1422,7 +1705,7 @@ public class NpcIntentBrain : MonoBehaviour
         return null;
     }
 
-    static string CostText(MaterialCost[] cost)
+    public static string CostText(MaterialCost[] cost)
     {
         if (cost == null || cost.Length == 0) return LanguageGuard.Pick("不要材料", "材料不要");
         List<string> parts = new List<string>();

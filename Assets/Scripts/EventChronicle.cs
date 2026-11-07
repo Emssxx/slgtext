@@ -39,8 +39,12 @@ public class EventRecord
 //   · 和 NPC 对话时，按玩家这句话里提到的"第几天 / 昨天 / 低语 / 死"等挑出相关的记录，加上最近几条，
 //     放进提示词的【你经历过的事】——玩家问"你还记得第3天发生了什么吗"，NPC 就能答上来；记录里没有的事不会编。
 //   · 文件：SessionData/events.txt（给人看的）+ events.json（结构化）。
+//   【现在默认只用代码记录】NPC 对事件的反应太啰嗦（事件一多就刷屏），而且每件事都要排队让主模型补写，
+//   和领导分工抢算力。所以默认 LlmOpinions = false：只在本地记录"发生过这件事 + 代码模板写的经历和看法"，
+//   和 NPC 聊天时照样能问起来。想恢复 LLM 补写，把 LlmOpinions 改成 true。
 public static class EventChronicle
 {
+    public static bool LlmOpinions = false;  // true = 每件事让 LLM 以当事人 / 目击者的身份补写经历和看法
     public static int MaxRefinePerEvent = 3; // 每件事最多让 LLM 补写几个人（当事人优先，其余随机挑目击者）
     const int AlwaysRecent = 3;              // 提示词里总是附上最近几件事
     const int MaxInPrompt = 7;
@@ -103,7 +107,7 @@ public static class EventChronicle
 
         _records.Add(r);
         WriteFiles();
-        EnqueueRefinement(r);
+        if (LlmOpinions) EnqueueRefinement(r);
         Debug.Log("[事件记录] 第" + r.day + "天 " + TypeName(type, LanguageGuard.IsJp) + "，在场 " + r.perceptions.Count + " 人");
         return r;
     }

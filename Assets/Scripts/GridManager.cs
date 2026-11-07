@@ -8,7 +8,8 @@ using System.Collections.Generic;
 //   建筑占几个小格由它的图片大小自动决定（1 单位的图 = 3×3 小格），也可以在 BuildableData 里手动指定，做出不同体积、形状的建筑。
 //   想恢复原来的大格：把 subdivision 改成 1。
 // 【地图大小】mapSize（大格）不为 0 时，运行时用它代替上面的 gridWidth / gridHeight，并以 mapCenter 为中心铺开
-//   （默认 72×33，是场景里那块 24×11 测试地图的 9 倍）。想回到测试地图：mapSize 填 0, 0。
+//   （默认 144×66，长宽都是以前 72×33 的 2 倍、面积 4 倍）。想回到测试地图：mapSize 填 0, 0。
+//   注意：mapSize 存在场景里，改这里的默认值只影响新挂的 GridManager；场景里的要在 Inspector 里改。
 //   地图变大后，场景里原来那圈测试墙由 TerrainSystem 自动换成新地图四周的围墙。
 public class GridManager : MonoBehaviour
 {
@@ -24,7 +25,7 @@ public class GridManager : MonoBehaviour
 
     [Header("地图大小（运行时）")]
     [Tooltip("游戏里实际的地图大小（大格，1 大格 = 1 世界单位）。0, 0 = 用上面的 Grid Width / Height（场景里那块测试地图）。")]
-    public Vector2Int mapSize = new Vector2Int(72, 33);
+    public Vector2Int mapSize = new Vector2Int(144, 66);
     [Tooltip("地图以哪个世界坐标为中心铺开（营地 / NPC 生成点在 0, 0）。左下角会对齐到整数格，和场景里的 Tilemap 对齐。")]
     public Vector2 mapCenter = Vector2.zero;
 

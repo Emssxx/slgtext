@@ -14,6 +14,10 @@ public class WorldManager : MonoBehaviour
     // 开局生成几个 NPC。（字段从 npcCount 改名而来：场景里存的旧值 3 不再生效，默认 4 人；想改在 Inspector 里改这个。）
     public int startNpcCount = 4;
 
+    [Header("开场（第一天的两场戏 + AI 启动，见 OpeningDirector）")]
+    [Tooltip("关掉 = 不演开场直接进游戏（测试用）。第一天的领导照样由 4B 选出")]
+    public bool playOpening = true;
+
     void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
@@ -34,6 +38,7 @@ public class WorldManager : MonoBehaviour
         ClimateSystem.Ensure();                          // 6. 天气 + 气温 + 电力（每回合在 RunOneTurnResolve 里结算）
         NpcHealth.Ensure();                              // 7. NPC 健康系统（饥饿值 / 水分 / 体力 / 状态词条，每秒结算）
         ConstructionManager.Ensure();                    // 8. 规划区施工（点蓝图指派施工的人）
+        OpeningDirector.Begin(playOpening);              // 9. 开场：黑屏对话 → AI 启动 → 投票选领导（期间世界静止）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
     }
 
@@ -50,7 +55,7 @@ public class WorldManager : MonoBehaviour
         world = new WorldState();
         world.day = 1;
         world.timeOfDay = "白天";
-        world.globalSituation = "你们刚被卷入亚空间，在一处废弃营地中醒来。";
+        world.globalSituation = "你们被卷入亚空间已经有一段时间了。刚刚在废弃营地里找到一批被遗弃的资源设备，穿上了防护服——防护服里的生存支援 AI 也随之启动。";
 
         // 随机生成 startNpcCount 个各不相同的 NPC。
         NpcGenerator.ResetUsedNames();   // 重置已用名字，避免跨局累积导致名字重复

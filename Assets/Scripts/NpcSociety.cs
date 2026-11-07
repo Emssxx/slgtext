@@ -7,6 +7,11 @@ using Newtonsoft.Json.Linq;
 
 // ============================================================================
 // 领导与分组（社会系统第 4 阶段）。
+//   【第一天就选出领导】（开场 OpeningDirector）：开场第二场戏大家投票，实际由观察者（4B）读数值挑一个人（PickLeader）
+//     → 代码标记他为领导（CrownChosen）→ 他用主模型（14B）说一句话 → 马上分工。从此 14B 主要扮演领导：
+//     给大家分工、定建造项目、说话；4B 当隐形参谋（CampAdvisor）只给领导出主意。其他 NPC 不再自己调 AI（见 NpcIntentBrain）。
+//     领导死了 / 崩解了：马上重新推举（Emerge）。没有 OpenDirector 的场景照旧按下面的老规则（第 3~6 天）出现领导。
+//   领导在想分工时（主模型在写）站着「正在思考……」：IsThinking(npc)，以后可以接思考动画。
 //   领导怎么出现（4B 小模型当"观察者"）：
 //     · 前几天大家还互相不熟，不会有领导（最早第 leaderMinDay 天）。
 //     · 到了之后，要等一个"契机"才会有人站出来：一半以上的人安全感不足 / 刚有危险的东西靠近 /
@@ -138,17 +143,64 @@ public class NpcSociety : MonoBehaviour
 
     public static string RoleName(string role) => string.IsNullOrEmpty(role) ? "" : L("role_" + role);
 
+    // 领导正在想分工（主模型在写）。这段时间他手上的事做完就站着思考（NpcIntentBrain 不派他新活）。
+    public static bool Thinking => Instance != null && Instance._planPending && Leader != null;
+    // 这个人是不是正在思考的领导（以后的思考动画读这个）。
+    public static bool IsThinking(NpcData n) => n != null && Thinking && IsLeader(n);
+
+    // ============ 开场：第一天投票选领导（OpeningDirector）============
+
+    // 观察者（4B）读大家的数值挑领导；4B 用不了 / 没给结果时，代码按同样的数值挑。done(领导, 理由)；没人活着 done(null, null)。
+    public static void PickLeader(Action<NpcData, string> done)
+    {
+        List<NpcData> alive = Alive();
+        if (alive.Count == 0) { done(null, null); return; }
+        if (alive.Count == 1 || Instance == null || !Instance.leadersEnabled) { NpcData b = BestByStats(); done(b, StatReason(b)); return; }
+        Instance.RequestObserver((id, why) =>
+        {
+            NpcData n = id != null && WorldManager.Instance != null ? WorldManager.Instance.GetNpcById(id) : null;
+            if (n == null || n.IsDead || n.isBroken) { n = BestByStats(); why = null; }
+            done(n, n != null && string.IsNullOrEmpty(why) ? StatReason(n) : why);
+        });
+    }
+
+    // 除了 leader 以外数值最高的人（开场投票时，领导自己投给他）。
+    public static NpcData RunnerUp(NpcData leader)
+    {
+        NpcData best = null;
+        float bestScore = float.MinValue;
+        foreach (NpcData n in Alive())
+        {
+            if (n == leader) continue;
+            float sc = StatScore(n);
+            if (sc > bestScore) { bestScore = sc; best = n; }
+        }
+        return best;
+    }
+
+    // 开场投票的结果：标记领导、大家对他的尊重 +3、他用主模型说一句话、马上分工。votes < 0 = 没有投票（直接推举）。
+    public static void CrownChosen(NpcData leader, string reason, int votes, int total)
+    {
+        if (Instance == null || leader == null) return;
+        Instance.Crown(leader, reason, votes, total, true);
+    }
+
     // ============ 每帧 ============
 
     void Update()
     {
         WorldState w = World;
         if (w == null || _meeting) return;
+        if (OpeningDirector.Playing) return;   // 开场演出中：领导由开场选
 
-        if (leadersEnabled && Leader == null && w.day >= leaderMinDay && Time.time >= _nextTry && Alive().Count >= minMembers)
+        // 第一天的领导由开场选（OpeningDirector）；之后领导不在了（死亡 / 崩解）就马上重新推举。
+        // 没有开场的场景：照旧等第 leaderMinDay 天以后的契机。
+        bool reelect = w.lastElectionDay > 0;
+        if (leadersEnabled && Leader == null && !OpeningDirector.HandlesElection && Time.time >= _nextTry && Alive().Count >= minMembers
+            && (reelect || w.day >= leaderMinDay))
         {
             _nextTry = Time.time + observeInterval;
-            if (HasMoment(w)) StartCoroutine(Emerge());
+            if (reelect || HasMoment(w)) StartCoroutine(Emerge());
             return;
         }
 
@@ -212,19 +264,46 @@ public class NpcSociety : MonoBehaviour
         _meeting = false;
     }
 
-    // 3. 宣布：日志 + 尊重 + 他说一句话 + 马上分工。
-    void Crown(NpcData leader, string reason)
+    // 3. 宣布：日志 + 尊重 + 他说一句话（主模型，14B 扮演领导）+ 马上分工。
+    //    votes >= 0：开场投票选出的（total = 投票人数）；votes < 0：大家慢慢推举出来的 / 领导不在了重新推举。
+    void Crown(NpcData leader, string reason, int votes = -1, int total = 0, bool chosen = false)
     {
         WorldState w = World;
         if (w == null) return;
+        NpcData old = !string.IsNullOrEmpty(w.leaderId) && w.leaderId != leader.id && WorldManager.Instance != null ? WorldManager.Instance.GetNpcById(w.leaderId) : null;
+        bool reelected = old != null && w.lastElectionDay > 0;
         w.leaderId = leader.id;
-        w.lastElectionDay = w.day;
-        Announce(LF("society_emerged", leader.npcName, reason));
+        w.lastElectionDay = Mathf.Max(1, w.day);
+        string situation;
+        if (votes >= 0)
+        {
+            Announce(LF("society_voted", leader.npcName, votes, total, reason));
+            situation = LanguageGuard.Pick(
+                $"【现在】大家刚刚在营地里投票，选你当这群人的领导（你得了 {votes}/{total} 票）。所有人都看着你，等你开口。说一两句你此刻想对大家说的话。",
+                $"【今】みんなはたった今、拠点で投票し、あなたをこの集団のリーダーに選んだ（{total}票中{votes}票）。全員があなたの言葉を待っている。今みんなに言いたいことを一、二言。");
+        }
+        else if (reelected)
+        {
+            Announce(LF("society_reelected", old.npcName, leader.npcName, reason));
+            situation = LanguageGuard.Pick(
+                $"【现在】{old.npcName} 不在了，大家推举你接着带头。说一两句你此刻想对大家说的话。",
+                $"【今】{old.npcName}がいなくなり、みんなはあなたに後を任せた。今みんなに言いたいことを一、二言。");
+        }
+        else if (chosen)
+        {
+            Announce(LF("society_chosen", leader.npcName, reason));
+            situation = LanguageGuard.Pick("【现在】大家刚刚推举你带头，所有人都看着你，等你开口。说一两句你此刻想对大家说的话。",
+                                           "【今】みんなはたった今、あなたに先頭を任せた。全員があなたの言葉を待っている。今みんなに言いたいことを一、二言。");
+        }
+        else
+        {
+            Announce(LF("society_emerged", leader.npcName, reason));
+            situation = LanguageGuard.Pick("【现在】这几天营地里的人渐渐开始听你的，今天大家聚过来等你拿主意。说一两句你此刻想说的话。",
+                                           "【今】ここ数日、拠点のみんなは少しずつあなたの言うことを聞くようになり、今日はみんなが集まってあなたの判断を待っている。今言いたいことを一、二言。");
+        }
         foreach (NpcData o in Alive())
             if (o != leader) RelationshipManager.Apply(o, leader, 0f, 1f, 3f, LF("rel_reason_elected", w.day, leader.npcName));
-        Speak(leader, LanguageGuard.Pick("这几天营地里的人渐渐开始听你的，今天大家聚过来等你拿主意。说一句你此刻想说的话。",
-                                         "ここ数日、拠点のみんなは少しずつあなたの言うことを聞くようになり、今日はみんなが集まってあなたの判断を待っている。今言いたいことを一言。"),
-              L("society_leader_line"));
+        SpeakMain(leader, situation, L(votes >= 0 ? "society_vote_line" : "society_leader_line"));
         _plannedDay = -1; // 马上分工
         _plannedLeaderId = null;
     }
@@ -343,6 +422,7 @@ public class NpcSociety : MonoBehaviour
                 _planPending = false;
                 _plannedDay = day;
                 NpcData l = WorldManager.Instance != null ? WorldManager.Instance.GetNpcById(lid) : null;
+                if (l != null && l.currentAction == L("leader_thinking")) l.currentAction = "";   // 想完了
                 if (!ApplyPlan(l, raw, day, replan)) AutoPlan(l, day, replan); // AI 没回 / 回的不能用：按规则分
             },
         });
@@ -653,21 +733,52 @@ public class NpcSociety : MonoBehaviour
 
     // ============ 小工具 ============
 
+    // 头顶气泡说出来 + 写进日志。
+    static void ShowLine(string id, string line)
+    {
+        NpcData me = WorldManager.Instance != null ? WorldManager.Instance.GetNpcById(id) : null;
+        if (me == null || string.IsNullOrEmpty(line)) return;
+        line = DialogueCleaner.Clean(line, me.npcName);
+        if (string.IsNullOrEmpty(line)) return;
+        NpcMover m = NpcView.GetMover(id);
+        if (m != null) NpcSpeechBubble.Show(m.transform, line, 4f);
+        if (LogManager.Instance != null) LogManager.Instance.AddLog(me.npcName, LF("intent_say", me.npcName, line), me.id);
+    }
+
+    // 领导说话：主模型（14B 扮演领导），系统提示词是他完整的演员提示词。没回 / 不能用时说 fallback。
+    void SpeakMain(NpcData n, string situation, string fallback)
+    {
+        if (n == null) return;
+        string id = n.id;
+        bool sent = AiScheduler.Submit(new AiRequest
+        {
+            kind = AiKind.Story, key = "speech_" + id, json = true,
+            system = () => NpcActors.Render(WorldManager.Instance.GetNpcById(id)) + "\n\n" + situation + LanguageGuard.Pick(
+                "\n只说一两句话（30 字以内，口语，不要动作和神态描写）。只输出一个 JSON：{\"dialogue\":\"...\"}",
+                "\n一、二文だけ話す（30文字以内、話し言葉、動作や表情の描写はしない）。JSONを1つだけ出力：{\"dialogue\":\"...\"}"),
+            user = () => LanguageGuard.Pick("说吧。", "どうぞ。"),
+            onResult = raw =>
+            {
+                string line = null;
+                try
+                {
+                    int a = raw != null ? raw.IndexOf('{') : -1, b = raw != null ? raw.LastIndexOf('}') : -1;
+                    if (a >= 0 && b > a) line = JObject.Parse(raw.Substring(a, b - a + 1)).Value<string>("dialogue");
+                }
+                catch { }
+                if (!string.IsNullOrEmpty(line) && line == L("ai_no_response")) line = null;   // 请求失败时的占位回复
+                ShowLine(id, string.IsNullOrEmpty(line) ? fallback : line);
+            },
+        });
+        if (!sent) ShowLine(id, fallback);
+    }
+
     // 说一句话：prompt 不为空时让小模型按人设写（失败用 fallback）；prompt 为空时直接说 fallback。
     void Speak(NpcData n, string prompt, string fallback)
     {
         if (n == null) return;
         string id = n.id;
-        Action<string> show = line =>
-        {
-            NpcData me = WorldManager.Instance != null ? WorldManager.Instance.GetNpcById(id) : null;
-            if (me == null || string.IsNullOrEmpty(line)) return;
-            line = DialogueCleaner.Clean(line, me.npcName);
-            if (string.IsNullOrEmpty(line)) return;
-            NpcMover m = NpcView.GetMover(id);
-            if (m != null) NpcSpeechBubble.Show(m.transform, line, 4f);
-            if (LogManager.Instance != null) LogManager.Instance.AddLog(me.npcName, LF("intent_say", me.npcName, line), me.id);
-        };
+        Action<string> show = line => ShowLine(id, line);
         if (string.IsNullOrEmpty(prompt)) { show(fallback); return; }
         bool sent = AiScheduler.Submit(new AiRequest
         {
