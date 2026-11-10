@@ -386,10 +386,10 @@ public class NpcCombat : MonoBehaviour
             Vector3 land = BulletLanding(pos, fp, level);                     // 这一枪落在哪
             Vector3 from = pos;
             if (rig != null) rig.TryGetMuzzle(out from);                      // 从枪口出发（没拿出枪就从人身上）
-            if (rig == null || !rig.FireBullet(land))                         // 子弹从枪口飞向落点
+            bool hit = BulletHits(from, land, fp, BulletHitRadius * Mathf.Max(0.3f, _foe.Def.scale));   // 路上碰到目标身体
+            if (rig == null || !rig.FireBullet(land, !hit))                   // 子弹从枪口飞向落点（没打中 = 落到地上，可能跳弹）
                 EnemyDirector.Tracer(pos, land, new Color(0.7f, 0.95f, 1f, 0.9f));   // 没有枪口（还没换好手）时用原来的弹道线
-            if (BulletHits(from, land, fp, BulletHitRadius * Mathf.Max(0.3f, _foe.Def.scale)))   // 路上碰到目标身体
-                _foe.TakeDamage(w.damage, n);
+            if (hit) _foe.TakeDamage(w.damage, n);
             return;
         }
         float acc = 0.65f + n.personality.bravery * 0.002f - (n.sanity < 40f ? 0.15f : 0f);   // 近战：照旧按命中率
@@ -400,7 +400,7 @@ public class NpcCombat : MonoBehaviour
     static Vector3 BulletLanding(Vector3 shooter, Vector3 target, int level)
     {
         float small = GridManager.Instance != null ? GridManager.Instance.cellSize : 1f / 3f;   // 1 小格多长（世界单位）
-        float big = small * Mathf.Max(1, GridManager.Subdivision);                               // 1 大格多长
+        float big = GridManager.Instance != null ? small * Mathf.Max(1, GridManager.Subdivision) : 1f;   // 1 大格多长（没有网格时按 1 单位）
         Vector2 dir = target - shooter;                                       // 人 → 目标
         float dist = dir.magnitude;
         float cells = dist / Mathf.Max(0.0001f, small);                       // 隔着几小格

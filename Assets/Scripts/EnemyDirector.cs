@@ -34,6 +34,7 @@ public class EnemyDirector : MonoBehaviour
     [Header("游荡的敌人（地图上一直有）")]
     public float wanderCheckInterval = 12f;
     public int maxWanderers = 6;
+    public bool autoSpawn = true;          // 自动刷游荡的敌人（战斗测试场景关掉，只用自己放的）
     [Tooltip("离营地至少多远才刷（还要尽量在迷雾里，玩家看不见的地方）")]
     public float spawnMinDistance = 14f;
     public float spawnMaxDistance = 30f;
@@ -122,7 +123,7 @@ public class EnemyDirector : MonoBehaviour
         _scanTimer -= dt;
         if (_scanTimer <= 0f) { _scanTimer = 1f; AttachCombat(); }
         _wanderTimer -= dt;
-        if (_wanderTimer <= 0f) { _wanderTimer = wanderCheckInterval; TopUpWanderers(w); }
+        if (_wanderTimer <= 0f) { _wanderTimer = wanderCheckInterval; if (autoSpawn) TopUpWanderers(w); }
         _auraTimer -= dt;
         if (_auraTimer <= 0f) { _auraTimer = 0.5f; ApplyAuras(w, 0.5f); }
         if (debugKeys) DebugKeys();

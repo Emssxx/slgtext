@@ -91,6 +91,14 @@ public class NpcRig : MonoBehaviour
     public Vector2 recoilKick = new Vector2(80f, 100f);       // 开枪时枪口上扬多少度：每枪在这个范围里随机（最小 / 最大）
     public float slideKick = 150f;                            // 开枪时滑套往后弹多远（原图像素）（标准值）
     public float bulletSpeed = 100f;                          // 子弹飞多快（单位 / 秒）（标准值）
+    public float flashTime = 0.07f;                           // 枪火：① 枪火（火团）亮多久（秒）
+    public float sparkTime = 0.05f;                           // 枪火：② 闪光（火花线）亮多久（秒）
+    public float glowTime = 0.06f;                            // 枪火：③ 亮光亮多久（秒）
+    public float flashSize = 1f;                              // 枪火整体多大（倍数；1 = 按 PSD 画的大小）
+    public bool flashSmoke = false;                           // 开枪后冒烟（代码画的烟；默认不冒）
+    public float smokeTime = 0.6f;                            // 烟飘多久（秒）
+    [Range(0f, 1f)] public float ricochetChance = 0.3f;       // 子弹没打中、落到地上时出跳弹效果的概率
+    public float ricochetTime = 0.15f;                        // 跳弹效果显示多久（秒）
     // 手的移动（单位；x 正 = 往前，y 正 = 往上）：挥的时候手点沿着这些位置走
     public Vector2 chopHandUp = new Vector2(-0.14f, 0.35f);   // 斧头抬起时手往哪挪（往后、往上）
     public Vector2 chopHandDown = new Vector2(0.32f, -0.02f); // 斧头砍下时手往哪挪（往前、往下）（y 实际用下面的随机范围）
@@ -175,6 +183,10 @@ public class NpcRig : MonoBehaviour
     public Vector2 aimShoulder = new Vector2(0.175f, 0.421f); // 持枪手绕着转的点（相对脚底中心；默认在身体右边缘里面、和握把一样高；设成握把位置 = 原地转）
     public float aimTurnSpeed = 720f;                         // 枪口转向目标有多快（度 / 秒；开枪那一下直接对准）
     public float aimFlipOver = 5f;                            // 枪口超过 ±90° 后再多转多少度才翻身（防止目标在正上 / 正下方时来回翻；0 = 正好 90°）
+    public float lowReadyAngle = -45f;                        // 没遇敌、不瞄准时，持枪手（手枪）朝下多少度（负 = 朝下）
+    public float lowReadySpeed = 180f;                        // 放下枪有多快（度 / 秒；举枪瞄准用上面的 Aim Turn Speed）
+    public float lowReadyHold = 1.5f;                         // 开完枪多久之后才放下枪（秒；没锁定目标时开枪也会先把枪举平）
+    public Vector2 lowReadyOffset = new Vector2(0f, -0.08f);  // 放低持枪时整只手（连枪）再往哪挪（x 往前，y 往上；单位）。选中 NPC 时 Scene 窗口里有标记
 
     [Header("武器操作等级 / 紧张（游戏规则之后接；现在可以手动调来测试）")]
     [Range(1, 5)] public int weaponLevel = 3;                 // 武器操作等级：1 最生疏 ~ 5 最熟练
@@ -225,6 +237,8 @@ public class NpcRig : MonoBehaviour
     Vector3 _aimPoint;             // 瞄准点（世界坐标）
     float _aimAng;                 // 现在枪口的瞄准角度（度；0 = 正前方，正 = 往上；按角色朝向算）
     float _aimWant;                // 想转到的瞄准角度
+    float _readyUntil;             // 枪举平到什么时候（开完枪一会儿内不放下）
+    float _lowK;                   // 放低持枪的程度（0 = 举着，1 = 完全放低），手的整体下移按它渐变
 
     // 外部调用：接下来 0.3 秒瞄准一个固定的点（不管往哪走，身体和枪口都朝着它）
     public void AimAt(Vector3 target)
@@ -257,7 +271,8 @@ public class NpcRig : MonoBehaviour
         if (_lockTarget != null && !_lockTarget.gameObject.activeInHierarchy) { _lockTarget = null; _aimUntil = 0f; }   // 目标没了：解除
         bool aiming = _aimUntil > _time;
         if (aiming && _lockTarget != null) _aimPoint = _lockTarget.position;   // 锁定：跟着目标走
-        float want = 0f;                                                    // 不瞄准：枪口回到正前方
+        bool raised = aiming || _time < _readyUntil;                        // 举着枪（在瞄准 / 刚开过枪）
+        float want = raised ? 0f : (_held == "pistol" ? lowReadyAngle : 0f);  // 没遇敌、不瞄准：手枪朝下（放低持枪）
         if (aiming)
         {
             Vector2 t = AimLocal(_aimPoint);                                // 目标在角色本地的位置（按现在的朝向，x 正 = 前方）
@@ -280,8 +295,28 @@ public class NpcRig : MonoBehaviour
             else if (canFlip && t.x < -0.01f) _aimLeft = !_aimLeft;         // 没拿枪：目标在身后就转身
         }
         _aimWant = want;
-        float step = aimTurnSpeed > 0f ? aimTurnSpeed * dt : 9999f;        // 这一帧最多转多少度
+        float speed = raised ? aimTurnSpeed : lowReadySpeed;                 // 举枪快，放下慢
+        float step = speed > 0f ? speed * dt : 9999f;                       // 这一帧最多转多少度
         _aimAng = Mathf.MoveTowards(_aimAng, want, step);                   // 从正前方那边转过去（不会从身后绕）
+        float lowTarget = !raised && _held == "pistol" ? 1f : 0f;          // 要不要放低
+        float span = Mathf.Max(1f, Mathf.Abs(lowReadyAngle));               // 和枪口转动同样快慢地渐变
+        float lowRate = (lowTarget > _lowK ? lowReadySpeed : aimTurnSpeed) / span;
+        _lowK = dt > 0f ? Mathf.MoveTowards(_lowK, lowTarget, lowRate * dt) : _lowK;
+    }
+
+    // 选中 NPC 时在 Scene 窗口画标记（方便自己调）：黄点 = 持枪手绕着转的"肩膀"（Aim Shoulder），
+    // 绿点 = 平时举枪时的握把位置，青点 = 放低持枪时的握把位置（Low Ready Angle + Low Ready Offset）
+    void OnDrawGizmosSelected()
+    {
+        bool left = _rig != null && _rig.lossyScale.x < 0f;                   // 运行时朝左就左右翻
+        Vector3 root = transform.position + new Vector3(0f, FEET_Y, 0f);       // 脚底中心
+        System.Func<Vector2, Vector3> W = p => root + new Vector3(left ? -p.x : p.x, p.y, 0f);   // 本地 → 世界
+        Vector2 grip = CanvasToLocal(HELD_PIVOT["pistol"] - P_ROOT);           // 握把（手枪平时的位置）
+        Vector2 low = aimShoulder + Rot(grip - aimShoulder, lowReadyAngle) + lowReadyOffset;   // 放低时的握把
+        float r = 0.012f;
+        Gizmos.color = Color.yellow; Gizmos.DrawSphere(W(aimShoulder), r);
+        Gizmos.color = Color.green; Gizmos.DrawSphere(W(grip), r); Gizmos.DrawLine(W(aimShoulder), W(grip));
+        Gizmos.color = Color.cyan; Gizmos.DrawSphere(W(low), r); Gizmos.DrawLine(W(aimShoulder), W(low));
     }
 
     // 世界坐标 → 角色根节点（脚底中心）的本地坐标，朝左时 x 反过来（x 正 = 前方）
@@ -305,9 +340,12 @@ public class NpcRig : MonoBehaviour
     }
 
     // 枪转了 ang 度、手被顶开 push（枪的方向上）时，握把在哪（根节点本地坐标）
-    Vector2 AimHand(float ang, Vector2 push)
+    Vector2 AimHand(float ang, Vector2 push) { return AimHand(ang, push, 1f); }
+
+    // 同上；lowMul = 放低持枪的下移用几成（换弹抬枪时逐渐取消）
+    Vector2 AimHand(float ang, Vector2 push, float lowMul)
     {
-        return aimShoulder + Rot((Vector2)_heldBase - aimShoulder + push, ang);
+        return aimShoulder + Rot((Vector2)_heldBase - aimShoulder + push, ang) + lowReadyOffset * (_lowK * lowMul);
     }
 
     // 马上把枪摆到瞄准的位置（开枪那一下用，枪口位置才准）
@@ -461,6 +499,9 @@ public class NpcRig : MonoBehaviour
     Vector2 _recoilHandOff;        // 这一枪手被顶回的距离（随机出来的）
     float _shotKick, _shotHandReturn, _shotMuzzleRise;  // 这一枪的枪口上扬角度 / 手回正快慢 / 枪口上扬用时（随机出来的）
     static Sprite _bulletSprite;   // 子弹图（代码生成，所有 NPC 共用）
+    static Sprite[] _fxFire, _fxFlash, _fxGlow, _fxSmoke;   // 枪火图：枪火 / 闪光 / 亮光（PSD 画的，各 2 种）、烟（代码画，3 种）
+    static Sprite _fxRicochet;                      // 跳弹图（PSD 画的）
+    static Material _fxAdditive;                    // 亮光 1 用的叠加发光材质（PSD 里是"亮光"混合模式）
     SpriteRenderer _visorSprite, _glareSprite;  // 面罩图 / 反光图
     SpriteMask _glareMask;         // 反光的遮罩：只在面罩形状里面显示
     readonly Dictionary<string, Sprite> _exprCache = new Dictionary<string, Sprite>();  // 已经读过的表情图
@@ -944,8 +985,10 @@ public class NpcRig : MonoBehaviour
             _shotKick = RandIn(recoilKick);                                 // 这一枪枪口上扬多少度
             _shotHandReturn = RandIn(handRecoilReturn);                     // 这一枪手回正的快慢
             _shotMuzzleRise = RandIn(muzzleRise);                           // 这一枪枪口上扬用几秒
+            _readyUntil = _time + Mathf.Max(0f, lowReadyHold);              // 开枪：先把枪举平，过一会儿没事再放下
             UpdateAim(0f);                                                  // 重新算一下瞄准（只算不转）
             _aimAng = _aimWant;                                             // 开枪这一下枪口直接对准目标
+            _lowK = 0f;                                                     // 手也马上举回来
             _rig.localScale = new Vector3(FacingLeft ? -1f : 1f, 1f, 1f);   // 可能刚翻身：再对一次朝向
             ApplyAimPose();                                                 // 马上摆好，子弹从对准后的枪口出来
         }
@@ -960,7 +1003,10 @@ public class NpcRig : MonoBehaviour
     }
 
     // 从枪口生成一颗子弹，飞向 target（只是画面上的子弹；打没打中仍由 NpcCombat 算）。没拿枪返回 false。
-    public bool FireBullet(Vector3 target)
+    public bool FireBullet(Vector3 target) { return FireBullet(target, true); }
+
+    // 同上；canRicochet = 这一枪落到地上（没打中人）时有概率出跳弹效果
+    public bool FireBullet(Vector3 target, bool canRicochet)
     {
         if (!TryGetMuzzle(out Vector3 from)) return false;                  // 没拿枪
         target.z = from.z;                                                  // 同一个平面
@@ -973,11 +1019,12 @@ public class NpcRig : MonoBehaviour
         sr.sortingOrder = 60;                                               // 画在人和建筑上面
         float dur = Mathf.Max(0.04f, d.magnitude / Mathf.Max(1f, bulletSpeed));  // 飞多久
         Destroy(go, dur + 0.5f);                                            // 保险：到时间一定删掉
-        StartCoroutine(FlyBullet(go.transform, from, target, dur));         // 飞过去
+        StartCoroutine(FlyBullet(go.transform, from, target, dur, canRicochet));   // 飞过去
+        MuzzleFlash();                                                      // 枪火
         return true;
     }
 
-    IEnumerator FlyBullet(Transform b, Vector3 from, Vector3 to, float dur)
+    IEnumerator FlyBullet(Transform b, Vector3 from, Vector3 to, float dur, bool canRicochet)
     {
         float t = 0f;
         while (t < dur && b != null)
@@ -987,11 +1034,203 @@ public class NpcRig : MonoBehaviour
             yield return null;
         }
         if (b != null) Destroy(b.gameObject);                               // 到了：消失
+        if (canRicochet && Random.value < ricochetChance) Ricochet(to, to.x < from.x);   // 落到地上：有概率跳弹
+    }
+
+    // 跳弹：子弹打到地上弹起来（PSD 画的 V 字，尖 = 落点；往左飞的子弹左右翻过来）
+    void Ricochet(Vector3 at, bool left)
+    {
+        EnsureFx();
+        if (_fxRicochet == null) return;
+        SpriteRenderer sr = FxSprite("Ricochet", _fxRicochet, 60, null);   // 和子弹一样画在人和建筑上面
+        sr.transform.position = at;
+        sr.flipX = left;
+        float k = flashSize;
+        StartCoroutine(FxLife(sr, ricochetTime, new Vector3(k, k, 1f), new Vector3(k, k, 1f), Vector3.zero, false, 0f, 1f, 1f));
+    }
+
+    // ---------------- 枪火：三层（① 火焰 ② 火花 + 亮光 ③ 烟），每层 3 种随机，都从枪口（子弹生成点）出来 ----------------
+
+    // 开一枪：枪火（2 种）+ 闪光（2 种）+ 亮光（2 种）各随机挑一种拼起来。
+    // 都放在开枪那一刻的子弹生成点上，朝着那一刻的枪口方向（朝左时左右翻）；之后枪往上跳（后坐）枪火也不跟着动
+    void MuzzleFlash()
+    {
+        if (_muzzle == null) return;
+        EnsureFx();
+        float k = Mathf.Max(0.05f, flashSize);
+        Vector3 at = _muzzle.position;                                         // 子弹生成点
+        Vector3 dir = _muzzle.TransformVector(Vector3.right);                  // 枪口朝哪（含朝左翻转）
+        dir.z = 0f;
+        bool left = _muzzle.lossyScale.x < 0f;                                 // 角色朝左（整个角色是左右翻过来的）
+        float size = Mathf.Abs(_muzzle.lossyScale.y);                          // 角色本身的缩放
+        float ang = dir.sqrMagnitude > 0.000001f ? Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg : (left ? 180f : 0f);
+        // 图层顺序和 PSD 一样：枪火在最下面，亮光在中间，闪光在最上面（都画在人上面、子弹下面）
+        FxLayer("MuzzleFire", Pick(_fxFire), 55, flashTime, k * size, 0.9f, 1.05f, false, at, ang, left);
+        int g = _fxGlow.Length > 0 ? Random.Range(0, _fxGlow.Length) : -1;
+        if (g >= 0) FxLayer("MuzzleGlow", _fxGlow[g], 56, glowTime, k * size, 0.95f, 1.05f, g == 0, at, ang, left);   // 亮光 1 = 叠加发光，亮光 2 = 普通
+        FxLayer("MuzzleFlash", Pick(_fxFlash), 57, sparkTime, k * size, 0.9f, 1.1f, false, at, ang, left);
+        if (flashSmoke) MuzzleSmoke(k);
+    }
+
+    // 从几张图里随机挑一张（没有就返回 null）
+    static Sprite Pick(Sprite[] list) { return list != null && list.Length > 0 ? list[Random.Range(0, list.Length)] : null; }
+
+    // 枪火的一层：固定在世界里的 at 点（不挂在枪上），转到 ang 度（朝左时上下翻 = 左右镜像），从 grow0 倍长到 grow1 倍，然后淡掉
+    void FxLayer(string name, Sprite sprite, int order, float life, float k, float grow0, float grow1, bool additive, Vector3 at, float ang, bool left)
+    {
+        if (sprite == null) return;
+        SpriteRenderer sr = FxSprite(name, sprite, order, null);
+        if (_oldSprite != null) sr.sortingLayerID = _oldSprite.sortingLayerID;  // 和人同一个排序层
+        sr.transform.position = at;
+        sr.transform.rotation = Quaternion.Euler(0f, 0f, ang);
+        if (additive && _fxAdditive != null) sr.sharedMaterial = _fxAdditive;
+        float fy = left ? -1f : 1f;                                            // 朝左：上下翻（配合转向，等于左右镜像）
+        StartCoroutine(FxLife(sr, life, new Vector3(k * grow0, k * grow0 * fy, 1f), new Vector3(k * grow1, k * grow1 * fy, 1f), Vector3.zero, false, 0f, 1f, 0.7f));
+    }
+
+    // 烟：从枪口出来，不跟着人走；朝枪口方向飘一点、往上飘，慢慢散开变淡
+    void MuzzleSmoke(float k)
+    {
+        Vector3 dir = _muzzle.TransformVector(Vector3.right);                  // 枪口朝哪（含朝左翻转）
+        dir.z = 0f;
+        dir = dir.sqrMagnitude > 0.000001f ? dir.normalized : Vector3.right;
+        float s3 = k * Random.Range(0.85f, 1.15f), f3 = Random.value < 0.5f ? 1f : -1f;
+        SpriteRenderer smoke = FxSprite("MuzzleSmoke", _fxSmoke[Random.Range(0, _fxSmoke.Length)], 54, null);   // 在人上面、枪火下面
+        smoke.transform.position = _muzzle.position;
+        smoke.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
+        Vector3 drift = (dir * 0.08f + Vector3.up * 0.1f) * k;                   // 一共飘多远
+        StartCoroutine(FxLife(smoke, smokeTime, new Vector3(s3 * 0.5f, s3 * 0.5f * f3, 1f), new Vector3(s3 * 1.6f, s3 * 1.6f * f3, 1f),
+                              drift, true, 0.15f, 0.55f, 1.2f));
+    }
+
+    // 生成一个枪火图层（parent = null 时放在世界里）
+    SpriteRenderer FxSprite(string name, Sprite sprite, int order, Transform parent)
+    {
+        SpriteRenderer sr = new GameObject(name).AddComponent<SpriteRenderer>();
+        sr.sprite = sprite;
+        sr.sortingOrder = order;
+        if (parent != null) sr.transform.SetParent(parent, false);
+        return sr;
+    }
+
+    // 一个枪火图层的一生：大小从 s0 变到 s1、（世界里的）位置飘 drift、透明度先淡入（fadeIn = 占一生的比例）再按 pow 的快慢淡出
+    IEnumerator FxLife(SpriteRenderer sr, float life, Vector3 s0, Vector3 s1, Vector3 drift, bool world, float fadeIn, float alphaMax, float pow)
+    {
+        life = Mathf.Max(0.02f, life);
+        Destroy(sr.gameObject, life + 0.5f);                                  // 保险：一定删掉
+        Vector3 start = sr.transform.position;
+        float t = 0f;
+        while (sr != null && t < life)
+        {
+            float k = t / life;                                               // 0 → 1
+            float e = 1f - (1f - k) * (1f - k);                               // 先快后慢
+            sr.transform.localScale = Vector3.Lerp(s0, s1, e);
+            if (world) sr.transform.position = start + drift * e;
+            float a = k < fadeIn ? k / fadeIn : Mathf.Pow(1f - (k - fadeIn) / Mathf.Max(0.001f, 1f - fadeIn), pow);
+            Color c = sr.color;
+            c.a = alphaMax * Mathf.Clamp01(a);
+            sr.color = c;
+            t += Time.deltaTime;
+            yield return null;
+        }
+        if (sr != null) Destroy(sr.gameObject);
+    }
+
+    // 第一次开枪时读好枪火 / 跳弹的图（Resources/NpcArt/Fx/，从 PSD 导出；所有 NPC 共用），烟用代码画
+    static void EnsureFx()
+    {
+        if (_fxFire != null) return;
+        _fxFire = FxLoad("MuzzleFire1", "MuzzleFire2");
+        _fxFlash = FxLoad("MuzzleFlash1", "MuzzleFlash2");
+        _fxGlow = FxLoad("MuzzleGlow1", "MuzzleGlow2");                       // 第 1 张 = 亮光 1（叠加发光），第 2 张 = 亮光 2（PSD 图层 38）
+        _fxRicochet = Resources.Load<Sprite>("NpcArt/Fx/Ricochet");
+        _fxSmoke = new[] { SmokeSprite(0), SmokeSprite(1), SmokeSprite(2) };
+        Shader add = Shader.Find("Legacy Shaders/Particles/Additive");         // 叠加发光（找不到就用普通的，亮度差一点）
+        if (add != null) _fxAdditive = new Material(add);
+    }
+
+    // 读几张枪火图（找不到的跳过；亮光要保持"第 1 张 = 亮光 1"，所以找不到时整组按读到的算）
+    static Sprite[] FxLoad(params string[] names)
+    {
+        List<Sprite> list = new List<Sprite>();
+        foreach (string n in names)
+        {
+            Sprite sp = Resources.Load<Sprite>("NpcArt/Fx/" + n);
+            if (sp != null) list.Add(sp);
+        }
+        return list.ToArray();
+    }
+
+    // —— 画图用的小工具：平滑噪声（每次画出来都一样）——
+    static float FxHash(int ix, int iy, int seed)
+    {
+        unchecked
+        {
+            uint h = (uint)ix * 374761393u + (uint)iy * 668265263u + (uint)seed * 1442695041u;
+            h = (h ^ (h >> 13)) * 1274126177u;
+            h ^= h >> 16;
+            return (h & 0xffff) / 65535f;
+        }
+    }
+
+    static float FxNoise(float x, float y, int seed)
+    {
+        int ix = Mathf.FloorToInt(x), iy = Mathf.FloorToInt(y);
+        float fx = x - ix, fy = y - iy;
+        fx = fx * fx * (3f - 2f * fx); fy = fy * fy * (3f - 2f * fy);
+        float a = FxHash(ix, iy, seed), b = FxHash(ix + 1, iy, seed), c = FxHash(ix, iy + 1, seed), d = FxHash(ix + 1, iy + 1, seed);
+        float top = a + (b - a) * fx, bottom = c + (d - c) * fx;
+        return top + (bottom - top) * fy;
+    }
+
+    static float FxFbm(float x, float y, int seed)                            // 4 层叠加：大团块 + 小细节
+    {
+        float s = 0f, amp = 0.5f, f = 1f, tot = 0f;
+        for (int i = 0; i < 4; i++) { s += FxNoise(x * f, y * f, seed + i * 31) * amp; tot += amp; amp *= 0.5f; f *= 2f; }
+        return s / tot;
+    }
+
+    // 按 0~1 的"温度"取颜色（几个颜色节点之间渐变）
+    static Color FxRamp(float[] at, Color[] cols, float t)
+    {
+        t = Mathf.Clamp01(t);
+        for (int i = 0; i < at.Length - 1; i++)
+            if (t <= at[i + 1]) return Color.Lerp(cols[i], cols[i + 1], (t - at[i]) / Mathf.Max(0.000001f, at[i + 1] - at[i]));
+        return cols[cols.Length - 1];
+    }
+
+    static float Smooth01(float a) { a = Mathf.Clamp01(a); return a * a * (3f - 2f * a); }
+
+    // 烟图：0 = 圆团，1 = 往前拉长的一团，2 = 一缕一缕的
+    static Sprite SmokeSprite(int kind)
+    {
+        const int w = 96, h = 64;
+        int seed = 500 + kind * 11;
+        Texture2D t = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        t.wrapMode = TextureWrapMode.Clamp;
+        t.filterMode = FilterMode.Bilinear;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float u = x / (float)(w - 1), v = (y - (h - 1) * 0.5f) / ((h - 1) * 0.5f);
+                float n = FxFbm(u * 4f, v * 3f, seed), st = FxFbm(u * 2f, v * 7f, seed + 3);
+                float d;
+                if (kind == 0) d = Mathf.Sqrt(Sq((u - 0.45f) / 0.4f) + Sq(v / 0.85f)) + (n - 0.5f) * 1f;
+                else if (kind == 1) d = Mathf.Sqrt(Sq((u - 0.5f) / 0.48f) + Sq(v / 0.55f)) + (n - 0.5f) * 0.9f;
+                else d = Mathf.Sqrt(Sq((u - 0.5f) / 0.5f) + Sq(v / 0.5f)) + (st - 0.5f) * 1.3f;
+                float a = Mathf.Clamp01((1f - d) / 0.6f) * (0.55f + 0.45f * n);
+                float g = 0.62f + 0.3f * n;                                   // 浓的地方亮一点
+                t.SetPixel(x, y, new Color(g, g, g + 0.02f, Smooth01(a)));
+            }
+        t.Apply();
+        return Sprite.Create(t, new Rect(0, 0, w, h), new Vector2(0.25f, 0.5f), 960f);   // 轴心靠后一点 = 枪口；约 0.1 单位
     }
 
     // 子弹图：一小条亮黄色，尾巴渐隐（代码画，不用素材）
     static Sprite BulletSprite()
     {
+        if (_bulletSprite != null) return _bulletSprite;
+        _bulletSprite = Resources.Load<Sprite>("NpcArt/Fx/Bullet");           // PSD 画的子弹（轴心在弹头）
         if (_bulletSprite != null) return _bulletSprite;
         const int w = 20, h = 5;
         Texture2D t = new Texture2D(w, h, TextureFormat.RGBA32, false);
@@ -1200,7 +1439,7 @@ public class NpcRig : MonoBehaviour
         float shakeInsert = Shake(t - b7, rlReleaseTime);                                                       // ⑦ 新弹匣插到底：上下抖
         float shakeSlide = Shake(t - slideAt, rlReleaseTime);                                                   // ⑧ 滑套复位：旋转抖
         float aimNow = _aimAng * (1f - raise);                              // 瞄准角度：① 抬枪时转回正前方，⑩ 放下时转回去对准
-        Vector2 gunPos = AimHand(aimNow, Vector2.zero) + rlGunRaise * raise + new Vector2(0f, rlShake * (shakeDrop + shakeInsert));
+        Vector2 gunPos = AimHand(aimNow, Vector2.zero, 1f - raise) + rlGunRaise * raise + new Vector2(0f, rlShake * (shakeDrop + shakeInsert));
         float gunAng = aimNow + rlGunTilt * raise + align + rlShakeAngle * (shakeDrop + shakeSlide);  // 抬枪时的旋转 + ⑥ 配合转 + 旋转抖
         _handPoint.localPosition = new Vector3(gunPos.x, gunPos.y, 0f);
         _handPoint.localRotation = Quaternion.Euler(0f, 0f, gunAng);
@@ -1539,7 +1778,7 @@ public class NpcRig : MonoBehaviour
         foreach (float f in _tFails) bump += Shake(t - f, rlDropTime);                                                      // 卡住：枪磕一下
         Vector2 gunTrem = Tremble(trembleReloadMul, 0f, out float gunTremA);                                                // 枪一直抖
         float aimNow = _aimAng * (1f - raise);                                                                              // 抬枪时转回正前方，放下时转回去对准
-        Vector2 gunPos = AimHand(aimNow, Vector2.zero) + rlGunRaise * raise
+        Vector2 gunPos = AimHand(aimNow, Vector2.zero, 1f - raise) + rlGunRaise * raise
                        + new Vector2(0f, rlShake * (shakeDrop + shakeInsert + srFailShake * bump)) + gunTrem;
         float gunAng = aimNow + rlGunTilt * raise + align + rlShakeAngle * (shakeDrop + shakeSlide) + gunTremA;
         _handPoint.localPosition = new Vector3(gunPos.x, gunPos.y, 0f);

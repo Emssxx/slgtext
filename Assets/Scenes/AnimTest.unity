@@ -357,6 +357,14 @@ MonoBehaviour:
   recoilKick: {x: 80, y: 100}
   slideKick: 150
   bulletSpeed: 100
+  flashTime: 0.07
+  sparkTime: 0.05
+  glowTime: 0.06
+  flashSize: 1
+  flashSmoke: 0
+  smokeTime: 0.6
+  ricochetChance: 0.3
+  ricochetTime: 0.15
   chopHandUp: {x: -0.14, y: 0.35}
   chopHandDown: {x: 0.32, y: -0.02}
   hammerHandUp: {x: -0.05, y: 0.035}
@@ -399,8 +407,8 @@ MonoBehaviour:
   rlOldTilt: -18
   rlOldOffset: {x: 0.012, y: 0}
   rlShake: 0.1
-  rlShakeAngle: 10
-  rlSlideDelay: 0.1
+  rlShakeAngle: 45
+  rlSlideDelay: 0.3
   rlShakeFreq: 5
   qrDropAt: 0
   qrDropTime: 0
@@ -411,9 +419,44 @@ MonoBehaviour:
   qrSpin: {x: -500, y: -250}
   qrGroundY: {x: -0.05, y: 0.03}
   qrGroundTime: 3
+  nrCatchTime: 0.15
+  srFailChance: 0.35
+  srMaxFails: 2
+  srFailDepth: 0.5
+  srFailOffset: 0.012
+  srFailTilt: 10
+  srFailBackTime: 0.2
+  srFailShake: 0.6
+  srDropChance: 0.25
+  srSlipOffset: {x: 0.03, y: -0.1}
+  srFling: {x: 0.5, y: 0.9}
+  srFlingSpin: {x: -1000, y: -600}
+  srFumbleTime: 0.3
   aimShoulder: {x: 0.175, y: 0.421}
   aimTurnSpeed: 720
   aimFlipOver: 5
+  lowReadyAngle: -45
+  lowReadySpeed: 180
+  lowReadyHold: 1.5
+  lowReadyOffset: {x: 0, y: -0.08}
+  weaponLevel: 3
+  levelReloadTime:
+  - 1.5
+  - 1.2
+  - 1
+  - 0.85
+  - 0.7
+  levelTremble:
+  - 0.6
+  - 0.3
+  - 0
+  - 0
+  - 0
+  nervous: 0
+  trembleMove: 0.01
+  trembleAngle: 5
+  trembleFreq: 9
+  trembleReloadMul: 1.5
   testHeld: 0
   testLoop: 1
   testFire: 0
