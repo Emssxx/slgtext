@@ -307,21 +307,48 @@ public class NpcCombat : MonoBehaviour
         Vector3 pos = transform.position, fp = _foe.transform.position;
         float d = Dist(pos, fp);
         float reach = w.range + Mathf.Max(0f, _foe.Def.scale - 1f) * 0.35f;   // 大块头好打到一点
-        if (d > reach)
+        if (w.ranged)
         {
-            _mover.SetSpeedMultiplier(1.15f);
-            if (_repath <= 0f || !_hasDest)
+            // 拿枪：边走边打——保持在射程里合适的距离（太远就靠近，太近就往后退），射程内随时开枪，不用停下
+            float keep = reach * 0.75f;                                        // 想和敌人保持的距离
+            if (d > reach * 0.9f || d < reach * 0.45f)                         // 太远 / 太近：走到合适的距离
             {
-                _repath = 0.3f;
-                Vector3 to = w.ranged ? pos + (fp - pos).normalized * Mathf.Max(0f, d - reach * 0.8f) : fp;   // 拿枪的走到射程里就停
-                _mover.MoveTo(to);
-                _dest = to;
-                _hasDest = true;
+                _mover.SetSpeedMultiplier(1.15f);
+                if (_repath <= 0f || !_hasDest)
+                {
+                    _repath = 0.3f;
+                    Vector3 away = pos - fp; away.z = 0f;                      // 从敌人指向自己的方向
+                    if (away.sqrMagnitude < 0.0001f) away = Vector3.right;     // 贴在一起时随便选个方向
+                    Vector3 to = fp + away.normalized * keep;                  // 离敌人 keep 远的位置（靠近或后退）
+                    _mover.MoveTo(to);
+                    _dest = to;
+                    _hasDest = true;
+                }
             }
-            return;
+            else if (_hasDest) { _mover.Stop(); _hasDest = false; }            // 距离合适：站定
+            NpcRig aim = GetComponent<NpcRig>();
+            if (aim != null) aim.AimAt(fp);                                    // 外观：边走边打时身体也朝着敌人（往后退也不转身）
+            if (d > reach) return;                                             // 还在射程外：只走不打
+            if (!_hasDest) _mover.FaceTowards(fp);
         }
-        if (_hasDest) { _mover.Stop(); _hasDest = false; }
-        _mover.FaceTowards(fp);
+        else
+        {
+            if (d > reach)
+            {
+                _mover.SetSpeedMultiplier(1.15f);
+                if (_repath <= 0f || !_hasDest)
+                {
+                    _repath = 0.3f;
+                    Vector3 to = fp;                                           // 近战：直接冲到敌人跟前
+                    _mover.MoveTo(to);
+                    _dest = to;
+                    _hasDest = true;
+                }
+                return;
+            }
+            if (_hasDest) { _mover.Stop(); _hasDest = false; }
+            _mover.FaceTowards(fp);
+        }
         if (_attackCd > 0f) return;
         if (w.ranged && n.pistolAmmo <= 0)
         {

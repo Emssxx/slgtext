@@ -351,22 +351,24 @@ MonoBehaviour:
   gearAmount: 1
   hoseAmount: 1
   chopPeriod: 1.2
-  chopAngles: {x: 35, y: -40}
+  chopAngles: {x: 90, y: -37.9}
   hammerPeriod: 0.7
   hammerAngles: {x: 30, y: -18}
   recoilKick: 50
   slideKick: 150
   bulletSpeed: 100
-  chopHandUp: {x: -0.04, y: 0.05}
-  chopHandDown: {x: 0.05, y: -0.04}
-  hammerHandUp: {x: -0.02, y: 0.035}
-  hammerHandDown: {x: 0.03, y: -0.025}
-  recoilHand: {x: -0.025, y: 0.012}
+  chopHandUp: {x: -0.14, y: 0.35}
+  chopHandDown: {x: 0.32, y: -0.02}
+  hammerHandUp: {x: -0.05, y: 0.035}
+  hammerHandDown: {x: 0.27, y: 0.03}
+  chopHandDownY: {x: -0.09, y: 0.15}
+  hammerHandDownY: {x: -0.1, y: 0.23}
+  recoilHand: {x: -0.2, y: 0.1}
   chopLean: {x: 5, y: -7}
   hammerLean: {x: 3, y: -4}
   recoilLean: 3
   actionShift: 0.012
-  testHeld: 1
+  testHeld: 0
   testLoop: 1
   testFire: 0
   testExpression: 0

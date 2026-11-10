@@ -78,15 +78,22 @@ public class NpcRig : MonoBehaviour
     public Vector2 chopAngles = new Vector2(90f, -37.9f);       // 斧头：抬起的角度 / 挥下的角度（度）
     public float hammerPeriod = 0.7f;                         // 敲一下（含停顿）要几秒
     public Vector2 hammerAngles = new Vector2(30f, -18f);     // 锤子：抬起的角度 / 敲下的角度（度）
-    public float recoilKick = 50f;                            // 开枪时枪往上跳多少度（标准值：测试场景调好的）
+    public Vector2 recoilKick = new Vector2(80f, 100f);       // 开枪时枪口上扬多少度：每枪在这个范围里随机（最小 / 最大）
     public float slideKick = 150f;                            // 开枪时滑套往后弹多远（原图像素）（标准值）
     public float bulletSpeed = 100f;                          // 子弹飞多快（单位 / 秒）（标准值）
     // 手的移动（单位；x 正 = 往前，y 正 = 往上）：挥的时候手点沿着这些位置走
     public Vector2 chopHandUp = new Vector2(-0.14f, 0.35f);   // 斧头抬起时手往哪挪（往后、往上）
-    public Vector2 chopHandDown = new Vector2(0.32f, -0.02f); // 斧头砍下时手往哪挪（往前、往下）
+    public Vector2 chopHandDown = new Vector2(0.32f, -0.02f); // 斧头砍下时手往哪挪（往前、往下）（y 实际用下面的随机范围）
     public Vector2 hammerHandUp = new Vector2(-0.05f, 0.035f);   // 锤子抬起
-    public Vector2 hammerHandDown = new Vector2(0.27f, 0.03f); // 锤子敲下
-    public Vector2 recoilHand = new Vector2(-0.2f, 0.1f);      // 开枪时手被顶回来（往后、往上）（标准值）
+    public Vector2 hammerHandDown = new Vector2(0.27f, 0.03f); // 锤子敲下（y 实际用下面的随机范围）
+    public Vector2 chopHandDownY = new Vector2(-0.09f, 0.15f);   // 斧头砍下时手的 y：每砍一下在这个范围里随机（最小 / 最大）
+    public Vector2 hammerHandDownY = new Vector2(-0.1f, 0.23f);  // 锤子敲下时手的 y：每敲一下在这个范围里随机（最小 / 最大）
+    public Vector2 recoilHandX = new Vector2(-0.4f, -0.2f);    // 开枪时手往后顶多远：每枪在这个范围里随机（最小 / 最大）
+    public Vector2 recoilHandY = new Vector2(0.1f, 0.3f);      // 开枪时手往上抬多高：每枪在这个范围里随机（最小 / 最大）
+    public float handRecoilRise = 0.03f;                       // 手被顶回去用几秒（越小越猛）
+    public Vector2 handRecoilReturn = new Vector2(0.18f, 0.24f); // 手回正的快慢（越大回得越慢）：每枪随机（最小 / 最大）
+    public Vector2 muzzleRise = new Vector2(0.03f, 0.15f);     // 枪口上扬用几秒：每枪随机（最小 / 最大；上扬角度是上面的 Recoil Kick）
+    public float muzzleReturn = 0.09f;                         // 枪口回正的快慢（越大回得越慢；可以和手不一样）
     // 身体跟着晃（度；正 = 往后仰，负 = 往前倾）
     public Vector2 chopLean = new Vector2(5f, -7f);           // 斧头：抬起时后仰 / 砍下时前倾
     public Vector2 hammerLean = new Vector2(3f, -4f);         // 锤子：抬起 / 敲下
@@ -121,7 +128,19 @@ public class NpcRig : MonoBehaviour
     }
 
     // 现在朝左吗（测试开关优先，否则读旧图的翻转）
-    bool FacingLeft => testFaceLeft || (_oldSprite != null && _oldSprite.flipX);
+    bool FacingLeft => testFaceLeft || (_aimUntil > _time ? _aimLeft : (_oldSprite != null && _oldSprite.flipX));
+
+    float _aimUntil;               // 瞄准朝向管到什么时候（NpcCombat 边走边打时一直续上）
+    bool _aimLeft;                 // 瞄准时朝左吗
+
+    // 外部调用（NpcCombat 拿枪战斗时每帧调）：接下来 0.3 秒角色朝着 target，不管往哪走（往后退时也面朝敌人）
+    public void AimAt(Vector3 target)
+    {
+        float dx = target.x - transform.position.x;
+        if (dx < -0.01f) _aimLeft = true;              // 敌人在左边
+        else if (dx > 0.01f) _aimLeft = false;         // 敌人在右边（正上 / 正下就保持原来的朝向）
+        _aimUntil = _time + 0.3f;
+    }
 
     // 测试用的选项（Inspector 里显示中文）
     public enum TestHeld
@@ -243,6 +262,10 @@ public class NpcRig : MonoBehaviour
     bool _heldLoop;                // 是在干活（施工 / 采集）：一直循环挥
     float _swingT = -1f;           // 挥动进行了多久（-1 = 没在挥）
     float _recoilT = -1f;          // 开枪后坐进行了多久（-1 = 没在后坐）
+    bool _swingNew = true;         // 要开始新的一下（重新随机挥下时手的 y）
+    float _swingDownY;             // 这一下挥下时手的 y（随机出来的）
+    Vector2 _recoilHandOff;        // 这一枪手被顶回的距离（随机出来的）
+    float _shotKick, _shotHandReturn, _shotMuzzleRise;  // 这一枪的枪口上扬角度 / 手回正快慢 / 枪口上扬用时（随机出来的）
     static Sprite _bulletSprite;   // 子弹图（代码生成，所有 NPC 共用）
     SpriteRenderer _visorSprite, _glareSprite;  // 面罩图 / 反光图
     SpriteMask _glareMask;         // 反光的遮罩：只在面罩形状里面显示
@@ -660,9 +683,12 @@ public class NpcRig : MonoBehaviour
         if (_slideSprite != null) _slideSprite.enabled = isPistol;
         if (_pistolHands != null) _pistolHands.enabled = isPistol;
         _swingT = -1f; _recoilT = -1f;                                     // 换手时停掉正在播的挥动 / 后坐
+        // 持枪：手点挂在角色根节点上，不跟着身体颠动、摇摆、前倾、压扁（边走边跑时枪也稳稳端着）；其他：挂在身体上
+        Transform handParent = isPistol ? _rig : _body;
+        if (_handPoint.parent != handParent) _handPoint.SetParent(handParent, false);
         if (art == null) { _heldSprite.enabled = false; _held = null; return; }   // 空手（或找不到图）
         _heldSprite.sprite = art;                                          // 换图
-        _handPoint.localPosition = CanvasToLocal(HELD_PIVOT[key] - P_BODY);  // 手点放到手腕的位置
+        _handPoint.localPosition = CanvasToLocal(HELD_PIVOT[key] - (isPistol ? P_ROOT : P_BODY));  // 手点放到手腕的位置（按挂的父节点换算）
         _handPoint.localRotation = Quaternion.identity;                    // 角度归零
         _heldSprite.transform.localPosition = Vector3.zero;                // 拿东西的手就在手点上
         _heldBase = _handPoint.localPosition;                              // 记下原位（挥动 / 后坐在它上面加偏移）
@@ -692,8 +718,17 @@ public class NpcRig : MonoBehaviour
         _rig.localScale = new Vector3(FacingLeft ? -1f : 1f, 1f, 1f);  // 刚转身也先对好朝向（枪口位置才准）
         string want = PickHeld();                                           // 不等 0.25 秒，马上判断拿什么
         if (want != _held) ApplyHeld(want);
-        if (_held == "axe" || _held == "hammer") _swingT = 0f;              // 挥一下
-        else if (_held == "pistol") _recoilT = 0f;                          // 后坐一下
+        if (_held == "axe" || _held == "hammer") { _swingT = 0f; _swingNew = true; }   // 挥一下（重新随机）
+        else if (_held == "pistol")                                         // 后坐一下
+        {
+            _recoilT = 0f;
+            _recoilHandOff = new Vector2(                                   // 这一枪手被顶回多远：在范围里随机
+                Random.Range(Mathf.Min(recoilHandX.x, recoilHandX.y), Mathf.Max(recoilHandX.x, recoilHandX.y)),
+                Random.Range(Mathf.Min(recoilHandY.x, recoilHandY.y), Mathf.Max(recoilHandY.x, recoilHandY.y)));
+            _shotKick = RandIn(recoilKick);                                 // 这一枪枪口上扬多少度
+            _shotHandReturn = RandIn(handRecoilReturn);                     // 这一枪手回正的快慢
+            _shotMuzzleRise = RandIn(muzzleRise);                           // 这一枪枪口上扬用几秒
+        }
     }
 
     // 枪口子弹生成点的世界坐标（手上拿着枪才有）
@@ -770,16 +805,27 @@ public class NpcRig : MonoBehaviour
         {
             bool axe = _held == "axe";
             float period = Mathf.Max(0.2f, axe ? chopPeriod : hammerPeriod);
-            if (_swingT < 0f && _heldLoop) _swingT = 0f;                    // 在干活：开始循环挥
+            if (_swingT < 0f && _heldLoop) { _swingT = 0f; _swingNew = true; }   // 在干活：开始循环挥
             if (_swingT >= 0f)
             {
                 _swingT += dt;
-                if (_swingT >= period) _swingT = _heldLoop ? _swingT - period : -1f;  // 干活一直循环；战斗只挥一次
+                if (_swingT >= period)                                       // 这一下挥完了
+                {
+                    _swingT = _heldLoop ? _swingT - period : -1f;           // 干活一直循环；战斗只挥一次
+                    _swingNew = true;                                        // 下一下重新随机
+                }
                 if (_swingT >= 0f) angle = SwingAngle(axe, _swingT / period);
+            }
+            if (_swingNew)                                                   // 新的一下：挥下时手的 y 在范围里随机
+            {
+                Vector2 r = axe ? chopHandDownY : hammerHandDownY;
+                _swingDownY = Random.Range(Mathf.Min(r.x, r.y), Mathf.Max(r.x, r.y));
+                _swingNew = false;
             }
             // 手点和身体跟着角度走：角度往"抬起"那边多少，就往抬起姿势靠多少；往"挥下"那边同理
             Vector2 ang = axe ? chopAngles : hammerAngles;                  // x = 抬起角度，y = 挥下角度
             Vector2 handUp = axe ? chopHandUp : hammerHandUp, handDown = axe ? chopHandDown : hammerHandDown;
+            handDown.y = _swingDownY;                                        // y 用这一下随机到的值
             Vector2 lean = axe ? chopLean : hammerLean;
             float kUp = ang.x != 0f && angle > 0f ? angle / ang.x : 0f;     // 0~1：抬起了多少
             float kDown = ang.y != 0f && angle < 0f ? angle / ang.y : 0f;   // 0~1：挥下了多少
@@ -791,17 +837,29 @@ public class NpcRig : MonoBehaviour
         else if (_held == "pistol" && _recoilT >= 0f)
         {
             _recoilT += dt;
-            float k = _recoilT < 0.03f ? _recoilT / 0.03f : Mathf.Exp(-(_recoilT - 0.03f) / 0.09f);  // 一下跳起来，再慢慢落回
-            angle = recoilKick * k;                                         // 枪口往上跳
-            off = new Vector3(recoilHand.x * k, recoilHand.y * k, 0f);      // 手被顶回来
+            float k = Kick(_recoilT, handRecoilRise, _shotHandReturn);      // 手：一下顶回去，再慢慢回正
+            float km = Kick(_recoilT, _shotMuzzleRise, muzzleReturn);       // 枪口：单独的上扬 / 回正节奏
+            angle = _shotKick * km;                                         // 枪口往上扬（绕握把转）
+            off = new Vector3(_recoilHandOff.x * k, _recoilHandOff.y * k, 0f);  // 手被顶回来（这一枪随机到的距离）
             _actionLean = recoilLean * k;                                   // 身体被震得往后仰
             _actionShift = -actionShift * k;                                // 往后挪一点
             slide = slideKick * (_recoilT < 0.025f ? _recoilT / 0.025f : Mathf.Max(0f, 1f - (_recoilT - 0.025f) / 0.12f));  // 滑套弹回去
-            if (_recoilT > 0.6f) _recoilT = -1f;                            // 播完了
+            float endT = 0.3f + 6f * Mathf.Max(handRecoilRise + _shotHandReturn, _shotMuzzleRise + muzzleReturn);  // 等手和枪口都回正了
+            if (_recoilT > endT) _recoilT = -1f;                            // 播完了
         }
         _handPoint.localPosition = _heldBase + off;                         // 手点移动（拿着的东西跟着走）
         _handPoint.localRotation = Quaternion.Euler(0f, 0f, angle);         // 绕手腕（持枪是握把）转
         if (_slideSprite != null) _slideSprite.transform.localPosition = _slideBase + new Vector3(-slide / PPU_FULL, 0f, 0f);
+    }
+
+    // 在范围里随机取一个数（两个数谁大谁小都行）
+    static float RandIn(Vector2 r) { return Random.Range(Mathf.Min(r.x, r.y), Mathf.Max(r.x, r.y)); }
+
+    // 后坐曲线：t = 开枪后过了几秒；rise 秒内从 0 冲到 1，然后按 ret 的快慢回到 0
+    static float Kick(float t, float rise, float ret)
+    {
+        rise = Mathf.Max(0.001f, rise); ret = Mathf.Max(0.001f, ret);
+        return t < rise ? t / rise : Mathf.Exp(-(t - rise) / ret);
     }
 
     // 挥动的角度：u = 0~1 是一次挥动的进度
