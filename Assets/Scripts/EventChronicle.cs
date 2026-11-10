@@ -117,8 +117,10 @@ public static class EventChronicle
         switch (type)
         {
             case "whisper_vision": case "space_warp": case "time_disorder": case "storm":
-            case "causal_reversal": case "creature": case "death": case "breakdown":
+            case "causal_reversal": case "creature": case "death": case "breakdown": case "raid":
                 return type;
+            case "creature_incursion":
+                return "creature";
             default:
                 return "other";
         }
@@ -134,6 +136,7 @@ public static class EventChronicle
             case "storm": return jp ? "負のエネルギーの嵐" : "负能量风暴";
             case "causal_reversal": return jp ? "因果の逆転" : "因果倒置";
             case "creature": return jp ? "何かの接近" : "怪物逼近";
+            case "raid": return jp ? "略奪者の襲撃" : "掠夺者来袭";
             case "death": return jp ? "死" : "死亡";
             case "breakdown": return jp ? "人格崩壊" : "人格崩解";
             default: return jp ? "異常な出来事" : "异常事件";
@@ -155,6 +158,7 @@ public static class EventChronicle
             case "storm": return jp ? "負のエネルギーの嵐が拠点を吹き抜けた。" : "一阵负能量风暴扫过营地。";
             case "causal_reversal": return jp ? "拠点で物事の順番が狂い、結果が原因より先に現れた。" : "营地里的先后顺序乱了：结果先于原因出现。";
             case "creature": return jp ? "何かが拠点に近づいてきた。" : "有什么东西靠近了营地。";
+            case "raid": return jp ? "別の生存者の一団が、拠点の物資を奪いに来た。" : "另一伙幸存者摸到营地来抢物资。";
             case "death": return r.subjectBroken ? (jp ? s + "は完全に変異したあと、息絶えた。" : s + "在彻底异变后死去了。") : (jp ? s + "は力尽きて倒れ、死んだ。" : s + "没能撑下去，死了。");
             case "breakdown": return jp ? s + "の精神が完全に崩壊し、体が変異しはじめた。" : s + "的精神彻底崩溃了，身体开始发生可怕的异变。";
             default: return jp ? "拠点で説明のつかない異常が起きた。" : "营地里发生了说不清的异常。";
@@ -190,6 +194,8 @@ public static class EventChronicle
                 return jp ? "先に音が聞こえ、しばらくしてからその音を出すものが現れた。順番がめちゃくちゃだった。" : "你先听到了声音，过了一会儿才看见发出声音的东西——先后顺序全乱了。";
             case "creature":
                 return jp ? "何かが拠点に近づいてきた。輪郭のはっきりしない影を一瞬見ただけだった。" : "有什么东西靠近了营地，你只瞥见一个说不清的轮廓。";
+            case "raid":
+                return jp ? "見知らぬ連中が拠点に押し入り、物資を奪おうとした。" : "一伙陌生人闯进营地，想把物资抢走。";
             case "death":
                 return r.subjectBroken ? (jp ? s + "は完全に変異したあと、死んでしまった。" : s + "在彻底异变之后死了。")
                                        : (jp ? s + "が死んだ。" : s + "死了。");
@@ -218,6 +224,7 @@ public static class EventChronicle
             case "storm": return ActorText(prof, npc, "storm", jp);
             case "causal_reversal": return ActorText(prof, npc, "causal_reversal", jp);
             case "creature": return ActorText(prof, npc, "enemy_creature", jp);
+            case "raid": return ActorText(prof, npc, "enemy_human", jp);
             case "death": return ActorText(prof, npc, p.friendOfSubject ? "death_friend" : "death_stranger", jp);
             case "breakdown":
                 return ActorFacts.ByMood(npc, jp,
@@ -358,6 +365,7 @@ public static class EventChronicle
         { "storm", new[] { "风暴", "暴风", "嵐" } },
         { "causal_reversal", new[] { "因果", "顺序", "先后", "逆転", "順番" } },
         { "creature", new[] { "怪物", "生物", "造物", "化け物", "怪物", "何か来" } },
+        { "raid", new[] { "掠夺", "抢", "拾荒者", "略奪", "奪", "襲撃" } },
         { "death", new[] { "死", "去世", "尸体", "亡くな" } },
         { "breakdown", new[] { "崩溃", "崩解", "疯了", "异变", "崩壊", "狂っ", "変異" } },
     };

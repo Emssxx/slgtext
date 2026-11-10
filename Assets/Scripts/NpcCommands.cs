@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 // 指令的种类。
-public enum CmdIntent { Go, Return, UseItem, Fetch, Gather, Rest, Eat, Push, Harvest }
+public enum CmdIntent { Go, Return, UseItem, Fetch, Gather, Rest, Eat, Push, Harvest, PutBack }
 
 // 解析出来的一条指令（由代码从玩家的话里提取，不靠 LLM）。
 public class NpcCommand
@@ -31,6 +31,11 @@ public static class NpcCommands
     static readonly string[] FetchWords = { "拿", "取", "找", "带", "搬", "领", "弄", "捡",
                                             "取って", "取りに", "持って", "探して", "持ってきて", "取ってきて", "拾って" };
     static readonly string[] GiveWords = { "给", "に使", "にあげ", "に渡", "に飲ませ", "に食べさせ" };
+    // 放回仓库（NPC 物品栏）："把斧头放回仓库" / "东西都放回去"。要在"回去 / 回来"（叫回来）之前认。
+    static readonly string[] PutWords = { "放回", "还回", "交回", "放到仓库", "放进仓库", "收进仓库", "拿回仓库", "还给仓库", "存进仓库", "存到仓库",
+                                          "戻して", "しまって", "返して", "倉庫に置", "倉庫に入れ", "倉庫に戻" };
+    static readonly string[] PutAllWords = { "东西都放回", "都放回", "全部放回", "全都放回", "身上的东西放回", "东西放回仓库", "都还回", "全部还回",
+                                             "全部しまって", "全部戻して", "持ち物を戻", "持ち物をしまって", "全部返して", "全部倉庫に" };
     static readonly string[] GatherWords = { "搜寻", "搜索", "搜刮", "找物资", "收集", "采集", "找吃的", "找点吃的", "找食物", "出去找", "侦察", "探索", "巡逻", "找点东西",
                                              "物資を探", "食料を探", "食べ物を探", "集めて", "調達", "偵察", "見回り" };
     static readonly string[] RestWords = { "休息", "歇", "睡觉", "睡一会", "躺", "休んで", "休憩", "寝て", "眠って", "横になって" };
@@ -126,6 +131,10 @@ public static class NpcCommands
         LexEntry box = GameLexicon.FindFirst(t, LexEntry.KindBox);
         List<string> others = NpcRoster.FindMentioned(t, actor.id);
         string grid = FindGrid(t);
+
+        // 0. 放回仓库（"放回去"里也有"回去"，所以在叫回来之前认）
+        if (item != null && Has(t, PutWords) && !Has(t, NegWords)) return new NpcCommand { intent = CmdIntent.PutBack, itemId = item.id };
+        if (item == null && Has(t, PutAllWords) && !Has(t, NegWords)) return new NpcCommand { intent = CmdIntent.PutBack, itemId = "*" };
 
         // 1. 叫回来 / 停下（最优先：玩家想撤销）
         if (Has(t, ReturnWords)) return new NpcCommand { intent = CmdIntent.Return, destination = "@camp" };
@@ -252,11 +261,27 @@ public static class NpcCommands
                 return true;
             }
 
+            case CmdIntent.PutBack:
+            {
+                bool all = cmd.itemId == "*";
+                if (all ? NpcInventory.UsedSlots(actor) == 0 : !Carries(actor, cmd.itemId))
+                {
+                    failText = LF("inv_fail_none", all ? L("inv_anything") : GameLexicon.NameOf(cmd.itemId));
+                    return false;
+                }
+                orderText = all ? L("order_put_back_all") : LF("order_put_back", GameLexicon.NameOf(cmd.itemId));
+                tasks.Add(new NpcTask { action = "go", destination = "@storage" });
+                tasks.Add(new NpcTask { action = "put_item", target = cmd.itemId });
+                return true;
+            }
+
             case CmdIntent.Fetch:
             {
                 string itemName = GameLexicon.NameOf(cmd.itemId);
-                if (ItemUseRules.GetCount(cmd.itemId, w) > 0)
+                if (NpcInventory.StorageCanSupply(cmd.itemId))
                 {
+                    // 物品栏装不下 / 这种已经带满了：先说清楚
+                    if (!NpcInventory.CanAdd(actor, cmd.itemId, out string why)) { failText = why; return false; }
                     orderText = LF("order_fetch", itemName);
                     tasks.Add(new NpcTask { action = "go", destination = "@storage" });
                     tasks.Add(new NpcTask { action = "take_item", target = cmd.itemId });

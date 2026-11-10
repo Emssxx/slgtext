@@ -1,11 +1,13 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;   // SortingGroup：风力发电机的塔和叶片当成一个整体排序（始终在 NPC 下面）
 
 // 电力 / 气温 / 水源相关的建筑（运行时生成，不用在 Project 里建资产）：
 //   风力发电机（电力类，不需要终端机）、蓄电池（电力类，需要终端机 Lv1）、营地加温器、营地降温器（生活类，需要终端机 Lv1）、
 //   雨水收集器、水源净化器（生产类，不需要终端机；净化器要接电）。
 // 图片是代码画的像素图；以后有美术素材时，建同名的 BuildableData 资产拖进 BuildManager.buildables 即可
 // （id 相同的资产优先，这里就不再重复添加）。
+// 风力发电机已经有美术图：Resources/BuildingArt/WindTurbine_*.png（找不到时自动退回像素图）。
 public static class PowerBuildings
 {
     public const string TurbineId = "wind_turbine";
@@ -14,6 +16,12 @@ public static class PowerBuildings
     public const string CoolerId = "camp_cooler";
     public const string CollectorId = "rain_collector";
     public const string PurifierId = "water_purifier";
+
+    // 风力发电机的美术图（Resources 里的路径）
+    const string ArtTurbineBase = "BuildingArt/WindTurbine_Base";      // 塔身（轴心 = 底座占地的正中）
+    const string ArtTurbineBlades = "BuildingArt/WindTurbine_Blades";  // 叶片 + 中间的钉子（轴心 = 钉子中心，绕它转）
+    const string ArtTurbineIcon = "BuildingArt/WindTurbine_Icon";      // 整台风机（建造菜单图标 / 摆放预览）
+    static readonly Vector3 TurbineHub = new Vector3(-0.0166f, 1.2287f, 0f);  // 钉子相对底座中心的位置（单位）
 
     static GameObject _holder;   // 模板的父物体（关着的，所以模板不会出现在场景里）
     static Sprite _outline;
@@ -57,6 +65,14 @@ public static class PowerBuildings
         d.buildCategory = cat;
         d.requiredTier = tier;
         d.category = BuildableCategory.Other;
+        if (id == TurbineId && HasTurbineArt())                         // 风力发电机有美术图时：
+        {
+            d.autoFootprint = false;                                    // 占地不按图片大小算（图很高，只算底座）
+            d.width = 1;                                                // 占 1 小格宽
+            d.height = 1;                                               // 占 1 小格高
+            Sprite icon = Resources.Load<Sprite>(ArtTurbineIcon);       // 整台风机的图
+            if (icon != null) d.sprite = icon;                          // 菜单图标和摆放预览用它（带叶片）
+        }
         d.prefab = MakeTemplate(id, kind, sprite);
         _data[id] = d;
         return d;
@@ -77,6 +93,12 @@ public static class PowerBuildings
         sr.sortingOrder = 0;
         BoxCollider2D col = go.AddComponent<BoxCollider2D>();
         col.size = new Vector2(0.9f, 0.9f);
+        bool turbineArt = kind == PowerNodeKind.Turbine && HasTurbineArt(); // 风力发电机用美术图
+        if (turbineArt)
+        {
+            col.size = new Vector2(0.3f, 0.3f);                         // 挡路范围 = 底座那 1 小格（1 小格 = 1/3 单位）
+            go.AddComponent<SortingGroup>();                            // 塔和叶片一起排序，整体在 NPC（顺序 1）下面
+        }
         PowerNode node = null;
         if (kind.HasValue)
         {
@@ -114,7 +136,7 @@ public static class PowerBuildings
         {
             GameObject blades = new GameObject("Blades");
             blades.transform.SetParent(go.transform, false);
-            blades.transform.localPosition = new Vector3(0f, 0.19f, 0f);
+            blades.transform.localPosition = turbineArt ? TurbineHub : new Vector3(0f, 0.19f, 0f);  // 美术图：叶片中心对准钉子
             SpriteRenderer bsr = blades.AddComponent<SpriteRenderer>();
             bsr.sprite = BladeSprite();
             bsr.sortingOrder = 1;
@@ -148,9 +170,17 @@ public static class PowerBuildings
         return Sprite.Create(t, new UnityEngine.Rect(0, 0, 32, 32), pivot, 32f);
     }
 
+    // 风力发电机的美术图在不在（不在就用下面的像素图）
+    static bool HasTurbineArt()
+    {
+        return Resources.Load<Sprite>(ArtTurbineBase) != null && Resources.Load<Sprite>(ArtTurbineBlades) != null;
+    }
+
     // 风力发电机：底座 + 塔杆 + 机舱（叶片单独一张图，会转）
     static Sprite TurbineSprite()
     {
+        Sprite art = Resources.Load<Sprite>(ArtTurbineBase);           // 先找美术图
+        if (art != null) return art;                                    // 有就直接用
         Texture2D t = NewTex();
         Color dark = new Color(0.25f, 0.27f, 0.3f), mid = new Color(0.55f, 0.58f, 0.62f), light = new Color(0.8f, 0.82f, 0.85f);
         Rect(t, 9, 1, 22, 4, dark);        // 底座
@@ -162,6 +192,8 @@ public static class PowerBuildings
 
     static Sprite BladeSprite()
     {
+        Sprite art = Resources.Load<Sprite>(ArtTurbineBlades);         // 先找美术图（叶片 + 钉子）
+        if (art != null) return art;                                    // 有就直接用
         Texture2D t = NewTex();
         Color c = new Color(0.92f, 0.94f, 0.96f);
         // 三片叶子：从中心向 90°、210°、330° 画线

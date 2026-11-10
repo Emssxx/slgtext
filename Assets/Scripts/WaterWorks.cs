@@ -90,10 +90,14 @@ public static class WaterWorks
         }
     }
 
-    // 从仓库喝一份净化水（NpcHealth 在水分偏低时调用；水分由调用方加）。仓库没水返回 false。
+    // 喝一份水（NpcHealth 在水分偏低时调用；水分由调用方加）。喝不到返回 false。
+    //   营地里：从仓库喝一份净化水。营地外：只能喝自己带的水瓶（喝一瓶少一瓶，NpcInventory）；没带水瓶就只能忍着，回营地再喝。
     public static bool TryDrink(NpcData n)
     {
         if (n == null || n.IsDead || WorldManager.Instance == null) return false;
+        NpcMover body = NpcView.GetMover(n.id);
+        if (body != null && !NpcInventory.InCamp(body.transform.position))
+            return NpcInventory.Remove(n, "bottle", 1);
         if (!WorldManager.Instance.ConsumeFromStorage(WaterItem, 1)) return false;
         _drunkThisTurn++;
         return true;

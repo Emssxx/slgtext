@@ -6,6 +6,7 @@ using System.Collections.Generic;
 // 【优先级】数字越大越优先，低优先级的系统发现有更高优先级的占用时要主动放手：
 //   Task  玩家指令（NpcTaskRunner）                       100
 //   Build 施工（BuildManager）                              80
+//   Combat 遇敌：打或躲（NpcCombat）                      90
 //   Need  需求行为：吃饭/休息/搜寻/逃跑（NpcNeedRunner）    50
 //   闲置行为（NpcIdleBrain）不登记，优先级最低：只要有任何占用就让路。
 // 以后加新的指挥系统（采集、巡逻、搬运…）：在这里加一个常量 + 优先级即可。
@@ -15,6 +16,7 @@ public static class NpcBusy
     public const string Task = "task";
     public const string Build = "build";
     public const string Need = "need";
+    public const string Combat = "combat";
 
     // npcId → 占用原因集合（同一个 NPC 可能同时被多个系统占用）
     static readonly Dictionary<string, HashSet<string>> _claims = new Dictionary<string, HashSet<string>>();
@@ -27,6 +29,7 @@ public static class NpcBusy
             case Task:  return 100;
             case Build: return 80;
             case Need:  return 50;
+            case Combat: return 90;
             default:    return 60;
         }
     }

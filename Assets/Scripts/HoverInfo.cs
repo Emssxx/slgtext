@@ -816,6 +816,8 @@ public class HoverInfo : MonoBehaviour
         s += (jp ? "<color=#C8CFDC>　安心感 </color>" : "<color=#C8CFDC>　安全感 </color>") +
              (uneasy ? "<color=#FFE36A>" + Mathf.RoundToInt(n.security) + (jp ? "（不安）" : "（不安）") + "</color>"
                      : "<color=#C8CFDC>" + Mathf.RoundToInt(n.security) + "</color>") + "</size>";
+        // 身上带着什么（物品栏 NpcInventory）
+        if (!n.IsDead) s += "\n<size=82%><color=#8E9490>" + (jp ? "所持 " : "携带 ") + "</color><color=#C8CFDC>" + NpcInventory.Describe(n, jp) + "</color></size>";
         if (n.IsDead) s += "\n<size=82%>" + (jp ? "バイタル反応なし" : "无生命体征") + "</size>";
         else
         {

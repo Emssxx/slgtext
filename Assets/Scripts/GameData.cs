@@ -97,6 +97,7 @@ public class NpcData
 
     // —— 对玩家的信任度：决定听不听玩家指令（0~100）——
     public float playerTrust = 50f;
+    public int pistolAmmo = 0;       // 手枪里还剩几发（换弹匣时装满 NpcInventory.MagSize 发；身上 inventory 里的弹匣是备用的）
 
     // —— 对其他 NPC 的关系（单向，每个其他 NPC 一条）——
     public List<Relationship> relationships = new List<Relationship>();

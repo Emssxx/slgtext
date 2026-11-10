@@ -341,6 +341,7 @@ public class ConstructionManager : MonoBehaviour
             string reason = null;
             bool jp = LanguageGuard.IsJp;
             if (!NpcHealth.CanWork(n)) reason = NpcHealth.CannotWorkReason(n, jp);
+            else if (NpcCombat.InCombat(id)) reason = NpcCombat.IsFleeing(id) ? (jp ? "敵から逃げている" : "在躲敌人") : (jp ? "敵と戦っている" : "在和敌人打");
             else if (r != null && r.IsBusy) reason = jp ? "指示を実行中" : "在执行指令";
             else
             {

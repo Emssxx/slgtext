@@ -30,6 +30,9 @@ public class TerminalController : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
+        // 外观动画（大脑浮动、气泡上浮）：自动挂上 TerminalVisual，已经有了就不重复挂。
+        if (GetComponent<TerminalVisual>() == null) gameObject.AddComponent<TerminalVisual>();
+
         // 自动收集挂在自己身上的所有功能模块（MVP 阶段可能一个都没有，没关系）。
         _modules = GetComponents<TerminalModule>();
     }

@@ -132,6 +132,10 @@ public class NpcTaskRunner : MonoBehaviour
                 DoTakeItem(task.target);
                 yield return new WaitForSeconds(0.8f);
                 break;
+            case "put_item":    // 把身上的东西放回仓库（target = 物品 id；"*" = 身上全部）
+                DoPutItem(task.target);
+                yield return new WaitForSeconds(0.8f);
+                break;
             case "search_item": // 出营地搜寻（target = 想找的物品 id；空 = 普通搜寻物资）
                 yield return StartCoroutine(DoSearch(task.target));
                 break;
@@ -191,6 +195,7 @@ public class NpcTaskRunner : MonoBehaviour
             NpcMover tm2 = NpcView.GetMover(target.id);
             if (tm2 != null) _mover.FaceTowards(tm2.transform.position);
         }
+        if (itemId == "medkit") { NpcRig rig = GetComponent<NpcRig>(); if (rig != null) rig.HoldItem("medkit", 1.6f); } // 外观：包扎时手上拿出医疗包（腰上挂着才会拿）
         yield return new WaitForSeconds(1f); // 包扎 / 喂药的时间
 
         // 身上带着的先放回仓库再用：物品效果统一走 ItemUseRules（它从仓库扣 1 个），逻辑只有一份。
@@ -207,21 +212,22 @@ public class NpcTaskRunner : MonoBehaviour
     }
 
     // take_item：从仓库拿一个带在身上（以后"给某人用"时优先用身上的）。
+    // 物品栏规则（格子、同类上限、水瓶用净化水灌）在 NpcInventory；成功的日志它会写。玩家叫拿的东西之后不会自己放回。
     void DoTakeItem(string itemId)
     {
         NpcData self = Self;
         if (self == null) return;
-        string itemName = GameLexicon.NameOf(itemId);
-        if (WorldManager.Instance.ConsumeFromStorage(itemId, 1))
-        {
-            if (self.inventory == null) self.inventory = new List<ItemStack>();
-            ItemStack stack = null;
-            foreach (ItemStack s in self.inventory) if (s.itemName == itemId) { stack = s; break; }
-            if (stack == null) self.inventory.Add(new ItemStack { itemName = itemId, count = 1 });
-            else stack.count++;
-            Report(self, null, LF("cmd_log_take", self.npcName, itemName));
-        }
-        else Report(self, null, LF("cmd_log_take_fail", self.npcName, itemName));
+        if (!NpcInventory.TakeFromStorage(self, itemId, true, out string why))
+            Report(self, null, LF("inv_log_take_fail", self.npcName, GameLexicon.NameOf(itemId), why));
+    }
+
+    // put_item：把身上的东西放回仓库（"*" = 全部）。成功的日志由 NpcInventory 写。
+    void DoPutItem(string itemId)
+    {
+        NpcData self = Self;
+        if (self == null) return;
+        if (NpcInventory.PutBack(self, string.IsNullOrEmpty(itemId) ? "*" : itemId) == 0)
+            Report(self, null, LF("inv_log_put_none", self.npcName, itemId == "*" || string.IsNullOrEmpty(itemId) ? L("inv_anything") : GameLexicon.NameOf(itemId)));
     }
 
     // search_item：走到营地外（优先迷雾里没看清的地方）→ 翻找 → 回营地。
@@ -472,15 +478,7 @@ public class NpcTaskRunner : MonoBehaviour
 
     static bool TakeFromInventory(NpcData npc, string itemId)
     {
-        if (npc.inventory == null) return false;
-        foreach (ItemStack s in npc.inventory)
-            if (s.itemName == itemId && s.count > 0)
-            {
-                s.count--;
-                if (s.count <= 0) npc.inventory.Remove(s);
-                return true;
-            }
-        return false;
+        return NpcInventory.Remove(npc, itemId, 1);   // 走物品栏：挂件 / 界面会跟着刷新
     }
 
     // 写进当事人的记忆 + 行为日志。
@@ -496,6 +494,8 @@ public class NpcTaskRunner : MonoBehaviour
     {
         return LocalizationManager.Instance != null ? LocalizationManager.Instance.GetFormat(key, args) : key;
     }
+
+    static string L(string key) => LocalizationManager.Instance != null ? LocalizationManager.Instance.Get(key) : key;
 
     // go：走到某地点，等到达。
     IEnumerator DoGo(string destination)

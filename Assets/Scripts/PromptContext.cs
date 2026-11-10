@@ -40,8 +40,8 @@ public static class PromptContext
             if (n.IsDead) { sb.AppendLine($"・{n.npcName}{me}：" + (jp ? "死亡" : "已死亡")); continue; }
             // 饥饿值 / 水分：100 = 饱 / 不渴（写成"満腹""饱腹"，免得模型以为数字越大越饿）
             sb.AppendLine(jp
-                ? $"・{n.npcName}{me}：生命{n.health:0} 満腹{n.satiety:0} 水分{n.water:0} 体力{n.energy:0} 正気{n.sanity:0}（{MentalLabel(n, true)}／{NpcHealth.BriefLine(n, true)}）"
-                : $"・{n.npcName}{me}：生命{n.health:0} 饱腹{n.satiety:0} 水分{n.water:0} 体力{n.energy:0} 理智{n.sanity:0}（{MentalLabel(n, false)}／{NpcHealth.BriefLine(n, false)}）");
+                ? $"・{n.npcName}{me}：生命{n.health:0} 満腹{n.satiety:0} 水分{n.water:0} 体力{n.energy:0} 正気{n.sanity:0}（{MentalLabel(n, true)}／{NpcHealth.BriefLine(n, true)}）" + Carry(n, true)
+                : $"・{n.npcName}{me}：生命{n.health:0} 饱腹{n.satiety:0} 水分{n.water:0} 体力{n.energy:0} 理智{n.sanity:0}（{MentalLabel(n, false)}／{NpcHealth.BriefLine(n, false)}）" + Carry(n, false));
         }
 
         // —— 仓库 ——
@@ -63,6 +63,13 @@ public static class PromptContext
     }
 
     // 从末尾往前取最多 max 条、语言正确的记录，按时间顺序写出。
+    // 身上带着什么（没带东西就不写，省提示词）
+    static string Carry(NpcData n, bool jp)
+    {
+        if (NpcInventory.UsedSlots(n) == 0) return "";
+        return (jp ? " 持ち物：" : " 身上带着：") + NpcInventory.Describe(n, jp);
+    }
+
     static void AppendRecent(StringBuilder sb, List<MemoryEntry> log, int max, string title)
     {
         if (log == null || log.Count == 0) return;

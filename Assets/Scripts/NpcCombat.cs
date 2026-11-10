@@ -1,0 +1,479 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+// ============================================================================
+// NPC 遇敌（纯规则，不走 LLM）：打还是躲。由 EnemyDirector 自动挂到每个 NPC 身上，不用改预制体。
+//
+// 【什么时候管】身边 alertRange 以内有活着的敌人，或者刚挨了打。敌人走远 / 死了，安静 2.5 秒后放手。
+//   玩家刚下的指令（60 秒内、还在执行）优先：照玩家说的做，不自己去打 / 躲（想让他打 / 躲，就对他说"迎战" / "快躲"）。
+//
+// 【打还是躲】
+//   · 打不了（致命伤 / 濒死）、血少（和逃跑阈值一样：35 - 勇敢×0.2）、没体力 → 躲。
+//   · 有人下了姿态（玩家在对话里说"迎战" / "快躲"，或者以后由领导 AI 下）→ 照做。
+//   · 自己判断：胆量 = 勇敢 + 武器（枪 +20 / 斧 +15 / 锤 +10 / 空手 -10）+ 旁边一起打的人×8
+//                  - 掉的血×0.4 - 理智低 20 - 受伤 15（已经打起来了 +10，不轻易掉头）
+//       弱敌：胆量 ≥ 30 就上，不然躲。
+//       强敌：以防守为主——默认躲回营地；只有它在拆墙 / 已经闯进营地，并且胆量 ≥ 70（拿枪的 ≥ 55）才上去打。
+//
+// 【武器】看物品栏里带着什么（NpcInventory，挂件也按它显示）：手枪（远程，要有子弹或弹匣）> 斧头 > 锤子 > 空手。
+//   手枪一发用一颗子弹（NpcData.pistolAmmo），打空了花 1.6 秒（ReloadTime）换一个弹匣；弹匣也用光了就换成近战。
+// 【挨打】伤害 × 防护服减伤（EnemyDirector.suitArmor）；一场仗里累计掉血到 injureAfterDamage → 「受伤」（伤在手臂 / 肋骨 / 大腿）。
+// 【占用】打 / 躲期间在 NpcBusy 登记 Combat（优先级 90）：施工、需求行为、闲置行为、自主干活都会让路。
+// 【以后接 AI】SetStance(npcId, 姿态, 秒数) 就是给领导（14B）/ 玩家下"打 / 躲"用的口子；不下就按上面的规则自己判断。
+// ============================================================================
+[DisallowMultipleComponent]
+public class NpcCombat : MonoBehaviour
+{
+    public enum Stance { Auto, Fight, Hide }
+    public enum Mode { None, Fight, Flee }
+
+    public struct Weapon
+    {
+        public string key;      // pistol / axe / hammer / fists（名字：weapon_<key>）
+        public float damage, range, interval;
+        public int courage;     // 胆量加成
+        public bool ranged;
+    }
+
+    static readonly Weapon Pistol = new Weapon { key = "pistol", damage = 9f, range = 4f, interval = 1.4f, courage = 20, ranged = true };
+    static readonly Weapon Axe = new Weapon { key = "axe", damage = 11f, range = 0.85f, interval = 1.25f, courage = 15 };
+    static readonly Weapon Hammer = new Weapon { key = "hammer", damage = 8f, range = 0.8f, interval = 1.1f, courage = 10 };
+    static readonly Weapon Fists = new Weapon { key = "fists", damage = 3.5f, range = 0.7f, interval = 1.0f, courage = -10 };
+
+    static readonly Dictionary<string, NpcCombat> _byId = new Dictionary<string, NpcCombat>();
+    static readonly Dictionary<string, KeyValuePair<Stance, float>> _stances = new Dictionary<string, KeyValuePair<Stance, float>>();
+    static readonly Dictionary<string, float> _playerOrderAt = new Dictionary<string, float>();
+
+    public Mode Current { get; private set; }
+    public Enemy Foe => _foe;
+
+    NpcView _view;
+    NpcMover _mover;
+    NpcTaskRunner _runner;
+    Enemy _foe, _lastAttacker;
+    float _decide, _attackCd, _calm, _repath, _barkCd, _logCd, _lastHit = -99f, _hurt;
+    bool _claimed, _injuredThisFight, _hasDest;
+    string _claimId;
+    Vector3 _dest;
+
+    string Id => _view != null ? _view.npcId : null;
+    NpcData Data => WorldManager.Instance != null && !string.IsNullOrEmpty(Id) ? WorldManager.Instance.GetNpcById(Id) : null;
+
+    void Awake()
+    {
+        _view = GetComponent<NpcView>();
+        _mover = GetComponent<NpcMover>();
+        _runner = GetComponent<NpcTaskRunner>();
+        _decide = Random.value * 0.3f;   // 错开，别所有人同一帧想
+    }
+
+    void OnDisable()
+    {
+        Release();
+        string id = Id;
+        if (!string.IsNullOrEmpty(id) && _byId.TryGetValue(id, out NpcCombat c) && c == this) _byId.Remove(id);
+    }
+
+    // ============ 对外 ============
+
+    public static NpcCombat Of(string npcId)
+    {
+        return !string.IsNullOrEmpty(npcId) && _byId.TryGetValue(npcId, out NpcCombat c) && c != null ? c : null;
+    }
+
+    public static bool InCombat(string npcId) { NpcCombat c = Of(npcId); return c != null && c.Current != Mode.None; }
+    public static bool IsFleeing(string npcId) { NpcCombat c = Of(npcId); return c != null && c.Current == Mode.Flee; }
+    public static bool IsFighting(string npcId) { NpcCombat c = Of(npcId); return c != null && c.Current == Mode.Fight; }
+
+    // 下姿态：迎战 / 躲起来 / 自己判断（Auto = 撤销）。玩家在对话里下，以后领导 AI 也走这里。
+    public static void SetStance(string npcId, Stance s, float seconds = 180f)
+    {
+        if (string.IsNullOrEmpty(npcId)) return;
+        if (s == Stance.Auto) _stances.Remove(npcId);
+        else _stances[npcId] = new KeyValuePair<Stance, float>(s, Time.time + seconds);
+        NpcCombat c = Of(npcId);
+        if (c != null) c._decide = 0f;
+    }
+
+    public static Stance StanceOf(string npcId)
+    {
+        if (!string.IsNullOrEmpty(npcId) && _stances.TryGetValue(npcId, out KeyValuePair<Stance, float> kv))
+        {
+            if (Time.time < kv.Value) return kv.Key;
+            _stances.Remove(npcId);
+        }
+        return Stance.Auto;
+    }
+
+    // 玩家刚给他下了指令（NpcAgent 调）：之后 60 秒内只要指令还在执行，就不自己去打 / 躲
+    public static void NotePlayerOrder(string npcId)
+    {
+        if (!string.IsNullOrEmpty(npcId)) _playerOrderAt[npcId] = Time.time;
+    }
+
+    static bool PlayerOrderActive(string npcId, NpcTaskRunner r)
+    {
+        return r != null && r.IsBusy && !string.IsNullOrEmpty(npcId)
+               && _playerOrderAt.TryGetValue(npcId, out float t) && Time.time - t < 60f;
+    }
+
+    // 看他物品栏里带着什么（手枪要有子弹或弹匣才算）
+    public static Weapon WeaponOf(string npcId)
+    {
+        NpcData n = WorldManager.Instance != null && !string.IsNullOrEmpty(npcId) ? WorldManager.Instance.GetNpcById(npcId) : null;
+        if (n != null)
+        {
+            if (NpcInventory.PistolReady(n)) return Pistol;
+            if (NpcInventory.Has(n, "axe")) return Axe;
+            if (NpcInventory.Has(n, "hammer")) return Hammer;
+        }
+        return Fists;
+    }
+
+    const float ReloadTime = 1.6f;   // 换弹匣要几秒
+
+    // 敌人打中了这个 NPC（Enemy 调）
+    public static void OnEnemyHit(NpcData n, float damage, Enemy by)
+    {
+        if (n == null || n.IsDead) return;
+        EnemyDirector dir = EnemyDirector.Instance;
+        float d = damage * (dir != null ? dir.suitArmor : 0.85f);
+        n.health = Mathf.Clamp(n.health - d, 0f, 100f);
+        NpcSecurity.NotifyDanger(2f);
+        NpcCombat c = Of(n.id);
+        float hurt = d;
+        if (c != null)
+        {
+            c._lastHit = Time.time;
+            c._lastAttacker = by;
+            c._hurt += d;
+            c._decide = 0f;   // 马上重新想（还手还是跑）
+            hurt = c._hurt;
+            if (c._barkCd <= 0f) c.Bark(Pick(HurtZh, HurtJa));
+        }
+        float limit = dir != null ? dir.injureAfterDamage : 18f;
+        if (!n.IsDead && hurt >= limit && (c == null || !c._injuredThisFight))
+        {
+            bool wasInjured = NpcHealth.Has(n, HealthTag.Injured);
+            NpcHealth.MarkInjured(n, InjuryCause.Combat);
+            if (c != null) c._injuredThisFight = true;
+            if (!wasInjured) Log(n, LF("combat_log_injured", n.npcName, by != null ? by.Name : "?", NpcHealth.InjuryPart(n, LanguageGuard.IsJp)), true);
+        }
+        if (n.IsDead) EnemyDirector.OnNpcKilled(n, by);
+    }
+
+    // ============ 每帧 ============
+
+    void Update()
+    {
+        string id = Id;
+        if (string.IsNullOrEmpty(id)) return;
+        if (!_byId.TryGetValue(id, out NpcCombat me) || me != this) _byId[id] = this;   // id 是生成后才设的，在这里登记
+        float dt = Time.deltaTime;
+        if (dt <= 0f) return;
+        NpcData n = Data;
+        if (n == null) return;
+        if (n.IsDead || n.isBroken || !NpcHealth.CanMove(n))
+        {
+            if (Current != Mode.None) Stop(n, false);
+            return;
+        }
+        _attackCd -= dt;
+        _repath -= dt;
+        _barkCd -= dt;
+        _logCd -= dt;
+        _decide -= dt;
+        if (_decide <= 0f) { _decide = 0.3f; Decide(n); }
+        // 打 / 躲的时候，自己的任务（领导分的活等）又被排上了：停掉，免得两边抢着走
+        if (Current != Mode.None && _runner != null && _runner.IsBusy)
+        {
+            if (PlayerOrderActive(id, _runner)) { Stop(n, false); return; }
+            _runner.CancelAll();
+        }
+        if (Current == Mode.Fight) DoFight(n, dt);
+        else if (Current == Mode.Flee) DoFlee();
+    }
+
+    void Decide(NpcData n)
+    {
+        Vector3 pos = transform.position;
+        float alert = EnemyDirector.AlertRange;
+        Enemy threat = Enemy.NearestTo(pos, alert, true, true);
+        bool hitRecently = Time.time - _lastHit < 4f && _lastAttacker != null && _lastAttacker.Alive;
+        if (threat == null && hitRecently) threat = _lastAttacker;
+        // 正在打的那个还活着、没跑远：接着盯它（不要一会儿换一个）
+        if (Current == Mode.Fight && _foe != null && _foe.Alive && Dist(pos, _foe.transform.position) < alert * 1.6f) threat = _foe;
+
+        if (threat == null)
+        {
+            if (Current != Mode.None)
+            {
+                _calm += 0.3f;
+                if (_calm >= 2.5f) Stop(n, true);
+            }
+            return;
+        }
+        _calm = 0f;
+
+        // 玩家刚下的指令还在执行：先听玩家的
+        if (PlayerOrderActive(Id, _runner))
+        {
+            if (Current != Mode.None) Stop(n, false);
+            return;
+        }
+
+        Mode want = Choose(n, threat);
+        if (want != Current || threat != _foe) Begin(n, want, threat);
+    }
+
+    Mode Choose(NpcData n, Enemy foe)
+    {
+        if (!NpcHealth.CanFight(n)) return Mode.Flee;
+        float fleeHp = 35f - n.personality.bravery * 0.2f;   // 和 NpcDecisionRules 的逃跑阈值一致
+        if (n.health <= fleeHp || n.energy < 8f) return Mode.Flee;
+        Stance st = StanceOf(Id);
+        if (st == Stance.Hide) return Mode.Flee;
+        if (st == Stance.Fight) return Mode.Fight;
+        float c = Courage(n, foe);
+        if (!foe.Def.IsStrong) return c >= 30f ? Mode.Fight : Mode.Flee;
+        // 强敌：以防守为主
+        bool defend = Enemy.NearCamp(transform.position, 0.5f)
+                      && (foe.state == Enemy.State.BreakWall || Enemy.NearCamp(foe.transform.position, 0f));
+        if (defend && c >= (WeaponOf(Id).ranged ? 55f : 70f)) return Mode.Fight;
+        return Mode.Flee;
+    }
+
+    float Courage(NpcData n, Enemy foe)
+    {
+        float c = n.personality.bravery + WeaponOf(Id).courage;
+        c += 8f * Mathf.Min(3, AlliesFighting());
+        c -= (100f - n.health) * 0.4f;
+        if (n.sanity < 40f) c -= 20f;
+        if (NpcHealth.Has(n, HealthTag.Injured)) c -= 15f;
+        if (Current == Mode.Fight) c += 10f;
+        return c;
+    }
+
+    int AlliesFighting()
+    {
+        int k = 0;
+        Vector3 p = transform.position;
+        foreach (NpcCombat c in _byId.Values)
+            if (c != null && c != this && c.Current == Mode.Fight && Dist(c.transform.position, p) < 5f) k++;
+        return k;
+    }
+
+    void Begin(NpcData n, Mode m, Enemy foe)
+    {
+        bool fresh = Current == Mode.None;
+        bool changed = m != Current;
+        // 手上的活先放下（领导分的工 / 自己找的事；玩家的指令不会走到这里）
+        if (_runner != null && _runner.IsBusy) _runner.CancelAll();
+        if (!_claimed)
+        {
+            _claimId = Id;
+            NpcBusy.Claim(_claimId, NpcBusy.Combat);
+            _claimed = true;
+        }
+        NpcIdleBrain.InterruptFor(Id, 3f);
+        Current = m;
+        _foe = foe;
+        _hasDest = false;
+        _repath = 0f;
+        if (fresh) { _hurt = 0f; _injuredThisFight = false; }
+        if (!changed) return;
+
+        if (m == Mode.Fight)
+        {
+            Weapon w = WeaponOf(Id);
+            n.currentAction = LF("combat_act_fight", foe.Name);
+            Log(n, LF("combat_log_fight", n.npcName, foe.Name, L("weapon_" + w.key)));
+            Bark(Pick(FightZh, FightJa));
+        }
+        else
+        {
+            n.currentAction = LF("combat_act_flee", foe.Name);
+            Log(n, LF("combat_log_flee", n.npcName, foe.Name));
+            Bark(Pick(FleeZh, FleeJa));
+        }
+    }
+
+    void DoFight(NpcData n, float dt)
+    {
+        if (_foe == null || !_foe.Alive) { _foe = null; _decide = 0f; return; }
+        if (_mover == null) return;
+        NpcHealth.ConsumeCombat(n, dt);
+        Weapon w = WeaponOf(Id);
+        Vector3 pos = transform.position, fp = _foe.transform.position;
+        float d = Dist(pos, fp);
+        float reach = w.range + Mathf.Max(0f, _foe.Def.scale - 1f) * 0.35f;   // 大块头好打到一点
+        if (d > reach)
+        {
+            _mover.SetSpeedMultiplier(1.15f);
+            if (_repath <= 0f || !_hasDest)
+            {
+                _repath = 0.3f;
+                Vector3 to = w.ranged ? pos + (fp - pos).normalized * Mathf.Max(0f, d - reach * 0.8f) : fp;   // 拿枪的走到射程里就停
+                _mover.MoveTo(to);
+                _dest = to;
+                _hasDest = true;
+            }
+            return;
+        }
+        if (_hasDest) { _mover.Stop(); _hasDest = false; }
+        _mover.FaceTowards(fp);
+        if (_attackCd > 0f) return;
+        if (w.ranged && n.pistolAmmo <= 0)
+        {
+            // 打空了：换一个弹匣（这段时间不开枪）
+            if (NpcInventory.Reload(n))
+            {
+                _attackCd = ReloadTime;
+                if (_barkCd <= 0f) Bark(LanguageGuard.Pick("换弹匣！", "リロード！"));
+            }
+            return;
+        }
+        _attackCd = w.interval / (NpcHealth.Has(n, HealthTag.Fatigued) ? 0.7f : 1f);
+        if (w.ranged) NpcInventory.SpendRound(n);
+        NpcRig rig = GetComponent<NpcRig>();                                  // 外观：出手动作（挥一下 / 开枪后坐）
+        if (rig != null) rig.PlayAttack();
+        if (w.ranged && (rig == null || !rig.FireBullet(fp)))                 // 拿着枪：子弹从枪口生成点飞出去
+            EnemyDirector.Tracer(pos, fp, new Color(0.7f, 0.95f, 1f, 0.9f)); // 没有枪口（还没换好手）时用原来的弹道线
+        float acc = 0.65f + n.personality.bravery * 0.002f - (n.sanity < 40f ? 0.15f : 0f) - (w.ranged ? 0.05f : 0f);
+        if (Random.value < acc) _foe.TakeDamage(w.damage, n);
+    }
+
+    void DoFlee()
+    {
+        if (_mover == null) return;
+        _mover.SetSpeedMultiplier(1.3f);   // 跑（NpcRig 会换成跑步动作）；每帧设，别被别的系统改回去
+        if (_repath > 0f && _hasDest) return;
+        _repath = 1f;
+        Vector3 pos = transform.position;
+        Vector3 camp = NpcNav.CampCenter(pos);
+        Enemy foe = _foe != null && _foe.Alive ? _foe : null;
+        Vector3 target;
+        if (foe == null || Dist(foe.transform.position, camp) > NpcNav.CampRadius + 1.5f)
+        {
+            // 敌人在营地外：躲回营地中心（已经在往那跑了就别换点）
+            if (_hasDest && Dist(_dest, camp) < NpcNav.CampRadius && Dist(pos, _dest) > 0.4f) return;
+            target = NpcNav.TryRandomPoint(pos, camp, 0f, Mathf.Max(0.8f, NpcNav.CampRadius * 0.35f), false, out Vector3 p) ? p : camp;
+        }
+        else
+        {
+            // 敌人已经闯进营地：往它的反方向跑
+            Vector2 away = pos - foe.transform.position;
+            if (away.sqrMagnitude < 0.01f) away = Random.insideUnitCircle;
+            Vector3 want = pos + new Vector3(away.x, away.y, 0f).normalized * 5f;
+            target = NpcNav.Sample(want, 3f, out Vector3 s) ? s : pos;
+        }
+        _mover.MoveTo(target);
+        _dest = target;
+        _hasDest = true;
+    }
+
+    // calm = 敌人走了，自然结束（停下脚步）；false = 交给别的系统（玩家指令 / 倒下了），不动它的移动
+    void Stop(NpcData n, bool calm)
+    {
+        if (_mover != null)
+        {
+            _mover.SetSpeedMultiplier(1f);
+            if (calm && _hasDest) _mover.Stop();
+        }
+        _hasDest = false;
+        Current = Mode.None;
+        _foe = null;
+        _hurt = 0f;
+        Release();
+        if (calm && n != null && !n.IsDead) n.currentAction = L("combat_act_calm");
+    }
+
+    void Release()
+    {
+        if (!_claimed) return;
+        NpcBusy.Release(_claimId, NpcBusy.Combat);
+        _claimed = false;
+    }
+
+    // ============ 玩家在对话里下的姿态（"迎战！" / "快躲起来" / "大家自己看着办"）============
+
+    static readonly string[] FightWords = { "迎战", "应战", "迎击", "打它", "打他", "打那", "打怪", "打死它", "干掉", "揍它", "攻击", "反击",
+                                            "戦え", "迎え撃", "攻撃", "倒せ", "やっつけ", "反撃" };
+    static readonly string[] HideWords = { "躲起来", "躲好", "快躲", "躲进", "撤退", "快跑", "快逃", "逃命", "别打了", "别跟它打", "别和它打", "不要打",
+                                           "隠れ", "逃げろ", "逃げて", "退却", "下がれ", "戦うな" };
+    static readonly string[] AutoWords = { "自己判断", "自由行动", "见机行事", "看着办", "自分で判断", "任せる", "臨機応変" };
+    static readonly string[] AllWords = { "大家", "所有人", "全员", "全体", "你们", "みんな", "全員", "皆" };
+    static readonly string[] NegPrefix = { "别", "不要", "不用", "不许", "不准" };
+
+    // 认不出来返回 false（交给后面的指令 / 聊天）。everyone = 对所有人说的。
+    public static bool TryParseStance(string text, out Stance stance, out bool everyone)
+    {
+        stance = Stance.Auto;
+        everyone = false;
+        if (string.IsNullOrEmpty(text)) return false;
+        bool fight = HasWord(text, FightWords), hide = HasWord(text, HideWords), auto = HasWord(text, AutoWords);
+        if (!fight && !hide && !auto) return false;
+        if (text.Contains("?") || text.Contains("？") || text.Contains("吗")) return false;   // 在商量，不是下令
+        stance = auto ? Stance.Auto : hide ? Stance.Hide : Stance.Fight;   // "别打了快躲" = 躲
+        everyone = HasWord(text, AllWords);
+        return true;
+    }
+
+    static bool HasWord(string text, string[] words)
+    {
+        foreach (string w in words)
+        {
+            int i = text.IndexOf(w, System.StringComparison.Ordinal);
+            while (i >= 0)
+            {
+                bool neg = false;
+                foreach (string p in NegPrefix)
+                    if (i >= p.Length && string.CompareOrdinal(text, i - p.Length, p, 0, p.Length) == 0) { neg = true; break; }
+                if (!neg) return true;
+                i = text.IndexOf(w, i + 1, System.StringComparison.Ordinal);
+            }
+        }
+        return false;
+    }
+
+    // ============ 小工具 ============
+
+    static readonly string[] FightZh = { "来啊！", "别过来……我不怕你！", "一起上！", "打它！" };
+    static readonly string[] FightJa = { "来い！", "来るな……怖くないぞ！", "一緒にかかれ！", "やっちまえ！" };
+    static readonly string[] FleeZh = { "快跑！", "那是什么东西……！", "回营地！", "别管了，先躲起来！" };
+    static readonly string[] FleeJa = { "逃げろ！", "なんだあれ……！", "拠点に戻れ！", "いいから隠れろ！" };
+    static readonly string[] HurtZh = { "呃啊！", "好痛……！", "被打中了！" };
+    static readonly string[] HurtJa = { "ぐあっ！", "痛っ……！", "やられた！" };
+
+    static string Pick(string[] zh, string[] ja)
+    {
+        string[] a = LanguageGuard.IsJp ? ja : zh;
+        return a[Random.Range(0, a.Length)];
+    }
+
+    void Bark(string text)
+    {
+        if (_barkCd > 0f) return;
+        _barkCd = 6f;   // 喊话别刷屏
+        NpcSpeechBubble.Show(transform, text, 1.8f);
+    }
+
+    static void Log(NpcData n, string text, bool force = false)
+    {
+        if (n == null || string.IsNullOrEmpty(text)) return;
+        NpcCombat c = Of(n.id);
+        if (c != null && !force)
+        {
+            if (c._logCd > 0f) return;   // 同一个人 4 秒内只记一条
+            c._logCd = 4f;
+        }
+        WorldState w = WorldManager.Instance != null ? WorldManager.Instance.world : null;
+        if (w != null) n.memories.Add(new MemoryEntry { day = w.day, content = text });
+        if (LogManager.Instance != null) LogManager.Instance.AddLog(n.npcName, text, n.id);
+    }
+
+    static float Dist(Vector3 a, Vector3 b) => Vector2.Distance(a, b);
+
+    static string L(string key) => LocalizationManager.Instance != null ? LocalizationManager.Instance.Get(key) : key;
+    static string LF(string key, params object[] a) => LocalizationManager.Instance != null ? LocalizationManager.Instance.GetFormat(key, a) : key;
+}

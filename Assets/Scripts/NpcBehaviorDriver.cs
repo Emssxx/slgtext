@@ -67,6 +67,9 @@ public class NpcBehaviorDriver : MonoBehaviour
             if (behavior == NpcDecisionRules.Behavior.Gather && NpcSociety.HasRole(npc) && npc.role != "scavenge"
                 && npc.hunger < 90f - npc.personality.caution * 0.2f) continue;
 
+            // 正在打 / 躲敌人（NpcCombat）：先顾眼前，吃饭、休息、搜寻都等打完再说（不然会凭空结算一次）
+            if (NpcCombat.InCombat(npc.id)) continue;
+
             // 2. 需求行为（吃饭/休息/搜寻/逃跑）：交给 NpcNeedRunner，让 NPC 真的走过去做，做完再结算。
             if (physicalNeeds && behavior != NpcDecisionRules.Behavior.Idle)
             {

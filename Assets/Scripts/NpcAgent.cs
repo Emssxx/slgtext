@@ -83,6 +83,13 @@ public class NpcAgent : MonoBehaviour
             return;
         }
 
+        // 3a. 有敌人时："迎战！" / "快躲起来" / "大家自己看着办" → 打还是躲（NpcCombat 的姿态）
+        if (EnemyDirector.AnyThreat && NpcCombat.TryParseStance(body, out NpcCombat.Stance stance, out bool everyone))
+        {
+            HandleStanceOrder(npc, stance, everyone, body);
+            return;
+        }
+
         // 3. 是叫他建东西吗？（"去把 AI 终端机建起来"）→ 画成蓝图交给他指挥建造
         BuildableData build = NpcCommands.ParseBuild(body);
         if (build != null) { HandleBuildOrder(npc, build, body); return; }
@@ -93,6 +100,27 @@ public class NpcAgent : MonoBehaviour
 
         // 5. 普通聊天
         RequestReply(npc, body, null);
+    }
+
+    // ============ 遇敌姿态（迎战 / 躲起来 / 自己判断）============
+    // 对他一个人说，或者"大家……"对所有人说。只改打还是躲，具体怎么打 / 往哪躲由 NpcCombat 执行。
+    void HandleStanceOrder(NpcData npc, NpcCombat.Stance stance, bool everyone, string playerText)
+    {
+        string key = stance == NpcCombat.Stance.Fight ? "order_stance_fight" : stance == NpcCombat.Stance.Hide ? "order_stance_hide" : "order_stance_auto";
+        string order = L(key) + (everyone ? L("order_stance_everyone") : "");
+        if (!TrustRules.WillObey(npc))
+        {
+            NpcChat.Post(npc.id, ChatRole.Npc, Prefix(npc) + GetRefuseLine(npc), true);
+            return;
+        }
+        if (everyone && WorldManager.Instance != null)
+        {
+            foreach (NpcData n in WorldManager.Instance.world.npcs)
+                if (n != null && !n.IsDead && !n.isBroken) NpcCombat.SetStance(n.id, stance);
+        }
+        else NpcCombat.SetStance(npc.id, stance);
+        NpcChat.Post(npc.id, ChatRole.System, LF("chatwin_order_started", npc.npcName, order));
+        RequestReply(npc, playerText, LF("sit_order_ok", order));
     }
 
     // ============ 建造指令 ============
@@ -157,6 +185,7 @@ public class NpcAgent : MonoBehaviour
         // 新指令覆盖旧指令：先停下手上的，再开始新的（动作立刻开始，台词随后由 LLM 配上）。
         runner.CancelAll();
         runner.RunTasks(tasks);
+        NpcCombat.NotePlayerOrder(npc.id);   // 执行玩家指令期间不自己去打 / 躲
         NpcChat.Post(npc.id, ChatRole.System, LF("chatwin_order_started", npc.npcName, order));
         RequestReply(npc, playerText, LF("sit_order_ok", order));
     }

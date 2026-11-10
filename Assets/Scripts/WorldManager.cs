@@ -38,6 +38,8 @@ public class WorldManager : MonoBehaviour
         ClimateSystem.Ensure();                          // 6. 天气 + 气温 + 电力（每回合在 RunOneTurnResolve 里结算）
         NpcHealth.Ensure();                              // 7. NPC 健康系统（饥饿值 / 水分 / 体力 / 状态词条，每秒结算）
         ConstructionManager.Ensure();                    // 8. 规划区施工（点蓝图指派施工的人）
+        NpcInventory.Ensure();                           // 8.4 NPC 物品栏（按分工去仓库拿东西 / 放回、自己包扎、遗物）
+        EnemyDirector.Ensure();                          // 8.5 敌人（游荡的造物 / 拾荒者，导演事件里的来袭；NPC 打或躲）
         OpeningDirector.Begin(playOpening);              // 9. 开场：黑屏对话 → AI 启动 → 投票选领导（期间世界静止）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
     }
@@ -75,6 +77,13 @@ public class WorldManager : MonoBehaviour
         world.sharedStorage.Add(new ItemStack { itemName = "stimulant", count = 1 });  // 兴奋剂
         world.sharedStorage.Add(new ItemStack { itemName = "nano",      count = 10 }); // 纳米物质（建造材料）
         world.sharedStorage.Add(new ItemStack { itemName = "crystal",   count = 1 });  // 异变结晶
+        // 遗弃设备里找到的装备（NPC 开局身上什么都没有，要从仓库拿：NpcInventory）
+        world.sharedStorage.Add(new ItemStack { itemName = "bottle",    count = 3 });  // 水瓶（装满净化水）
+        world.sharedStorage.Add(new ItemStack { itemName = "pistol",    count = 1 });  // 手枪
+        world.sharedStorage.Add(new ItemStack { itemName = "magazine",  count = 2 });  // 手枪弹匣（8 发 / 个）
+        world.sharedStorage.Add(new ItemStack { itemName = "axe",       count = 2 });  // 斧头
+        world.sharedStorage.Add(new ItemStack { itemName = "hammer",    count = 2 });  // 锤子
+        world.sharedStorage.Add(new ItemStack { itemName = "toolkit",   count = 1 });  // 工具包
     }
 
     // 扫描场景里所有 LocationMarker / WorldItemMarker，统一登记到世界数据。

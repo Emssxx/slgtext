@@ -78,6 +78,7 @@ public class NpcChatWindow : MonoBehaviour
     const float NameTagSize = 16f;                  // 标题标签（名字）的字号，标签高 = 字号 + 7
     const float InputH = 36f;
     const float Pad = 10f;
+    const float InvH = 40f;                         // 物品栏一行（标题栏下面）的高度
     const float MsgFont = 15f;
 
     static readonly Color Green = new Color(0.72f, 1f, 0.78f, 1f);          // 和天数数字、锁定框同色
@@ -399,6 +400,7 @@ public class NpcChatWindow : MonoBehaviour
                        "　<color=#8E9490>" + L("stat_trust") + " :</color> <color=#B8FFC7>" + Mathf.RoundToInt(npc.playerTrust) + "</color>";
         // 标签里直接写名字（不显示职业）；死了换成灰色的 signal_lost
         UiStyle.SetTag(_headerTag, (npc.IsDead ? "signal_lost : " : "comm_link : ") + npc.npcName, npc.IsDead ? UiStyle.Gray : UiStyle.Green);
+        RefreshInventory();
     }
 
     static string MentalTag(NpcData n)
@@ -787,10 +789,11 @@ public class NpcChatWindow : MonoBehaviour
         _body.sizeDelta = windowSize;
 
         BuildHeader();
+        BuildInventory();
 
-        // 消息区（可滚动）
+        // 消息区（可滚动；在物品栏下面）
         _scrollRt = NewRect("Scroll", _body);
-        Stretch(_scrollRt, Vector2.zero, Vector2.one, new Vector2(8f, InputH + Pad * 2f), new Vector2(-8f, -(HeaderH + 6f)));
+        Stretch(_scrollRt, Vector2.zero, Vector2.one, new Vector2(8f, InputH + Pad * 2f), new Vector2(-8f, -(HeaderH + InvH + 12f)));
         _scroll = _scrollRt.gameObject.AddComponent<ScrollRect>();
         _scroll.horizontal = false;
         _scroll.vertical = true;
@@ -859,6 +862,64 @@ public class NpcChatWindow : MonoBehaviour
         cr.sizeDelta = new Vector2(28f, rowH);
         cr.anchoredPosition = new Vector2(-4f, 0f);
         close.onClick.AddListener(Close);
+    }
+
+    // ============ 物品栏（标题栏下面一行 NpcInventory.Slots 格）============
+    // 每格：物品名 + 小字（手枪 = 子弹 6/8，其他 = 数量）；空格子是暗的「—」。只显示，拿 / 放靠对话里下指令。
+    readonly List<TextMeshProUGUI> _invTexts = new List<TextMeshProUGUI>();
+    readonly List<Outline> _invEdges = new List<Outline>();
+    int _invRev = -1;
+    string _invNpc;
+
+    void BuildInventory()
+    {
+        RectTransform row = NewRect("Inventory", _body);
+        Stretch(row, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(Pad, -(HeaderH + 6f + InvH)), new Vector2(-Pad, -(HeaderH + 6f)));
+        int count = NpcInventory.Slots;
+        const float gap = 5f;
+        for (int i = 0; i < count; i++)
+        {
+            RectTransform slot = NewRect("Slot" + i, row);
+            slot.anchorMin = new Vector2((float)i / count, 0f);
+            slot.anchorMax = new Vector2((float)(i + 1) / count, 1f);
+            slot.offsetMin = new Vector2(i == 0 ? 0f : gap * 0.5f, 0f);
+            slot.offsetMax = new Vector2(i == count - 1 ? 0f : -gap * 0.5f, 0f);
+            Image bg = slot.gameObject.AddComponent<Image>();
+            bg.color = new Color(0.035f, 0.04f, 0.045f, 1f);
+            bg.raycastTarget = false;
+            _invEdges.Add(UiStyle.Border(bg, new Color(Green.r, Green.g, Green.b, 0.15f), 1f));
+            TextMeshProUGUI t = NewText(slot, "Item", 12f, TextAlignmentOptions.Center);
+            Stretch(t.rectTransform, Vector2.zero, Vector2.one, new Vector2(2f, 1f), new Vector2(-2f, -1f));
+            t.textWrappingMode = TextWrappingModes.Normal;
+            t.overflowMode = TextOverflowModes.Ellipsis;
+            t.lineSpacing = -12f;
+            t.raycastTarget = false;
+            _invTexts.Add(t);
+        }
+    }
+
+    void RefreshInventory()
+    {
+        if (_invTexts.Count == 0) return;
+        NpcData npc = Npc(CurrentNpcId);
+        if (npc == null) return;
+        if (_invRev == NpcInventory.Revision && _invNpc == npc.id) return;   // 没变就不重画
+        _invRev = NpcInventory.Revision;
+        _invNpc = npc.id;
+        List<ItemStack> items = new List<ItemStack>();
+        if (npc.inventory != null) foreach (ItemStack s in npc.inventory) if (s != null && s.count > 0) items.Add(s);
+        for (int i = 0; i < _invTexts.Count; i++)
+        {
+            bool has = i < items.Count && !npc.IsDead;
+            if (has)
+            {
+                string sub = NpcInventory.SlotSub(npc, items[i]);
+                _invTexts[i].text = "<color=#E6E8E3>" + NpcInventory.ItemName(items[i].itemName) + "</color>" +
+                                    (sub.Length > 0 ? "\n<size=85%><color=#8E9490>" + sub + "</color></size>" : "");
+            }
+            else _invTexts[i].text = "<color=#3A403C>—</color>";
+            _invEdges[i].effectColor = new Color(Green.r, Green.g, Green.b, has ? 0.5f : 0.12f);
+        }
     }
 
     // 输入框：细边框，左边一个绿色「>」，Enter 发送。

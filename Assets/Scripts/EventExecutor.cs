@@ -66,6 +66,14 @@ public class EventExecutor : MonoBehaviour
                 ClimateSystem.Ensure().ForceStorm(2);
                 break;
 
+            case "creature_incursion":   // 造物来袭：一群造物冲营地（EnemyDirector；安全期内 / 冷却中不发动，只留下描述）
+                EnemyDirector.Ensure().TriggerIncursion(Severity(), description, false);
+                break;
+
+            case "raid":            // 掠夺者来袭：一伙拾荒者（后期带枪的）来抢仓库
+                EnemyDirector.Ensure().TriggerRaid(Severity(), description, false);
+                break;
+
             // —— 以下事件留位，等对应系统就绪再实现 ——
             // case "causal_reversal": DoCausalReversal(); break; // 依赖建造材料系统
 
@@ -77,6 +85,13 @@ public class EventExecutor : MonoBehaviour
 
         // 记进事件编年史：第几天、什么事、落在谁身上，以及每个 NPC 的经历和看法（之后被问起时能回答）。
         EventChronicle.Record(type, description, LastSubjectId);
+    }
+
+    // 袭击的强度：跟着异常度走（0~1）
+    static float Severity()
+    {
+        WorldState w = WorldManager.Instance != null ? WorldManager.Instance.world : null;
+        return w != null ? Mathf.Clamp01(w.anomalyLevel / 100f + 0.2f) : 0.3f;
     }
 
     // ============ 空间扭曲（已实现）============

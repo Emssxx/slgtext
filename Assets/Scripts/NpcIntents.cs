@@ -1270,7 +1270,9 @@ public class NpcIntentBrain : MonoBehaviour
     {
         desc = null;
         NpcData patient = MostHurt(n);
-        string item = ItemDatabase.Instance != null ? ItemDatabase.Instance.FindFirstInStorage(ItemCategory.Medical, w) : null;
+        // 身上带着医疗包就先用自己的（NpcInventory），没有再去仓库拿药
+        string item = NpcInventory.Has(n, "medkit") ? "medkit"
+                    : ItemDatabase.Instance != null ? ItemDatabase.Instance.FindFirstInStorage(ItemCategory.Medical, w) : null;
         if (patient == null || item == null) return false;
         RunChain(n, s, Phase.Doing, null, new NpcTask { action = "use_item", target = item, destination = "@npc:" + patient.id });
         desc = LF("job_desc_care", patient.npcName);

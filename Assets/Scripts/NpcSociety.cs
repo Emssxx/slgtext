@@ -488,6 +488,7 @@ public class NpcSociety : MonoBehaviour
         foreach (NpcData p in people)
             if (NpcHealth.Has(p, HealthTag.Injured) || NpcHealth.Has(p, HealthTag.Sick) || NpcHealth.Has(p, HealthTag.CriticalWound)) { hurt = true; break; }
         bool med = ItemDatabase.Instance != null && w != null && ItemDatabase.Instance.FindFirstInStorage(ItemCategory.Medical, w) != null;
+        if (!med) foreach (NpcData p in people) if (NpcInventory.Has(p, "medkit")) { med = true; break; }   // 有人身上带着医疗包也算
         if (hurt && med && workers.Count > 1) TakeBest(workers, result, leader, "care", p => p.personality.altruism);
         // 搜寻：食物少于 4 份 → 1 人（5 人以上 → 2 人），挑最胆大的
         int food = ItemDatabase.Instance != null && w != null ? ItemDatabase.Instance.CountInStorage(ItemCategory.Food, w) : 0;

@@ -62,10 +62,11 @@ public class AIDirector : MonoBehaviour
             "  time_disorder（時間の乱れ）\n" +
             "  causal_reversal（因果の逆転）\n" +
             "  whisper_vision（囁きと幻影）\n" +
+            EnemyDirector.DirectorTypeLines(true) +   // 安全期が過ぎたら：造物の襲来 / 略奪者の襲撃
             "異常度が高いほど、危険で非現実的な種類を選ぶこと。\n\n" +
             "【出力形式】JSONオブジェクトを1つだけ出力し、それ以外は何も書かないこと：\n" +
             "{\n" +
-            "  \"type\": \"上の5つのいずれか（英字のまま）\",\n" +
+            "  \"type\": \"上に挙げた種類のいずれか（英字のまま）\",\n" +
             "  \"event\": \"その種類に合った不気味な描写（1〜2文）\"\n" +
             "}" +
             "\n\n" + langRule
@@ -82,10 +83,11 @@ public class AIDirector : MonoBehaviour
             "  time_disorder（时间失序）\n" +
             "  causal_reversal（因果倒置）\n" +
             "  whisper_vision（低语与幻象）\n" +
+            EnemyDirector.DirectorTypeLines(false) +  // 过了安全期才有：造物来袭 / 掠夺者来袭
             "异常度越高越倾向危险/超现实的类型。\n\n" +
             "【输出要求】只输出一个 JSON 对象，不要多余文字：\n" +
             "{\n" +
-            "  \"type\": \"上面五个之一\",\n" +
+            "  \"type\": \"上面列出的类型之一\",\n" +
             "  \"event\": \"符合该类型的诡异描述，1~2句\"\n" +
             "}" +
             "\n\n" + langRule;
@@ -126,8 +128,10 @@ public class AIDirector : MonoBehaviour
         }
 
         // 异常度越高，越可能升级为"危险生物冲击"。
+        // 敌人系统开着、过了安全期：变成真的有造物冲营地来（看见它才掉理智，EnemyDirector）；否则照旧是一次全员精神冲击。
         float anomaly = world.anomalyLevel;
-        if (UnityEngine.Random.value < anomaly / 150f)
+        if (UnityEngine.Random.value < anomaly / 150f
+            && !(EnemyDirector.Instance != null && EnemyDirector.Instance.TriggerIncursion(anomaly / 100f, null, true)))
         {
             float severity = anomaly / 100f;
             WorldRules.ApplyCreatureShock(world, severity);

@@ -44,7 +44,7 @@ public static class ItemUseRules
         if (npc.sanity >= 30f) npc.isHallucinating = false;
 
         // 净化水：补水分；急救包：治好受伤 / 生病（NpcHealth）
-        if (itemId == WaterWorks.WaterItem && NpcHealth.Instance != null)
+        if ((itemId == WaterWorks.WaterItem || itemId == "bottle") && NpcHealth.Instance != null)   // 水瓶里也是净化水
             npc.water = Mathf.Clamp(npc.water + NpcHealth.Instance.waterPerDrink, 0f, 100f);
         NpcHealth.OnItemUsed(npc, itemId);
 

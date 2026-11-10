@@ -250,6 +250,18 @@ public class ScreenEffectManager : MonoBehaviour
                 Banner(GetBannerText("event_banner_storm"), new Color(0.75f, 0.85f, 0.95f), 1.5f, "storm");
                 break;
 
+            case "creature_incursion": // 造物来袭：暗红闪 + 震动 + 横幅
+                Flash(new Color(0.45f, 0.05f, 0.1f), 0.7f, 0.5f);
+                Shake(0.15f, 0.6f);
+                Banner(GetBannerText("event_banner_creature_incursion"), new Color(1f, 0.45f, 0.5f), 1.6f, "creature_incursion");
+                break;
+
+            case "raid": // 掠夺者来袭：橙闪 + 轻震 + 横幅
+                Flash(new Color(0.9f, 0.45f, 0.1f), 0.5f, 0.4f);
+                Shake(0.08f, 0.4f);
+                Banner(GetBannerText("event_banner_raid"), new Color(1f, 0.7f, 0.35f), 1.6f, "raid");
+                break;
+
             case "whisper_vision": // 低语与幻象：暗紫黑雾 + 无震动 + 横幅
                 Flash(new Color(0.15f, 0.05f, 0.2f), 1.2f, 0.55f); // 暗紫
                 Banner(GetBannerText("event_banner_whisper_vision"), new Color(0.7f, 0.5f, 0.9f), 1.5f, "whisper_vision");
