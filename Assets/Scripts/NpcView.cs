@@ -10,6 +10,12 @@ public class NpcView : MonoBehaviour
     // 全局登记表：id → NpcView，方便别处按 id 找到这个 NPC 的场景物体。
     static readonly Dictionary<string, NpcView> _registry = new Dictionary<string, NpcView>();
 
+    // 新版外观：给每个 NPC 自动挂上 NpcRig（运行时拼出防护服角色并做动画）。已经有了就不重复挂。
+    void Awake()
+    {
+        if (GetComponent<NpcRig>() == null) gameObject.AddComponent<NpcRig>();
+    }
+
     void OnEnable()
     {
         if (!string.IsNullOrEmpty(npcId))

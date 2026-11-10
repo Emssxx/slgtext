@@ -49,6 +49,15 @@ public class NpcSpeechBubble : MonoBehaviour
             b._showing = false;
     }
 
+    // 查询：target 头顶现在有没有正在显示的气泡（NpcRig 用它决定要不要换成"说话"表情）。只读，不改任何东西。
+    public static bool IsShowing(Transform target)
+    {
+        if (target == null) return false;                                  // 没给 NPC → 当然没有气泡
+        return _bubbles.TryGetValue(target, out NpcSpeechBubble b)         // 先找这个 NPC 有没有气泡
+               && b != null                                                // 气泡物体还在（没被销毁）
+               && b._showing;                                              // 而且正在显示（不是淡出 / 隐藏中）
+    }
+
     // —— 内部实现 ——
 
     static NpcSpeechBubble Create(Transform target)
