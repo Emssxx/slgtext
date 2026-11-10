@@ -16,13 +16,13 @@ public class FogOfWarRenderer : MonoBehaviour
     public static FogOfWarRenderer Instance { get; private set; }
 
     [Header("颜色（a = 浓度）")]
-    public Color unexploredColor = new Color(0.035f, 0.03f, 0.07f, 1f);
-    public Color exploredColor = new Color(0.06f, 0.05f, 0.12f, 0.55f);
+    public Color unexploredColor = new Color(0f, 0f, 0f, 1f);     // 没探索过：全黑、完全看不见（恐怖游戏标准）
+    public Color exploredColor = new Color(0f, 0f, 0f, 1f);       // 探索过但不在视野里：也全黑、完全看不见
     [Tooltip("雾气纹理的亮色")]
     public Color mistColor = new Color(0.32f, 0.27f, 0.48f, 1f);
 
     [Header("雾气流动")]
-    [Range(0f, 1f)] public float mistStrength = 0.35f;
+    [Range(0f, 1f)] public float mistStrength = 0f;              // 雾气纹理（0 = 不要，迷雾里完全黑）
     [Tooltip("雾气纹理大小（越小团越大）")]
     public float mistScale = 0.08f;
     [Tooltip("雾气飘动速度（小格 / 秒）")]

@@ -876,6 +876,8 @@ public class NpcRig : MonoBehaviour
         // 照明的灯挂在角色根物体上（不跟着左右翻），每帧自己对位置、算方向
         _beamA = WorldLighting.CreatePoint("FlashlightA", transform, headlampColor, headlampIntensity, headlampRange, headlampAngle);
         _beamB = WorldLighting.CreatePoint("FlashlightB", transform, headlampColor, headlampIntensity, headlampRange, headlampAngle);
+        WorldLighting.EnableShadows(_beamA);                              // 手电筒照到建筑 / 树石会投影子
+        WorldLighting.EnableShadows(_beamB);
         _suitLight = WorldLighting.CreatePoint("SuitGlow", transform, suitGlowColor, suitGlowIntensity, suitGlowRadius, 360f);
         _antLight = WorldLighting.CreatePoint("AntennaLight", transform, antennaColor, antennaLight, 0.7f, 360f);
     }
@@ -947,6 +949,7 @@ public class NpcRig : MonoBehaviour
     {
         UnityEngine.Rendering.Universal.Light2D l = WorldLighting.CreatePoint("MuzzleLight", null, muzzleLightColor, muzzleLightIntensity, muzzleLightRadius, 360f);
         if (l == null) yield break;
+        WorldLighting.EnableShadows(l);                                   // 枪火也投影子
         l.transform.position = at;
         Destroy(l.gameObject, 1f);                                        // 保险：一定删掉
         float life = Mathf.Max(0.03f, flashTime * 1.3f), t = 0f;

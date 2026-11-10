@@ -141,6 +141,7 @@ public class TerminalVisual : MonoBehaviour
         {
             _light = WorldLighting.CreatePoint("TerminalLight", _brain.parent, lightColor, lightIntensity, lightRadius, 360f);
             if (_light != null) _light.transform.localPosition = _brainBase;
+            WorldLighting.EnableShadows(_light);                       // 终端机的光照到建筑 / 树石会投影子
         }
         _root.sprite = on ? _backSprite : _fullSprite;                // 换本体的图
         _parts.SetActive(on);                                         // 子物体开 / 关

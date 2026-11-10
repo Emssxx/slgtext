@@ -9,7 +9,8 @@ using UnityEngine.SceneManagement;
 // 【自动创建】每个场景开始时自动加一个"WorldLighting"物体，上面是全局光（环境光）。
 //   主菜单不加；场景里已经自己放了全局光（Global Light 2D）就用自己的，不再加。
 //   运行时选中 WorldLighting 物体，在 Inspector 里调环境光颜色 / 亮度，马上生效。
-// 【别的地方加灯】用 CreatePoint（NPC 头灯 / 身上的光、终端机、枪口火光都用它）。
+// 【别的地方加灯】用 CreatePoint（NPC 头灯 / 身上的光、终端机、枪口火光都用它）；要投影子的灯再调 EnableShadows。
+// 【阴影】建筑 / 树 / 石头每秒自动检查一次，加上投影体（形状 = 底部占地）；人 / 敌人加脚下的影子（GroundShadow）。
 // 【旧管线下】什么都不做。
 // ============================================================================
 public class WorldLighting : MonoBehaviour
@@ -18,7 +19,7 @@ public class WorldLighting : MonoBehaviour
 
     [Header("环境光（亚空间没有太阳：很暗）")]
     public Color ambientColor = new Color(0.55f, 0.6f, 0.85f);    // 环境光颜色（偏冷的蓝紫）
-    [Range(0f, 1f)] public float ambientIntensity = 0.12f;        // 环境光亮度（0 = 全黑，1 = 和以前一样亮）
+    [Range(0f, 1f)] public float ambientIntensity = 0.04f;        // 环境光亮度（0 = 全黑，1 = 和以前一样亮；恐怖游戏标准：没灯的地方基本看不见）
 
     Light2D _global;                   // 全局光
     static bool _hooked;               // 已经挂上"换场景时自动创建"了
@@ -62,6 +63,98 @@ public class WorldLighting : MonoBehaviour
     }
 
     void OnDestroy() { if (Instance == this) Instance = null; }
+
+    // ============ 阴影 ============
+    // 建筑（有占地的）、树、石头会自动加"投影体"：形状 = 它们底部占地的一块，被手电筒 / 终端机 / 枪火照到就往后投影子。
+    // 投影体和它的图在同一个物体上，并且"用图的轮廓"，所以物体自己的图不会被自己的影子盖黑。
+
+    [Header("阴影")]
+    public bool shadows = true;                                   // 建筑 / 树 / 石头投影子
+    [Range(0f, 1f)] public float shadowStrength = 0.9f;           // 影子多黑（灯的阴影强度）
+    [Range(0f, 1f)] public float shadowSoftness = 0.3f;           // 影子边缘多软（新版 Unity 才有）
+
+    float _scanTimer;                                             // 多久找一次新出现的建筑 / 树石
+
+    void LateUpdate()
+    {
+        if (!shadows) return;
+        _scanTimer -= Time.deltaTime;
+        if (_scanTimer > 0f) return;
+        _scanTimer = 1f;                                          // 每秒找一次（新盖的建筑、新长的树也会加上）
+        float cell = GridManager.Instance != null ? GridManager.Instance.cellSize : 1f / 3f;   // 1 小格多长
+        foreach (BuildingFootprint f in BuildingFootprint.All)
+            if (f != null) AddCaster(f.gameObject, new Vector2(f.size.x * cell * 0.95f, f.size.y * cell * 0.95f));   // 建筑：整块占地
+        foreach (NpcView v in NpcView.GetAllViews())              // 人：脚下的影子（GroundShadow）
+            if (v != null && v.GetComponent<GroundShadow>() == null) v.gameObject.AddComponent<GroundShadow>();
+        foreach (Enemy e in Enemy.All)                            // 敌人：同上，宽度跟着体型
+        {
+            if (e == null || e.GetComponent<GroundShadow>() != null) continue;
+            GroundShadow gs = e.gameObject.AddComponent<GroundShadow>();
+            gs.width = 0.32f * Mathf.Max(0.5f, e.Def != null ? e.Def.scale : 1f);
+            gs.sortingOrder = 0;                                  // 敌人身体是 1，影子画在它下面
+        }
+        ShadowLights.RemoveAll(l => l == null);                   // 删掉已经没了的灯
+        foreach (ResourceNode n in ResourceNode.All)
+        {
+            if (n == null || n.kind == ResourceKind.Grass) continue;                 // 草不投影子
+            float s = n.size * cell;
+            Vector2 box = n.kind == ResourceKind.Tree ? new Vector2(s * 0.35f, s * 0.3f) : new Vector2(s * 0.8f, s * 0.6f);   // 树：只有树干那一小块；石头：大半块
+            AddCaster(n.gameObject, box);
+        }
+    }
+
+    static System.Type _casterType;                               // ShadowCaster2D（用名字找，免得版本不同编译不过）
+
+    // 给一个物体加投影体：以物体位置为中心的矩形（世界单位）。已经有了就跳过
+    static void AddCaster(GameObject go, Vector2 box)
+    {
+        if (_casterType == null) _casterType = typeof(Light2D).Assembly.GetType("UnityEngine.Rendering.Universal.ShadowCaster2D");
+        if (_casterType == null || go.GetComponent(_casterType) != null) return;
+        Component c = go.AddComponent(_casterType);
+        Vector3 ls = go.transform.lossyScale;                     // 形状是物体本地坐标：除掉物体的缩放
+        float hx = box.x * 0.5f / Mathf.Max(0.0001f, Mathf.Abs(ls.x)), hy = box.y * 0.5f / Mathf.Max(0.0001f, Mathf.Abs(ls.y));
+        Vector3[] path = { new Vector3(-hx, -hy, 0f), new Vector3(hx, -hy, 0f), new Vector3(hx, hy, 0f), new Vector3(-hx, hy, 0f) };
+        SetEnum(c, "m_ShadowCastingSource", "ShapeEditor");       // 用下面给的形状（不用整张图的轮廓）
+        SetMember(c, "m_ShapePath", path);                        // 形状
+        SetMember(c, "m_ShapePathHash", Random.Range(int.MinValue, int.MaxValue));   // 告诉它形状变了，重新生成
+        SetMember(c, "useRendererSilhouette", true);              // 自己的图不被自己的影子盖住
+        SetMember(c, "selfShadows", false);
+        SetMember(c, "castsShadows", true);
+    }
+
+    // 会投影子的灯（人 / 敌人脚下的影子按它们算）
+    public static readonly System.Collections.Generic.List<Light2D> ShadowLights = new System.Collections.Generic.List<Light2D>();
+
+    // 给一盏灯打开阴影（手电筒、终端机、枪火用）
+    public static void EnableShadows(Light2D l)
+    {
+        if (l == null) return;
+        if (!ShadowLights.Contains(l)) ShadowLights.Add(l);       // 登记：人 / 敌人的影子会参考它
+        if (Instance == null || !Instance.shadows) return;
+        SetMember(l, "shadowsEnabled", true);
+        SetMember(l, "shadowIntensity", Instance.shadowStrength);
+        SetMember(l, "shadowSoftness", Instance.shadowSoftness);
+    }
+
+    // 按名字把一个枚举字段设成某个值（找不到就算了）
+    static void SetEnum(object o, string field, string valueName)
+    {
+        FieldInfo f = o.GetType().GetField(field, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (f == null || !f.FieldType.IsEnum) return;
+        try { f.SetValue(o, System.Enum.Parse(f.FieldType, valueName)); } catch (System.ArgumentException) { }
+    }
+
+    // 按名字设一个属性 / 字段（找不到就算了；不同版本的 URP 名字可能不一样）
+    static void SetMember(object o, string name, object value)
+    {
+        if (o == null) return;
+        const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+        System.Type t = o.GetType();
+        PropertyInfo p = t.GetProperty(name, F);
+        if (p != null && p.CanWrite && p.PropertyType.IsAssignableFrom(value.GetType())) { p.SetValue(o, value); return; }
+        FieldInfo f = t.GetField(name, F);
+        if (f != null && f.FieldType.IsAssignableFrom(value.GetType())) f.SetValue(o, value);
+    }
 
     // 让一盏灯照所有排序层（代码加的灯默认可能一层都不照）
     static FieldInfo _layersField;
