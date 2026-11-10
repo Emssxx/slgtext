@@ -292,14 +292,14 @@ SpriteRenderer:
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 0
   m_SortingLayer: 0
-  m_SortingOrder: 1
+  m_SortingOrder: 0
   m_MaskInteraction: 0
   m_Sprite: {fileID: 21300000, guid: 4f76d3e8ac39460db6e6305c904b4c0c, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
-  m_Size: {x: 0.7188, y: 0.9956}
+  m_Size: {x: 0.7188033, y: 0.9955839}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
@@ -316,7 +316,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b6a8fc0e3a3899c46a13dd51b9fefe94, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::NpcView
-  npcId: test_npc_01
+  npcId: 
 --- !u!114 &500000005
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -354,7 +354,7 @@ MonoBehaviour:
   chopAngles: {x: 90, y: -37.9}
   hammerPeriod: 0.7
   hammerAngles: {x: 30, y: -18}
-  recoilKick: 50
+  recoilKick: {x: 80, y: 100}
   slideKick: 150
   bulletSpeed: 100
   chopHandUp: {x: -0.14, y: 0.35}
@@ -363,17 +363,56 @@ MonoBehaviour:
   hammerHandDown: {x: 0.27, y: 0.03}
   chopHandDownY: {x: -0.09, y: 0.15}
   hammerHandDownY: {x: -0.1, y: 0.23}
-  recoilHand: {x: -0.2, y: 0.1}
+  recoilHandX: {x: -0.4, y: -0.2}
+  recoilHandY: {x: 0.1, y: 0.3}
+  handRecoilRise: 0.03
+  handRecoilReturn: {x: 0.18, y: 0.24}
+  muzzleRise: {x: 0.03, y: 0.15}
+  muzzleReturn: 0.09
   chopLean: {x: 5, y: -7}
   hammerLean: {x: 3, y: -4}
   recoilLean: 3
   actionShift: 0.012
+  reloadSpeed: 1
+  rlLockTime: 0.12
+  rlFetchTime: 0.2
+  rlGrabTime: 0.28
+  rlBringTime: 0.3
+  rlDropTime: 0.3
+  rlAlignTime: 0.1
+  rlInsertTime: 0.1
+  rlReleaseTime: 0.3
+  rlStowTime: 0.4
+  rlReturnTime: 0.3
+  rlSlideLock: 1
+  rlGunRaise: {x: 0.03, y: 0.06}
+  rlGunTilt: 30
+  rlGunAlign: 30
+  rlPouch: {x: -0.21, y: 0.29}
+  rlPouchAngle: 40
+  rlArc: -0.05
+  rlBehindX: 0.245
+  rlMagInHand: {x: 0, y: 0.012}
+  rlUnderGap: 0.03
+  rlReady: 0.085
+  rlNewTilt: 18
+  rlOldTilt: -18
+  rlOldOffset: {x: 0.012, y: 0}
+  rlShake: 0.1
+  rlShakeAngle: 10
+  rlSlideDelay: 0.1
+  rlShakeFreq: 5
+  aimShoulder: {x: 0.175, y: 0.421}
+  aimTurnSpeed: 720
+  aimFlipOver: 5
   testHeld: 0
   testLoop: 1
   testFire: 0
+  testReload: 0
   testExpression: 0
   testSpeed: -1
   testFaceLeft: 0
+  testAimTarget: {fileID: 0}
   testMale: 1
   testAge: 30
   visorFreq: 1.6
