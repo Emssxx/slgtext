@@ -106,6 +106,10 @@ public class ItemDatabase : MonoBehaviour
                 0f, 0f, 0f, 0f,
                 "手枪用的弹匣，装满 8 发。打空了换一个。",
                 "拳銃用のマガジン。8 発入り。撃ち尽くしたら交換する。"),
+            ItemData.Make("magazine_empty", "空弹匣", "空のマガジン", ItemCategory.Gear,     // 战术换弹收回来的空弹匣（NpcInventory.EmptyMag）
+                0f, 0f, 0f, 0f,
+                "打空的手枪弹匣。战术换弹时收回来的，里面一发都没有。",
+                "撃ち尽くした拳銃のマガジン。タクティカルリロードで回収したもので、中身は空。"),
             ItemData.Make("axe", "斧头", "斧", ItemCategory.Gear,
                 0f, 0f, 0f, 0f,
                 "伐木用的斧头。危急时也能拿来防身。",

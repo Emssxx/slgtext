@@ -41,6 +41,13 @@ using UnityEngine.Rendering;   // SortingGroup：让拼出来的二十几个部�
 //
 // 【瞄准】拿枪战斗时锁定怪物（NpcCombat 每帧调 LockOn）：持枪手绕"肩膀"转，枪管这条线一直穿过目标；
 //   枪口转过正上 / 正下方（±90°）时角色翻身。换弹时按换弹姿势走，换完再转回去对准。
+//
+// 【换弹】PlayReload(秒数, 种类)：① 战术换弹——旧弹匣掉进右手，和新弹匣成 V 字，插好新弹匣后带回身后；
+//   ② 快速换弹——枪口一往上抬，旧弹匣就顺着握把滑出来掉到地上（不等右手；落地后留在原地，过一会儿淡出），右手直接插新弹匣，其余和战术换弹一样。
+//   ③ 普通换弹——右手先到握把下方接住弹出来的旧弹匣，带回身后放好，再拿新弹匣回来插上，插好直接回握把。
+//   ④ 颤抖换弹——在普通换弹上加：枪和手一直抖；有概率新弹匣拿回来的路上掉到地上（回身后再拿一个）；
+//     有概率插歪了卡住（退出来重新对准再插）。开始换弹时就把这次掉几次、卡几次随机好。
+// 【武器操作等级 / 紧张】weaponLevel 越高换弹越快（ReloadSeconds）；nervous 越大持枪时手抖得越厉害。游戏规则之后接。
 // ============================================================================
 public class NpcRig : MonoBehaviour
 {
@@ -134,16 +141,54 @@ public class NpcRig : MonoBehaviour
     public float rlSlideDelay = 0.3f;                         // 弹匣插到底后隔多久滑套复位（0 = 同时）
     public float rlShakeFreq = 5f;                           // 抖动有多快（次 / 秒）
 
+    [Header("换弹 2：快速换弹（只列和战术换弹不一样的；其他时间 / 姿势都用上面战术换弹的）")]
+    public float qrDropAt = 0f;                               // 开始换弹后多久旧弹匣掉出来（0 = 枪口一往上抬就掉，不等右手）
+    public float qrDropTime = 0f;                             // ⑤ 右手拿到握把下方后停多久再对准（旧弹匣早就掉了；0 = 不停，代替战术换弹的 ⑤）
+    public Vector2 qrWait = Vector2.zero;                     // ④ 右手拿着新弹匣在握把下方往旁边让多少（按枪的方向：x 负 = 往后；旧弹匣早掉了，一般不用让）
+    public float qrSlideSpeed = 0.6f;                         // 旧弹匣从握把里滑出来的初速度（单位 / 秒；越大掉得越远）
+    public float qrGravity = 5f;                              // 旧弹匣往下掉的重力（单位 / 秒²；越大掉得越快）
+    public Vector2 qrKick = new Vector2(-0.1f, 0.1f);         // 旧弹匣滑出来后往前（正）/ 往后（负）飘的速度：在范围里随机（单位 / 秒）
+    public Vector2 qrSpin = new Vector2(-500f, -250f);        // 旧弹匣边掉边转多快：在范围里随机（度 / 秒；负 = 往前翻，正 = 往后翻）
+    public Vector2 qrGroundY = new Vector2(-0.05f, 0.03f);    // 落到多高算落地：在范围里随机（相对脚底；0 = 和脚底平齐）
+    public float qrGroundTime = 3f;                           // 在地上躺多久再淡出消失（秒）
+
+    [Header("换弹 3：普通换弹（只列和战术换弹不一样的；其他时间 / 姿势都用上面战术换弹的）")]
+    public float nrCatchTime = 0.15f;                         // ② 右手从握把移到握把下方，准备接旧弹匣
+    // 之后：③ 旧弹匣掉进右手（用 Rl Drop Time）→ ④ 带回身后（Rl Stow Time）→ ⑤ 在身后放下旧的、拿起新的（Rl Grab Time）
+    //       → ⑥ 拿到握把下方（Rl Bring Time）→ ⑦ 对准（Rl Align Time）→ ⑧ 插入（Rl Insert Time）→ ⑨ 直接回握把（Rl Return Time）
+
+    [Header("换弹 4：颤抖换弹（基于普通换弹；没列出来的时间 / 姿势用上面的）")]
+    [Range(0f, 1f)] public float srFailChance = 0.35f;       // 每次插弹匣插不进去的概率
+    public int srMaxFails = 2;                                // 最多连续插不进去几次
+    public float srFailDepth = 0.5f;                          // 插不进去时插进去了多少就卡住（0~1）
+    public float srFailOffset = 0.012f;                       // 插歪了往前偏多少（按枪的方向，单位）
+    public float srFailTilt = 10f;                            // 插歪了歪多少度
+    public float srFailBackTime = 0.2f;                       // 卡住后退出来的时间
+    public float srFailShake = 0.6f;                          // 卡住时枪磕一下的幅度（乘在 Rl Shake 上）
+    [Range(0f, 1f)] public float srDropChance = 0.25f;       // 新弹匣拿回来的路上掉到地上的概率（最多掉 2 次；掉的样子用"换弹 2"的下落参数）
+    public float srDropAt = 0.6f;                             // 拿回来走到哪里掉（0 = 刚出身后，1 = 到了握把下方）
+    public float srFumbleTime = 0.3f;                         // 掉了以后手愣住多久，再回身后拿一个
+
     [Header("瞄准（拿枪时锁定目标，枪口一直对着它；角度 = 度）")]
     public Vector2 aimShoulder = new Vector2(0.175f, 0.421f); // 持枪手绕着转的点（相对脚底中心；默认在身体右边缘里面、和握把一样高；设成握把位置 = 原地转）
     public float aimTurnSpeed = 720f;                         // 枪口转向目标有多快（度 / 秒；开枪那一下直接对准）
     public float aimFlipOver = 5f;                            // 枪口超过 ±90° 后再多转多少度才翻身（防止目标在正上 / 正下方时来回翻；0 = 正好 90°）
+
+    [Header("武器操作等级 / 紧张（游戏规则之后接；现在可以手动调来测试）")]
+    [Range(1, 5)] public int weaponLevel = 3;                 // 武器操作等级：1 最生疏 ~ 5 最熟练
+    public float[] levelReloadTime = { 1.5f, 1.2f, 1f, 0.85f, 0.7f };   // 各等级换弹时间的倍数（第 1 个 = 1 级；1 = 按上面调的时间，越小越快）
+    [Range(0f, 1f)] public float nervous = 0f;                // 紧张程度：持枪时手抖多厉害（0 = 不抖，1 = 最厉害）
+    public float trembleMove = 0.01f;                         // 抖动的位移幅度（单位；紧张 = 1 时）
+    public float trembleAngle = 5f;                           // 抖动的角度幅度（度；紧张 = 1 时）
+    public float trembleFreq = 9f;                            // 抖得多快
+    public float trembleReloadMul = 1.5f;                     // 颤抖换弹时抖动是"紧张 = 1 持枪"的几倍
 
     [Header("测试（运行时选中 NPC 用；不受腰上挂件限制）")]
     public TestHeld testHeld = TestHeld.None;                 // 强制拿什么（不测试 = 按游戏里的情况）
     public bool testLoop = true;                              // 斧头 / 锤子一直循环挥；手枪每 1.4 秒开一枪
     public bool testFire;                                     // 勾一下：挥一下 / 开一枪（播完自动取消勾选）
     public bool testReload;                                   // 勾一下：拿枪时换一次弹匣（播完自动取消勾选；手枪循环开枪时会先暂停）
+    public ReloadKind testReloadKind = ReloadKind.Tactical;   // 勾"测试换弹"时换哪一种
     public TestExpr testExpression = TestExpr.None;           // 强制表情（换表情时照样开合面罩）
     [Range(-1f, 4.5f)] public float testSpeed = -1f;          // 强制移动速度（原地踏步看走跑）：-1 = 不用；1.65 闲逛，3.0 赶路，3.9 逃跑
     public bool testFaceLeft;                                 // 强制朝左（勾上时不会自动翻身）
@@ -270,6 +315,15 @@ public class NpcRig : MonoBehaviour
         _handPoint.localRotation = Quaternion.Euler(0f, 0f, _aimAng);
     }
 
+    // 换弹的种类（Inspector 里显示中文）
+    public enum ReloadKind
+    {
+        [InspectorName("战术换弹")] Tactical,
+        [InspectorName("快速换弹")] Speed,
+        [InspectorName("普通换弹")] Normal,
+        [InspectorName("颤抖换弹")] Shaky,
+    }
+
     // 测试用的选项（Inspector 里显示中文）
     public enum TestHeld
     {
@@ -388,6 +442,8 @@ public class NpcRig : MonoBehaviour
     SpriteRenderer _rlHandSprite, _rlNewMag, _rlOldMag;   // 换弹时的右手 / 新弹匣 / 旧弹匣
     float _reloadT = -1f;          // 换弹进行到哪（"标准时间"秒；-1 = 没在换弹）
     float _reloadRate = 1f;        // 换弹播放速度（游戏里按战斗的换弹时间算出来）
+    ReloadKind _reloadKind = ReloadKind.Tactical;   // 这次换弹是哪一种
+    bool _qrDropped;               // 快速换弹：旧弹匣已经整个滑出来、自己往下掉了
     static readonly Vector2 P_MAG = new Vector2(1610f, 1222f);     // 弹匣底部中间（原图；手抓这里）
     static readonly Vector2 MAG_DIR = new Vector2(0.135f, 0.991f); // 弹匣插进去的方向（枪的本地坐标，沿弹匣往上）
     Transform _handPoint;          // 手点：拿东西的手挂在它下面，挥动 / 开枪时移动它；空手时跟着前手（外部也可以用它挂特效）
@@ -710,7 +766,7 @@ public class NpcRig : MonoBehaviour
     void UpdateTest(float dt)
     {
         if (testHeld != _lastTest) { _lastTest = testHeld; _heldTimer = 0f; UpdateHeld(0f); }  // 选项变了：马上换手
-        if (testReload) { testReload = false; PlayReload(0f); }  // 勾了"测试换弹"：换一次弹匣
+        if (testReload) { testReload = false; PlayReload(0f, testReloadKind); }  // 勾了"测试换弹"：按选的种类换一次弹匣
         bool fire = testFire;                                     // 勾了一下
         if (testHeld == TestHeld.Pistol && testLoop && _reloadT < 0f)   // 手枪循环：定时自动开枪（换弹时不开）
         {
@@ -1016,8 +1072,10 @@ public class NpcRig : MonoBehaviour
         if (_held == "pistol")                                              // 持枪：手绕肩膀转到瞄准角度，后坐沿枪的方向顶回来
         {
             Vector2 hp = AimHand(_aimAng, (Vector2)off);
+            float tremA = 0f;                                               // 紧张：持枪手抖
+            if (nervous > 0f) hp += Tremble(nervous, 0f, out tremA);
             _handPoint.localPosition = new Vector3(hp.x, hp.y, 0f);
-            _handPoint.localRotation = Quaternion.Euler(0f, 0f, _aimAng + angle);   // 瞄准角度 + 枪口上扬
+            _handPoint.localRotation = Quaternion.Euler(0f, 0f, _aimAng + angle + tremA);   // 瞄准角度 + 枪口上扬 + 手抖
         }
         else
         {
@@ -1039,22 +1097,35 @@ public class NpcRig : MonoBehaviour
 
     // ---------------- 换弹 1：战术换弹 ----------------
 
-    // 换弹一共要多少"标准时间"（⑧ 和 ⑨ 同时进行，所以不算 ⑧）
-    float ReloadTotal()
+    // 这次换弹一共要多少"标准时间"
+    float ReloadTotal() { return ReloadTotal(_reloadKind); }
+
+    // 某种换弹一共要多少"标准时间"（⑧ 和 ⑨ 同时进行，所以不算 ⑧；两种只有 ⑤ 的时间不一样）
+    public float ReloadTotal(ReloadKind kind)
     {
-        return Mathf.Max(0.05f, rlLockTime + rlFetchTime + rlGrabTime + rlBringTime + rlDropTime
+        if (kind == ReloadKind.Normal || kind == ReloadKind.Shaky)          // 普通换弹：接旧弹匣 → 放回身后 → 拿新的 → 插上 → 回握把（颤抖换弹不算掉弹匣 / 卡住多花的时间）
+            return Mathf.Max(0.05f, rlLockTime + nrCatchTime + rlDropTime + rlStowTime + rlGrabTime
+                                  + rlBringTime + rlAlignTime + rlInsertTime + rlReturnTime);
+        float drop = kind == ReloadKind.Speed ? qrDropTime : rlDropTime;
+        return Mathf.Max(0.05f, rlLockTime + rlFetchTime + rlGrabTime + rlBringTime + drop
                               + rlAlignTime + rlInsertTime + rlStowTime + rlReturnTime);
     }
 
+    // 外部调用：拿枪时换一次弹匣（战术换弹）
+    public void PlayReload(float fitSeconds) { PlayReload(fitSeconds, ReloadKind.Tactical); }
+
     // 外部调用：拿枪时换一次弹匣。fitSeconds > 0 时整段动画压缩 / 拉长到正好这么多秒（NpcCombat 传换弹时间）；
-    // 0 = 按上面调的时间 × reloadSpeed 播（测试用）
-    public void PlayReload(float fitSeconds)
+    // 0 = 按上面调的时间 × reloadSpeed 播（测试用）。kind = 战术换弹 / 快速换弹
+    public void PlayReload(float fitSeconds, ReloadKind kind)
     {
         if (_handPoint == null) return;                                     // 还没拼好
         string want = PickHeld();                                           // 先确认手上拿的是枪
         if (want != _held) ApplyHeld(want);
         if (_held != "pistol") return;                                      // 没拿枪就不换
-        _reloadRate = fitSeconds > 0f ? ReloadTotal() / fitSeconds : Mathf.Max(0.05f, reloadSpeed);
+        _reloadKind = kind;                                                 // 记下这次是哪一种
+        _qrDropped = false;                                                 // 旧弹匣还在枪里
+        if (kind == ReloadKind.Shaky) BuildShakyPlan();                     // 颤抖换弹：先随机好这次掉几次、卡几次
+        _reloadRate = fitSeconds > 0f ? ReloadTotal() / fitSeconds : Mathf.Max(0.05f, reloadSpeed) / LevelTimeMul();   // 测试时也按武器等级快慢播
         _reloadT = 0f;                                                      // 从头开始
         _recoilT = -1f;                                                     // 停掉后坐
     }
@@ -1095,11 +1166,25 @@ public class NpcRig : MonoBehaviour
     // 每帧：按换弹进度摆枪、滑套、右手和两个弹匣（坐标都是角色根节点的本地坐标）
     void AnimateReload(float dt)
     {
+        if (_reloadKind == ReloadKind.Shaky) { AnimateShakyReload(dt); return; }   // 颤抖换弹走自己的一套
         _reloadT += dt * _reloadRate;                                       // 往前走
         float t = _reloadT;
+        bool quick = _reloadKind == ReloadKind.Speed;                       // 快速换弹（右手不接旧弹匣）
+        bool normal = _reloadKind == ReloadKind.Normal;                     // 普通换弹（先放旧弹匣，再拿新弹匣）
+        float dropLen = quick ? qrDropTime : rlDropTime;                    // ⑤ 的长度
         // 每一段的起点（标准时间）
         float b1 = rlLockTime, b2 = b1 + rlFetchTime, b3 = b2 + rlGrabTime, b4 = b3 + rlBringTime;
-        float b5 = b4 + rlDropTime, b6 = b5 + rlAlignTime, b7 = b6 + rlInsertTime, b8 = b7 + rlStowTime, b9 = b8 + rlReturnTime;
+        float b5 = b4 + dropLen, b6 = b5 + rlAlignTime, b7 = b6 + rlInsertTime, b8 = b7 + rlStowTime, b9 = b8 + rlReturnTime;
+        float dropAt = quick ? Mathf.Max(0f, qrDropAt) : b4;                // 旧弹匣离开枪的时刻（快速：枪口一抬就掉；战术：⑤ 开始）
+        // 普通换弹的时间点：c2 右手到握把下方，c3 旧弹匣在手里，c4 回到身后，c5 拿好新弹匣
+        float c2 = b1 + nrCatchTime, c3 = c2 + rlDropTime, c4 = c3 + rlStowTime, c5 = c4 + rlGrabTime;
+        if (normal)                                                         // 普通换弹：后面几段的起点跟着往后挪
+        {
+            dropAt = c2;                                                    // 右手到了才弹出旧弹匣
+            b5 = c5 + rlBringTime; b6 = b5 + rlAlignTime; b7 = b6 + rlInsertTime;
+            b8 = b7;                                                        // 插好直接回握把（没有"带回身后"这一段）
+            b9 = b8 + rlReturnTime;
+        }
         if (t >= b9) { StopReload(); AnimateHeldRest(); return; }           // 播完了：回到平时的样子
 
         // ---- 1. 枪：抬起 / 配合转 / 抖动 ----
@@ -1107,7 +1192,7 @@ public class NpcRig : MonoBehaviour
         float align = t < b7 ? rlGunAlign * Ease(Seg(t, b5, rlAlignTime))                                       // ⑥ 转过去
                              : rlGunAlign * (1f - Ease(Seg(t, b7, rlReleaseTime)));                             // ⑧ 转回来
         float slideAt = b7 + Mathf.Max(0f, rlSlideDelay);                                                       // 滑套复位的时刻
-        float shakeDrop = Shake(t - b4, rlDropTime);                                                            // ⑤ 旧弹匣掉出来：上下 + 旋转
+        float shakeDrop = Shake(t - dropAt, rlDropTime);                                                     // 旧弹匣掉出来时：上下 + 旋转抖
         float shakeInsert = Shake(t - b7, rlReleaseTime);                                                       // ⑦ 新弹匣插到底：上下抖
         float shakeSlide = Shake(t - slideAt, rlReleaseTime);                                                   // ⑧ 滑套复位：旋转抖
         float aimNow = _aimAng * (1f - raise);                              // 瞄准角度：① 抬枪时转回正前方，⑩ 放下时转回去对准
@@ -1127,7 +1212,9 @@ public class NpcRig : MonoBehaviour
         Vector2 pouchPos = rlPouch; float pouchAng = rlPouchAngle;                       // 身后拿弹匣的位置
         float underAng = gunAng;                                                         // ④ 握把下方：新弹匣竖直对着握把口
         Vector2 underPos = G2R(magIn - MAG_DIR * (rlReady + rlUnderGap)) - Rot(rlMagInHand, underAng);
-        float readyAng = gunAng - rlNewTilt;                                             // ⑥⑦ 新弹匣歪着的角度抵消掉，正好对准
+        if (quick) underPos += Rot(qrWait, underAng);                                    // 快速换弹：往旁边让开，给掉下来的旧弹匣让路
+        float tilt = quick || normal ? 0f : rlNewTilt;                                   // 新弹匣在手里歪多少（只有战术换弹要摆 V 字）
+        float readyAng = gunAng - tilt;                                                  // ⑥⑦ 新弹匣歪着的角度抵消掉，正好对准
         float depth = t < b6 ? rlReady : Mathf.Lerp(rlReady, 0f, Ease(Seg(t, b6, rlInsertTime)));   // ⑦ 往里插
         Vector2 readyPos = G2R(magIn - MAG_DIR * depth) - Rot(rlMagInHand, readyAng);
 
@@ -1135,8 +1222,47 @@ public class NpcRig : MonoBehaviour
         float newTilt = 0f;                                                              // 新弹匣在手里歪多少
         bool reloadHand = t >= b1;                                                       // ② 开始右手离开枪
         bool showNew = t >= b2 && t < b7;                                                // ③ 拿到 ~ ⑦ 插进去
-        bool showOld = t >= b4 && t < b8;                                                // ⑤ 掉出来 ~ ⑨ 放回身后
-        if (t < b1) { hp = restPos; ha = restAng; }
+        bool showOld = !quick && t >= b4 && t < b8;                                      // ⑤ 掉进手里 ~ ⑨ 放回身后（快速换弹右手不接）
+        if (normal)                                                                      // ---- 普通换弹 ----
+        {
+            float swap = c4 + rlGrabTime * 0.5f;                                         // 在身后放下旧弹匣、拿起新弹匣的那一刻
+            showOld = t >= dropAt && t < swap;                                           // 旧弹匣：弹出来 ~ 放好
+            showNew = t >= swap && t < b7;                                               // 新弹匣：拿起来 ~ 插进去
+            if (t < b1) { hp = restPos; ha = restAng; }                                  // ① 右手还握着握把
+            else if (t < c2)                                                             // ② 移到握把下方
+            {
+                float e = Ease(Seg(t, b1, nrCatchTime));
+                hp = Vector2.Lerp(restPos, underPos, e); ha = Mathf.LerpAngle(restAng, underAng, e);
+            }
+            else if (t < c3) { hp = underPos; ha = underAng; }                           // ③ 旧弹匣掉进右手
+            else if (t < c4)                                                             // ④ 带着旧弹匣回到身后（走弧线）
+            {
+                float e = Ease(Seg(t, c3, rlStowTime));
+                hp = Vector2.Lerp(underPos, pouchPos, e) + new Vector2(0f, rlArc * Mathf.Sin(Mathf.PI * e));
+                ha = Mathf.LerpAngle(underAng, pouchAng, e);
+                behind = hp.x < rlBehindX;                                   // 过了身体右边缘线：绕到身后
+            }
+            else if (t < c5) { hp = pouchPos; ha = pouchAng; behind = true; }            // ⑤ 在身后放下旧的、拿起新的
+            else if (t < b5)                                                             // ⑥ 拿着新弹匣到握把下方
+            {
+                float e = Ease(Seg(t, c5, rlBringTime));
+                hp = Vector2.Lerp(pouchPos, underPos, e) + new Vector2(0f, rlArc * Mathf.Sin(Mathf.PI * e));
+                ha = Mathf.LerpAngle(pouchAng, underAng, e);
+                behind = hp.x < rlBehindX;                                   // 还没出身体右边缘线：仍在身后
+            }
+            else if (t < b6)                                                             // ⑦ 和枪一起转，对准握把口
+            {
+                float e = Ease(Seg(t, b5, rlAlignTime));
+                hp = Vector2.Lerp(underPos, readyPos, e); ha = Mathf.LerpAngle(underAng, readyAng, e);
+            }
+            else if (t < b7) { hp = readyPos; ha = readyAng; }                           // ⑧ 插进去
+            else                                                                         // ⑨ 直接回到握把
+            {
+                float e = Ease(Seg(t, b7, rlReturnTime));
+                hp = Vector2.Lerp(readyPos, restPos, e); ha = Mathf.LerpAngle(readyAng, restAng, e);
+            }
+        }
+        else if (t < b1) { hp = restPos; ha = restAng; }
         else if (t < b2)                                                                 // ② 伸到身后（走弧线）
         {
             float e = Ease(Seg(t, b1, rlFetchTime));
@@ -1145,25 +1271,25 @@ public class NpcRig : MonoBehaviour
             behind = hp.x < rlBehindX;                                   // 过了身体右边缘线：绕到身后
         }
         else if (t < b3) { hp = pouchPos; ha = pouchAng; behind = true; }                // ③ 在身后拿弹匣
-        else if (t < b4)                                                                 // ④ 拿到握把下方
+        else if (t < b4)                                                                 // ④ 拿到握把下方（快速换弹：握把下方旁边一点）
         {
             float e = Ease(Seg(t, b3, rlBringTime));
             hp = Vector2.Lerp(pouchPos, underPos, e) + new Vector2(0f, rlArc * Mathf.Sin(Mathf.PI * e));
             ha = Mathf.LerpAngle(pouchAng, underAng, e);
             behind = hp.x < rlBehindX;                                   // 还没出身体右边缘线：仍在身后
         }
-        else if (t < b5)                                                                 // ⑤ 等旧弹匣掉下来，新弹匣歪过去
+        else if (t < b5)                                                                 // ⑤ 战术：等旧弹匣掉进手里，新弹匣歪过去摆 V 字；快速：停一下（默认不停）
         {
             hp = underPos; ha = underAng;
-            newTilt = rlNewTilt * Ease(Seg(t, b4, rlDropTime));
+            newTilt = tilt * Ease(Seg(t, b4, dropLen));
         }
         else if (t < b6)                                                                 // ⑥ 和枪一起转，对准握把口
         {
             float e = Ease(Seg(t, b5, rlAlignTime));
             hp = Vector2.Lerp(underPos, readyPos, e); ha = Mathf.LerpAngle(underAng, readyAng, e);
-            newTilt = rlNewTilt;
+            newTilt = tilt;
         }
-        else if (t < b7) { hp = readyPos; ha = readyAng; newTilt = rlNewTilt; }           // ⑦ 插进去
+        else if (t < b7) { hp = readyPos; ha = readyAng; newTilt = tilt; }               // ⑦ 插进去
         else if (t < b8)                                                                 // ⑨ 带着旧弹匣回到身后（④ 倒着走）
         {
             float e = Ease(Seg(t, b7, rlStowTime));
@@ -1193,16 +1319,16 @@ public class NpcRig : MonoBehaviour
         Vector2 nb = hp + Rot(rlMagInHand, ha);
         _rlNewMag.transform.localPosition = new Vector3(nb.x, nb.y, 0f);
         _rlNewMag.transform.localRotation = Quaternion.Euler(0f, 0f, ha + newTilt);
-        if (_magInGun != null) _magInGun.enabled = !(t >= b4 && t < b7);                // ⑤ 掉出来后枪里没弹匣，⑦ 插好了再显示
+        if (_magInGun != null) _magInGun.enabled = !(t >= dropAt && t < b7);            // 旧弹匣离开后枪里没弹匣，⑦ 插好了再显示
 
         _rlOldMag.enabled = showOld;                                                     // 旧弹匣
         if (showOld)
         {
-            Vector2 heldPos = hp + Rot(rlMagInHand + rlOldOffset, ha);                   // 在手里的位置（V 字，在新弹匣前面）
-            float heldAng = ha + rlOldTilt;
-            if (t < b5)                                                                  // ⑤ 从枪里掉进手里
+            Vector2 heldPos = hp + Rot(normal ? rlMagInHand : rlMagInHand + rlOldOffset, ha);   // 在手里的位置（战术：V 字，在新弹匣前面；普通：正拿着）
+            float heldAng = ha + (normal ? 0f : rlOldTilt);
+            if (t < dropAt + rlDropTime)                                                 // 从枪里掉进手里
             {
-                float e = Ease(Seg(t, b4, rlDropTime));
+                float e = Ease(Seg(t, dropAt, rlDropTime));
                 Vector2 fromPos = G2R(magIn);
                 Vector2 op = Vector2.Lerp(fromPos, heldPos, e);
                 _rlOldMag.transform.localPosition = new Vector3(op.x, op.y, 0f);
@@ -1212,6 +1338,261 @@ public class NpcRig : MonoBehaviour
             {
                 _rlOldMag.transform.localPosition = new Vector3(heldPos.x, heldPos.y, 0f);
                 _rlOldMag.transform.localRotation = Quaternion.Euler(0f, 0f, heldAng);
+            }
+        }
+
+        if (quick && t >= dropAt && !_qrDropped)                                         // 快速换弹：旧弹匣顺着握把滑出来（枪口往上抬的同时）
+        {
+            float tau = (t - dropAt) / Mathf.Max(0.05f, _reloadRate);                     // 滑了几秒（真实时间）
+            float v = qrSlideSpeed + qrGravity * tau;                                    // 越滑越快
+            float s = qrSlideSpeed * tau + 0.5f * qrGravity * tau * tau;                 // 滑出来多远
+            float magLen = _rlOldMag.sprite != null ? _rlOldMag.sprite.bounds.max.y : 0.107f;   // 弹匣底部到顶端多长
+            Vector2 op = G2R(magIn - MAG_DIR * s);                                       // 弹匣底部现在的位置
+            if (s < magLen)                                                              // 还没整个滑出来：跟着枪走（枪抖它也抖）
+            {
+                _rlOldMag.enabled = true;
+                _rlOldMag.sortingOrder = 24;                                             // 在枪身下面，像还插在握把里
+                _rlOldMag.transform.localPosition = new Vector3(op.x, op.y, 0f);
+                _rlOldMag.transform.localRotation = Quaternion.Euler(0f, 0f, gunAng);
+            }
+            else                                                                         // 整个滑出来了：交给它自己往下掉
+            {
+                _rlOldMag.enabled = false;
+                _qrDropped = true;
+                Vector2 vel = Rot(-MAG_DIR, gunAng) * v + new Vector2(RandIn(qrKick), 0f);   // 顺着握把的方向 + 往前 / 往后飘一点
+                DropMag(op, gunAng, vel);
+            }
+        }
+    }
+
+    // 快速换弹：旧弹匣脱手，自己往下掉（空中时挂在角色下面，跟着人走、按部件顺序遮挡）
+    void DropMag(Vector2 pos, float ang, Vector2 vel)
+    {
+        SpriteRenderer sr = new GameObject("DroppedMag").AddComponent<SpriteRenderer>();
+        sr.sprite = Load("Held/PistolMag");
+        sr.transform.SetParent(_rig, false);
+        sr.transform.localPosition = new Vector3(pos.x, pos.y, 0f);
+        sr.transform.localRotation = Quaternion.Euler(0f, 0f, ang);
+        sr.sortingOrder = 24;                                               // 在右手（29）、新弹匣（25）、枪身（26）后面，身体前面
+        Destroy(sr.gameObject, qrGroundTime + 3f);                         // 保险：中途被打断也一定会删掉
+        StartCoroutine(FallMag(sr, pos, ang, vel, RandIn(qrSpin), RandIn(qrGroundY)));
+    }
+
+    // 旧弹匣往下掉 → 落地躺平 → 留在原地（不再跟着人走）→ 过一会儿淡出消失
+    IEnumerator FallMag(SpriteRenderer sr, Vector2 pos, float ang, Vector2 vel, float spin, float groundY)
+    {
+        while (sr != null && pos.y > groundY)                               // 还在空中
+        {
+            float dt = Time.deltaTime;
+            vel.y -= qrGravity * dt;                                        // 重力
+            pos += vel * dt;
+            ang += spin * dt;                                               // 边掉边转
+            sr.transform.localPosition = new Vector3(pos.x, Mathf.Max(pos.y, groundY), 0f);
+            sr.transform.localRotation = Quaternion.Euler(0f, 0f, ang);
+            yield return null;
+        }
+        if (sr == null) yield break;
+        float lie = Mathf.DeltaAngle(0f, ang) >= 0f ? 90f : -90f;           // 落地：转到最近的横躺角度
+        sr.transform.localRotation = Quaternion.Euler(0f, 0f, lie + Random.Range(-12f, 12f));   // 再随机歪一点
+        sr.transform.SetParent(null, true);                                 // 离开角色：留在地上
+        if (_oldSprite != null) sr.sortingLayerID = _oldSprite.sortingLayerID;   // 和人同一个排序层
+        sr.sortingOrder = -1;                                               // 地面层：画在人和建筑下面
+        float t = 0f;
+        while (sr != null && t < qrGroundTime + 0.5f)                       // 躺着，最后 0.5 秒淡出
+        {
+            t += Time.deltaTime;
+            Color c = sr.color;
+            c.a = 1f - Mathf.Clamp01((t - qrGroundTime) / 0.5f);
+            sr.color = c;
+            yield return null;
+        }
+        if (sr != null) Destroy(sr.gameObject);
+    }
+
+    // ---------------- 武器操作等级 / 颤抖 ----------------
+
+    // 按武器等级，换弹时间要乘几（1 级最慢，5 级最快）
+    float LevelTimeMul()
+    {
+        if (levelReloadTime == null || levelReloadTime.Length == 0) return 1f;
+        int i = Mathf.Clamp(weaponLevel, 1, levelReloadTime.Length) - 1;
+        return Mathf.Max(0.1f, levelReloadTime[i]);
+    }
+
+    // 外部调用：这个人换这种弹匣要几秒（动画标准时间 × 武器等级倍数；NpcCombat 用）
+    public float ReloadSeconds(ReloadKind kind) { return ReloadTotal(kind) * LevelTimeMul(); }
+
+    // 正在换弹吗（颤抖换弹掉弹匣 / 卡住会比算好的时间长，游戏规则之后可以用它等换完）
+    public bool IsReloading => _reloadT >= 0f;
+
+    // 颤抖：用平滑噪声让位置 / 角度一直小幅乱抖（k = 幅度倍数；seed 不同 = 各抖各的）
+    Vector2 Tremble(float k, float seed, out float ang)
+    {
+        float ts = _time * trembleFreq;
+        float nx = Mathf.PerlinNoise(seed + 0.3f, ts) * 2f - 1f;
+        float ny = Mathf.PerlinNoise(seed + 5.1f, ts * 1.13f) * 2f - 1f;
+        float na = Mathf.PerlinNoise(seed + 9.7f, ts * 0.91f) * 2f - 1f;
+        ang = na * trembleAngle * k;
+        return new Vector2(nx, ny) * (trembleMove * k);
+    }
+
+    // ---------------- 换弹 4：颤抖换弹（基于普通换弹） ----------------
+
+    // 颤抖换弹的一段：右手从哪个姿势到哪个姿势、拿着什么、这段开始时发生什么
+    struct ShakySeg
+    {
+        public int from, to;       // 姿势（下面的 Pose 常量）
+        public float len;          // 多长（标准时间）
+        public float start;        // 从第几秒开始（算好的）
+        public int item;           // 右手拿着：0 没有 / 1 旧弹匣 / 2 新弹匣 / 3 前半段旧、后半段新 / 4 前半段空、后半段新
+        public int evt;            // 开始时：0 无 / 1 旧弹匣弹出 / 2 新弹匣掉了 / 3 卡住了（枪磕一下）/ 4 第一次对准 / 5 插好了
+    }
+    const int PoseRest = 0, PoseUnder = 1, PosePouch = 2, PoseReady = 3, PoseIn = 4, PoseFail = 5, PoseSlip = 6;   // 握把 / 握把下方 / 身后 / 对准 / 插好 / 插歪卡住 / 掉弹匣的地方
+    readonly List<ShakySeg> _shaky = new List<ShakySeg>();   // 这次颤抖换弹的全部分段
+    readonly List<float> _tFails = new List<float>();        // 每次卡住（枪磕一下）的时刻
+    int _shakyFired;                                         // 下一段要触发事件的序号
+    float _tOldOut, _tAlign0, _tSeated, _tShakyEnd;          // 旧弹匣弹出 / 第一次对准 / 插好 / 结束 的时刻
+    readonly Vector2[] _poseP = new Vector2[7];              // 这一帧各个姿势的位置
+    readonly float[] _poseA = new float[7];                  // 这一帧各个姿势的角度
+    public System.Action OnNewMagDropped;                    // 颤抖换弹时新弹匣掉到地上了（游戏规则之后接：物品栏再扣一个弹匣）
+
+    // 加一段（接在上一段后面）
+    void AddShaky(int from, int to, float len, int item, int evt)
+    {
+        float start = 0f;
+        if (_shaky.Count > 0) { ShakySeg last = _shaky[_shaky.Count - 1]; start = last.start + last.len; }
+        _shaky.Add(new ShakySeg { from = from, to = to, len = Mathf.Max(0f, len), start = start, item = item, evt = evt });
+    }
+
+    // 开始颤抖换弹时：随机好这次新弹匣掉几次、插歪几次，排出整段动作
+    void BuildShakyPlan()
+    {
+        _shaky.Clear(); _tFails.Clear(); _shakyFired = 0;
+        AddShaky(PoseRest, PoseRest, rlLockTime, 0, 0);                     // ① 抬枪、滑套挂机（右手还握着握把）
+        AddShaky(PoseRest, PoseUnder, nrCatchTime, 0, 0);                   // ② 右手移到握把下方
+        AddShaky(PoseUnder, PoseUnder, rlDropTime, 1, 1);                   // ③ 旧弹匣弹出，掉进右手
+        AddShaky(PoseUnder, PosePouch, rlStowTime, 1, 0);                   // ④ 带回身后
+        AddShaky(PosePouch, PosePouch, rlGrabTime, 3, 0);                   // ⑤ 放下旧的，拿起新的
+        for (int i = 0; i < 2 && Random.value < srDropChance; i++)          // 新弹匣掉了（最多 2 次）：回身后再拿一个
+        {
+            AddShaky(PosePouch, PoseSlip, rlBringTime * srDropAt, 2, 0);    //   拿回来的路上……
+            AddShaky(PoseSlip, PoseSlip, srFumbleTime, 0, 2);               //   手一滑掉了，愣一下
+            AddShaky(PoseSlip, PosePouch, rlBringTime * srDropAt, 0, 0);    //   回身后
+            AddShaky(PosePouch, PosePouch, rlGrabTime, 4, 0);               //   再拿一个
+        }
+        AddShaky(PosePouch, PoseUnder, rlBringTime, 2, 0);                  // ⑥ 拿到握把下方
+        AddShaky(PoseUnder, PoseReady, rlAlignTime, 2, 4);                  // ⑦ 对准
+        for (int i = 0; i < srMaxFails && Random.value < srFailChance; i++) // 插不进去：退出来重新对准
+        {
+            AddShaky(PoseReady, PoseFail, rlInsertTime, 2, 0);              //   插歪了，卡住
+            AddShaky(PoseFail, PoseUnder, srFailBackTime, 2, 3);            //   枪磕一下，退出来
+            AddShaky(PoseUnder, PoseReady, rlAlignTime, 2, 0);              //   重新对准
+        }
+        AddShaky(PoseReady, PoseIn, rlInsertTime, 2, 0);                    // ⑧ 插进去
+        AddShaky(PoseIn, PoseRest, rlReturnTime, 0, 5);                     // ⑨ 插好了，回握把
+        _tOldOut = _shaky[2].start;                                         // 记下几个时刻（枪的动作用）
+        foreach (ShakySeg g in _shaky)
+        {
+            if (g.evt == 4) _tAlign0 = g.start;
+            if (g.evt == 3) _tFails.Add(g.start);
+            if (g.evt == 5) _tSeated = g.start;
+        }
+        _tShakyEnd = _tSeated + rlReturnTime;
+    }
+
+    // 每帧：颤抖换弹（枪的动作和普通换弹一样，多了一直抖、卡住时磕一下）
+    void AnimateShakyReload(float dt)
+    {
+        _reloadT += dt * _reloadRate;                                       // 往前走
+        float t = _reloadT;
+        if (_shaky.Count == 0 || t >= _tShakyEnd) { StopReload(); AnimateHeldRest(); return; }   // 播完了
+        int si = 0;                                                         // 现在在第几段
+        while (si < _shaky.Count - 1 && t >= _shaky[si].start + _shaky[si].len) si++;
+        ShakySeg cur = _shaky[si];
+        float k = cur.len > 0f ? Mathf.Clamp01((t - cur.start) / cur.len) : 1f;   // 这一段走了多少（0~1）
+        float e = Ease(k);
+
+        // ---- 1. 枪 ----
+        float raise = t < _tSeated ? Ease(t / Mathf.Max(0.001f, rlLockTime)) : 1f - Ease(Seg(t, _tSeated, rlReturnTime));   // ① 抬起，⑨ 放下
+        float align = t < _tSeated ? rlGunAlign * Ease(Seg(t, _tAlign0, rlAlignTime))                                       // ⑦ 转过去
+                                   : rlGunAlign * (1f - Ease(Seg(t, _tSeated, rlReleaseTime)));                             // 插好后转回来
+        float slideAt = _tSeated + Mathf.Max(0f, rlSlideDelay);                                                             // 滑套复位的时刻
+        float shakeDrop = Shake(t - _tOldOut, rlDropTime);                                                                  // 旧弹匣弹出：上下 + 旋转抖
+        float shakeInsert = Shake(t - _tSeated, rlReleaseTime);                                                             // 插到底：上下抖
+        float shakeSlide = Shake(t - slideAt, rlReleaseTime);                                                               // 滑套复位：旋转抖
+        float bump = 0f;
+        foreach (float f in _tFails) bump += Shake(t - f, rlDropTime);                                                      // 卡住：枪磕一下
+        Vector2 gunTrem = Tremble(trembleReloadMul, 0f, out float gunTremA);                                                // 枪一直抖
+        float aimNow = _aimAng * (1f - raise);                                                                              // 抬枪时转回正前方，放下时转回去对准
+        Vector2 gunPos = AimHand(aimNow, Vector2.zero) + rlGunRaise * raise
+                       + new Vector2(0f, rlShake * (shakeDrop + shakeInsert + srFailShake * bump)) + gunTrem;
+        float gunAng = aimNow + rlGunTilt * raise + align + rlShakeAngle * (shakeDrop + shakeSlide) + gunTremA;
+        _handPoint.localPosition = new Vector3(gunPos.x, gunPos.y, 0f);
+        _handPoint.localRotation = Quaternion.Euler(0f, 0f, gunAng);
+        float slideK = t < slideAt ? Ease(t / Mathf.Max(0.001f, rlLockTime)) : 1f - Seg(t, slideAt, rlReleaseTime * 0.4f);   // 滑套：挂机 → 复位
+        if (_slideSprite != null) _slideSprite.transform.localPosition = _slideBase + new Vector3(-slideKick * rlSlideLock * slideK / PPU_FULL, 0f, 0f);
+
+        // ---- 2. 这一帧各个姿势在哪（跟着枪走） ----
+        Vector2 magIn = (Vector2)CanvasToLocal(P_MAG - HELD_PIVOT["pistol"]);           // 枪里弹匣底部（枪的本地坐标）
+        _poseP[PoseRest] = gunPos + Rot(Vector2.zero, gunAng); _poseA[PoseRest] = gunAng;
+        _poseP[PoseUnder] = gunPos + Rot(magIn - MAG_DIR * (rlReady + rlUnderGap), gunAng) - Rot(rlMagInHand, gunAng); _poseA[PoseUnder] = gunAng;
+        _poseP[PosePouch] = rlPouch; _poseA[PosePouch] = rlPouchAngle;
+        _poseP[PoseReady] = gunPos + Rot(magIn - MAG_DIR * rlReady, gunAng) - Rot(rlMagInHand, gunAng); _poseA[PoseReady] = gunAng;
+        _poseP[PoseIn] = gunPos + Rot(magIn, gunAng) - Rot(rlMagInHand, gunAng); _poseA[PoseIn] = gunAng;
+        float failAng = gunAng + srFailTilt;                                             // 插歪了：歪一点、偏一点、只插进去一半
+        _poseA[PoseFail] = failAng;
+        _poseP[PoseFail] = gunPos + Rot(magIn - MAG_DIR * (rlReady * (1f - Mathf.Clamp01(srFailDepth))) + new Vector2(srFailOffset, 0f), gunAng) - Rot(rlMagInHand, failAng);
+        _poseP[PoseSlip] = Vector2.Lerp(_poseP[PosePouch], _poseP[PoseUnder], srDropAt); // 掉弹匣的地方：身后 → 握把下方的路上
+        _poseA[PoseSlip] = Mathf.LerpAngle(_poseA[PosePouch], _poseA[PoseUnder], srDropAt);
+
+        // ---- 3. 右手 ----
+        Vector2 hp = Vector2.Lerp(_poseP[cur.from], _poseP[cur.to], e);
+        float ha = Mathf.LerpAngle(_poseA[cur.from], _poseA[cur.to], e);
+        bool viaPouch = cur.from == PosePouch || cur.to == PosePouch;                    // 这段要去 / 从身后
+        if (viaPouch && cur.from != cur.to) hp += new Vector2(0f, rlArc * Mathf.Sin(Mathf.PI * e));   // 走弧线
+        bool behind = cur.from == PosePouch && cur.to == PosePouch ? true : viaPouch && hp.x < rlBehindX;   // 过了身体右边缘线：绕到身后
+        Vector2 handTrem = Tremble(trembleReloadMul, 7.3f, out float handTremA);         // 右手也一直抖（和枪抖得不一样）
+        hp += handTrem; ha += handTremA;
+        bool second = k >= 0.5f;                                                         // 这段的后半段
+        bool holdOld = cur.item == 1 || (cur.item == 3 && !second);
+        bool holdNew = cur.item == 2 || ((cur.item == 3 || cur.item == 4) && second);
+        bool reloadHand = si > 0;                                                        // ② 开始右手离开枪
+
+        // ---- 4. 摆右手和两个弹匣 ----
+        if (_gunRightHand != null) _gunRightHand.enabled = !reloadHand;                  // 枪上的右手 ↔ 换弹用的右手
+        _rlHandSprite.enabled = reloadHand;
+        _rlHand.localPosition = new Vector3(hp.x, hp.y, 0f);
+        _rlHand.localRotation = Quaternion.Euler(0f, 0f, ha);
+        _rlHandSprite.sortingOrder = behind ? 6 : 29;
+        _rlNewMag.sortingOrder = behind ? 5 : 25;
+        _rlOldMag.sortingOrder = behind ? 4 : 24;
+        Vector2 nb = hp + Rot(rlMagInHand, ha);                                          // 手里弹匣底部的位置
+        _rlNewMag.enabled = holdNew;
+        _rlNewMag.transform.localPosition = new Vector3(nb.x, nb.y, 0f);
+        _rlNewMag.transform.localRotation = Quaternion.Euler(0f, 0f, ha);
+        if (_magInGun != null) _magInGun.enabled = !(t >= _tOldOut && t < _tSeated);    // 旧弹匣弹出后枪里没弹匣，插好了再显示
+        _rlOldMag.enabled = holdOld;
+        if (holdOld)
+        {
+            Vector2 op = nb; float oa = ha;
+            if (cur.evt == 1)                                                            // ③ 从枪里掉进手里
+            {
+                op = Vector2.Lerp(gunPos + Rot(magIn, gunAng), nb, e);
+                oa = Mathf.LerpAngle(gunAng, ha, e);
+            }
+            _rlOldMag.transform.localPosition = new Vector3(op.x, op.y, 0f);
+            _rlOldMag.transform.localRotation = Quaternion.Euler(0f, 0f, oa);
+        }
+
+        // ---- 5. 每段开始时的事件（只触发一次） ----
+        while (_shakyFired <= si)
+        {
+            ShakySeg g = _shaky[_shakyFired];
+            _shakyFired++;
+            if (g.evt == 2)                                                              // 新弹匣从手里滑掉，掉到地上
+            {
+                DropMag(nb, ha, new Vector2(RandIn(qrKick), 0f));
+                if (OnNewMagDropped != null) OnNewMagDropped();
             }
         }
     }

@@ -402,6 +402,15 @@ MonoBehaviour:
   rlShakeAngle: 10
   rlSlideDelay: 0.1
   rlShakeFreq: 5
+  qrDropAt: 0
+  qrDropTime: 0
+  qrWait: {x: 0, y: 0}
+  qrSlideSpeed: 0.6
+  qrGravity: 5
+  qrKick: {x: -0.1, y: 0.1}
+  qrSpin: {x: -500, y: -250}
+  qrGroundY: {x: -0.05, y: 0.03}
+  qrGroundTime: 3
   aimShoulder: {x: 0.175, y: 0.421}
   aimTurnSpeed: 720
   aimFlipOver: 5
@@ -409,6 +418,7 @@ MonoBehaviour:
   testLoop: 1
   testFire: 0
   testReload: 0
+  testReloadKind: 0
   testExpression: 0
   testSpeed: -1
   testFaceLeft: 0

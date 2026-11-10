@@ -16,7 +16,8 @@ using UnityEngine;
 //       强敌：以防守为主——默认躲回营地；只有它在拆墙 / 已经闯进营地，并且胆量 ≥ 70（拿枪的 ≥ 55）才上去打。
 //
 // 【武器】看物品栏里带着什么（NpcInventory，挂件也按它显示）：手枪（远程，要有子弹或弹匣）> 斧头 > 锤子 > 空手。
-//   手枪一发用一颗子弹（NpcData.pistolAmmo），打空了花 2.1 秒（ReloadTime，和换弹动画一样长）换一个弹匣；弹匣也用光了就换成近战。
+//   手枪一发用一颗子弹（NpcData.pistolAmmo），打空了换一个弹匣（时间 = NpcRig 换弹动画的长度）；弹匣也用光了就换成近战。
+//   敌人离得远：战术换弹（旧弹匣收回物品栏，变成空弹匣）；敌人离得近（或物品栏放不下空弹匣）：快速换弹（旧弹匣丢在地上）。
 // 【挨打】伤害 × 防护服减伤（EnemyDirector.suitArmor）；一场仗里累计掉血到 injureAfterDamage → 「受伤」（伤在手臂 / 肋骨 / 大腿）。
 // 【占用】打 / 躲期间在 NpcBusy 登记 Combat（优先级 90）：施工、需求行为、闲置行为、自主干活都会让路。
 // 【以后接 AI】SetStance(npcId, 姿态, 秒数) 就是给领导（14B）/ 玩家下"打 / 躲"用的口子；不下就按上面的规则自己判断。
@@ -130,7 +131,8 @@ public class NpcCombat : MonoBehaviour
         return Fists;
     }
 
-    const float ReloadTime = 2.1f;   // 换弹匣要几秒（= NpcRig 战术换弹动画按标准值播完的时间）
+    const float ReloadTime = 2.1f;   // 换弹匣要几秒（没有 NpcRig 外观时才用；有外观时按换弹动画的长度）
+    const float SpeedReloadRange = 0.6f;   // 敌人比"射程 × 这个数"还近：来不及收旧弹匣，快速换弹
 
     // 敌人打中了这个 NPC（Enemy 调）
     public static void OnEnemyHit(NpcData n, float damage, Enemy by)
@@ -355,9 +357,13 @@ public class NpcCombat : MonoBehaviour
             // 打空了：换一个弹匣（这段时间不开枪）
             if (NpcInventory.Reload(n))
             {
-                _attackCd = ReloadTime;
-                NpcRig reloadRig = GetComponent<NpcRig>();                    // 外观：播换弹动画（正好用 ReloadTime 这么久）
-                if (reloadRig != null) reloadRig.PlayReload(ReloadTime);
+                bool close = d < reach * SpeedReloadRange;                    // 敌人离得近
+                bool tactical = !close && NpcInventory.StowEmptyMag(n);       // 不急：旧弹匣收回物品栏（空弹匣）；放不下就只能丢
+                NpcRig.ReloadKind kind = tactical ? NpcRig.ReloadKind.Tactical : NpcRig.ReloadKind.Speed;
+                NpcRig reloadRig = GetComponent<NpcRig>();
+                float time = reloadRig != null ? reloadRig.ReloadSeconds(kind) : ReloadTime;   // 换弹时间 = 这种换弹动画的长度 × 武器操作等级的倍数
+                _attackCd = time;
+                if (reloadRig != null) reloadRig.PlayReload(time, kind);       // 外观：播对应的换弹动画（快速换弹时旧弹匣掉到地上）
                 if (_barkCd <= 0f) Bark(LanguageGuard.Pick("换弹匣！", "リロード！"));
             }
             return;

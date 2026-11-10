@@ -9,6 +9,8 @@ using UnityEngine;
 //         任何人的物品栏一变 Revision 就 +1，NpcRig 和界面看到变了就刷新。
 // 【手枪】身上的弹匣是备用的；枪里的子弹记在 NpcData.pistolAmmo。打空了换一个弹匣（装满 MagSize 发）。
 //         没子弹也没弹匣 → 这把枪用不了，打架时换成斧头 / 锤子 / 空手（NpcCombat.WeaponOf）。
+//         换弹分两种（NpcCombat 选）：战术换弹 = 换下来的旧弹匣收回物品栏，变成"空弹匣"（占一格，最多 3 个；在营地里用不上会自己放回仓库）；
+//         快速换弹 = 旧弹匣直接丢在地上（没了）。
 // 【消耗】医疗包：包扎时用掉（受伤 / 生病又带着医疗包，会自己包扎）；
 //         水瓶：在营地外口渴只能喝自己带的水瓶（喝一瓶少一瓶，WaterWorks.TryDrink），营地里照旧喝仓库的净化水。
 // 【和仓库拿放】
@@ -26,6 +28,7 @@ public class NpcInventory : MonoBehaviour
 
     public const int Slots = 6;      // 物品栏格数
     public const int MagSize = 8;    // 一个弹匣几发
+    public const string EmptyMag = "magazine_empty";   // 空弹匣（战术换弹收回来的）
 
     // 任何人的物品栏 / 子弹变了就 +1（NpcRig、对话窗、悬停框据此刷新）
     public static int Revision { get; private set; }
@@ -96,6 +99,7 @@ public class NpcInventory : MonoBehaviour
             case "pistol": case "axe": case "hammer": case "toolkit": return 1;
             case "medkit": case "bottle": return 2;
             case "magazine": return 3;
+            case EmptyMag: return 3;                        // 空弹匣也最多带 3 个
             default: return 3;
         }
     }
@@ -223,6 +227,13 @@ public class NpcInventory : MonoBehaviour
         n.pistolAmmo = MagSize;
         Revision++;
         return true;
+    }
+
+    // 战术换弹：换下来的旧弹匣（已经打空）收回物品栏，变成一个空弹匣。放不下（格子满了 / 空弹匣带满了）返回 false
+    public static bool StowEmptyMag(NpcData n)
+    {
+        if (!CanAdd(n, EmptyMag, out _)) return false;                    // 放不下
+        return Add(n, EmptyMag, 1);                                         // 收进物品栏（Add 里会让界面刷新）
     }
 
     // 开了一枪
