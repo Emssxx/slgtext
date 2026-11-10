@@ -18,6 +18,9 @@ using UnityEngine;
 // 【武器】看物品栏里带着什么（NpcInventory，挂件也按它显示）：手枪（远程，要有子弹或弹匣）> 斧头 > 锤子 > 空手。
 //   手枪一发用一颗子弹（NpcData.pistolAmmo），打空了换一个弹匣（时间 = NpcRig 换弹动画的长度）；弹匣也用光了就换成近战。
 //   敌人离得远：战术换弹（旧弹匣收回物品栏，变成空弹匣）；敌人离得近（或物品栏放不下空弹匣）：快速换弹（旧弹匣丢在地上）。
+//   【弹道】手枪不再掷命中率：子弹落在目标周围的"偏差区域"里随机一点（BulletLanding），子弹飞过去的路上碰到目标身体才算打中。
+//     偏差区域（正方形，以目标为中心、朝着枪口方向摆）：距离 ≤ 3 小格 = 1 小格；≤ 6 小格 = 1 大格；更远 = 2×2 大格。
+//     再按武器操作等级（NpcRig.weaponLevel）把边长 × LevelSpread：1 级 ×4、2 级 ×2、3 级 ×1、4 级 ×½、5 级 ×¼。
 // 【挨打】伤害 × 防护服减伤（EnemyDirector.suitArmor）；一场仗里累计掉血到 injureAfterDamage → 「受伤」（伤在手臂 / 肋骨 / 大腿）。
 // 【占用】打 / 躲期间在 NpcBusy 登记 Combat（优先级 90）：施工、需求行为、闲置行为、自主干活都会让路。
 // 【以后接 AI】SetStance(npcId, 姿态, 秒数) 就是给领导（14B）/ 玩家下"打 / 躲"用的口子；不下就按上面的规则自己判断。
@@ -133,6 +136,11 @@ public class NpcCombat : MonoBehaviour
 
     const float ReloadTime = 2.1f;   // 换弹匣要几秒（没有 NpcRig 外观时才用；有外观时按换弹动画的长度）
     const float SpeedReloadRange = 0.6f;   // 敌人比"射程 × 这个数"还近：来不及收旧弹匣，快速换弹
+    // 弹道
+    const float NearCells = 3f;            // 距离在几小格以内：偏差区域 = 1 小格
+    const float MidCells = 6f;             // 距离在几小格以内：偏差区域 = 1 大格（再远 = 2×2 大格）
+    static readonly float[] LevelSpread = { 4f, 2f, 1f, 0.5f, 0.25f };   // 武器操作等级 1~5：偏差区域边长 × 几
+    const float BulletHitRadius = 0.3f;    // 子弹离怪物中心多近算打中（单位，再 × 怪物体型）
 
     // 敌人打中了这个 NPC（Enemy 调）
     public static void OnEnemyHit(NpcData n, float damage, Enemy by)
@@ -372,10 +380,45 @@ public class NpcCombat : MonoBehaviour
         if (w.ranged) NpcInventory.SpendRound(n);
         NpcRig rig = GetComponent<NpcRig>();                                  // 外观：出手动作（挥一下 / 开枪后坐）
         if (rig != null) rig.PlayAttack();
-        if (w.ranged && (rig == null || !rig.FireBullet(fp)))                 // 拿着枪：子弹从枪口生成点飞出去
-            EnemyDirector.Tracer(pos, fp, new Color(0.7f, 0.95f, 1f, 0.9f)); // 没有枪口（还没换好手）时用原来的弹道线
-        float acc = 0.65f + n.personality.bravery * 0.002f - (n.sanity < 40f ? 0.15f : 0f) - (w.ranged ? 0.05f : 0f);
+        if (w.ranged)                                                         // 手枪：按弹道算落点，碰到身体才算打中
+        {
+            int level = rig != null ? rig.weaponLevel : 3;                    // 武器操作等级（没有外观时按 3 级）
+            Vector3 land = BulletLanding(pos, fp, level);                     // 这一枪落在哪
+            Vector3 from = pos;
+            if (rig != null) rig.TryGetMuzzle(out from);                      // 从枪口出发（没拿出枪就从人身上）
+            if (rig == null || !rig.FireBullet(land))                         // 子弹从枪口飞向落点
+                EnemyDirector.Tracer(pos, land, new Color(0.7f, 0.95f, 1f, 0.9f));   // 没有枪口（还没换好手）时用原来的弹道线
+            if (BulletHits(from, land, fp, BulletHitRadius * Mathf.Max(0.3f, _foe.Def.scale)))   // 路上碰到目标身体
+                _foe.TakeDamage(w.damage, n);
+            return;
+        }
+        float acc = 0.65f + n.personality.bravery * 0.002f - (n.sanity < 40f ? 0.15f : 0f);   // 近战：照旧按命中率
         if (Random.value < acc) _foe.TakeDamage(w.damage, n);
+    }
+
+    // 手枪：这一枪子弹落在哪。偏差区域是以目标为中心、朝着枪口方向摆的正方形，边长按距离分三档，再按武器操作等级放大 / 缩小
+    static Vector3 BulletLanding(Vector3 shooter, Vector3 target, int level)
+    {
+        float small = GridManager.Instance != null ? GridManager.Instance.cellSize : 1f / 3f;   // 1 小格多长（世界单位）
+        float big = small * Mathf.Max(1, GridManager.Subdivision);                               // 1 大格多长
+        Vector2 dir = target - shooter;                                       // 人 → 目标
+        float dist = dir.magnitude;
+        float cells = dist / Mathf.Max(0.0001f, small);                       // 隔着几小格
+        float side = cells <= NearCells ? small : (cells <= MidCells ? big : big * 2f);   // 偏差区域边长：1 小格 / 1 大格 / 2×2 大格
+        side *= LevelSpread[Mathf.Clamp(level, 1, LevelSpread.Length) - 1];   // 武器操作等级修正
+        Vector2 fwd = dist > 0.0001f ? dir / dist : Vector2.right;            // 枪口方向
+        Vector2 across = new Vector2(-fwd.y, fwd.x);                          // 和枪口方向垂直
+        Vector2 off = fwd * Random.Range(-0.5f, 0.5f) * side + across * Random.Range(-0.5f, 0.5f) * side;   // 正方形里随机一点
+        return new Vector3(target.x + off.x, target.y + off.y, target.z);
+    }
+
+    // 子弹从 from 飞到 to，路上有没有碰到以 center 为圆心、radius 为半径的身体
+    static bool BulletHits(Vector3 from, Vector3 to, Vector3 center, float radius)
+    {
+        Vector2 a = from, b = to, c = center;
+        Vector2 ab = b - a;
+        float t = ab.sqrMagnitude > 0.000001f ? Mathf.Clamp01(Vector2.Dot(c - a, ab) / ab.sqrMagnitude) : 0f;   // 弹道上离圆心最近的点
+        return (a + ab * t - c).sqrMagnitude <= radius * radius;
     }
 
     void DoFlee()

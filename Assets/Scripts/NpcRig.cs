@@ -47,7 +47,7 @@ using UnityEngine.Rendering;   // SortingGroup：让拼出来的二十几个部�
 //   ③ 普通换弹——右手先到握把下方接住弹出来的旧弹匣，带回身后放好，再拿新弹匣回来插上，插好直接回握把。
 //   ④ 颤抖换弹——在普通换弹上加：枪和手一直抖；有概率新弹匣拿回来的路上掉到地上（回身后再拿一个）；
 //     有概率插歪了卡住（退出来重新对准再插）。开始换弹时就把这次掉几次、卡几次随机好。
-// 【武器操作等级 / 紧张】weaponLevel 越高换弹越快（ReloadSeconds）；nervous 越大持枪时手抖得越厉害。游戏规则之后接。
+// 【武器操作等级 / 紧张】weaponLevel 越高换弹越快（ReloadSeconds）、等级低平时持枪手也抖；nervous 越大持枪时手抖得越厉害。游戏规则之后接。
 // ============================================================================
 public class NpcRig : MonoBehaviour
 {
@@ -166,7 +166,9 @@ public class NpcRig : MonoBehaviour
     public float srFailBackTime = 0.2f;                       // 卡住后退出来的时间
     public float srFailShake = 0.6f;                          // 卡住时枪磕一下的幅度（乘在 Rl Shake 上）
     [Range(0f, 1f)] public float srDropChance = 0.25f;       // 新弹匣拿回来的路上掉到地上的概率（最多掉 2 次；掉的样子用"换弹 2"的下落参数）
-    public float srDropAt = 0.6f;                             // 拿回来走到哪里掉（0 = 刚出身后，1 = 到了握把下方）
+    public Vector2 srSlipOffset = new Vector2(0.03f, -0.1f);  // 新弹匣滑掉时右手在哪（相对握把下方：x 往前，y 往上；默认在身体外面、手枪下面）
+    public Vector2 srFling = new Vector2(0.5f, 0.9f);         // 滑掉时弹出去的速度（x 往前，y 往上；单位 / 秒，每次随机 0.7~1.3 倍）
+    public Vector2 srFlingSpin = new Vector2(-1000f, -600f);  // 弹出去时转多快：在范围里随机（度 / 秒；负 = 往前翻，正 = 往后翻）
     public float srFumbleTime = 0.3f;                         // 掉了以后手愣住多久，再回身后拿一个
 
     [Header("瞄准（拿枪时锁定目标，枪口一直对着它；角度 = 度）")]
@@ -177,6 +179,7 @@ public class NpcRig : MonoBehaviour
     [Header("武器操作等级 / 紧张（游戏规则之后接；现在可以手动调来测试）")]
     [Range(1, 5)] public int weaponLevel = 3;                 // 武器操作等级：1 最生疏 ~ 5 最熟练
     public float[] levelReloadTime = { 1.5f, 1.2f, 1f, 0.85f, 0.7f };   // 各等级换弹时间的倍数（第 1 个 = 1 级；1 = 按上面调的时间，越小越快）
+    public float[] levelTremble = { 0.6f, 0.3f, 0f, 0f, 0f }; // 各等级平时持枪手抖多少（第 1 个 = 1 级；0 = 不抖，1 = 最厉害；和紧张取大的那个）
     [Range(0f, 1f)] public float nervous = 0f;                // 紧张程度：持枪时手抖多厉害（0 = 不抖，1 = 最厉害）
     public float trembleMove = 0.01f;                         // 抖动的位移幅度（单位；紧张 = 1 时）
     public float trembleAngle = 5f;                           // 抖动的角度幅度（度；紧张 = 1 时）
@@ -1072,8 +1075,9 @@ public class NpcRig : MonoBehaviour
         if (_held == "pistol")                                              // 持枪：手绕肩膀转到瞄准角度，后坐沿枪的方向顶回来
         {
             Vector2 hp = AimHand(_aimAng, (Vector2)off);
-            float tremA = 0f;                                               // 紧张：持枪手抖
-            if (nervous > 0f) hp += Tremble(nervous, 0f, out tremA);
+            float tremA = 0f;                                               // 持枪手抖：紧张 / 武器等级低（取抖得厉害的那个）
+            float trem = Mathf.Max(nervous, LevelTremble());
+            if (trem > 0f) hp += Tremble(trem, 0f, out tremA);
             _handPoint.localPosition = new Vector3(hp.x, hp.y, 0f);
             _handPoint.localRotation = Quaternion.Euler(0f, 0f, _aimAng + angle + tremA);   // 瞄准角度 + 枪口上扬 + 手抖
         }
@@ -1366,7 +1370,10 @@ public class NpcRig : MonoBehaviour
     }
 
     // 快速换弹：旧弹匣脱手，自己往下掉（空中时挂在角色下面，跟着人走、按部件顺序遮挡）
-    void DropMag(Vector2 pos, float ang, Vector2 vel)
+    void DropMag(Vector2 pos, float ang, Vector2 vel) { DropMag(pos, ang, vel, RandIn(qrSpin)); }
+
+    // 同上，自己指定转多快（度 / 秒）
+    void DropMag(Vector2 pos, float ang, Vector2 vel, float spin)
     {
         SpriteRenderer sr = new GameObject("DroppedMag").AddComponent<SpriteRenderer>();
         sr.sprite = Load("Held/PistolMag");
@@ -1375,7 +1382,7 @@ public class NpcRig : MonoBehaviour
         sr.transform.localRotation = Quaternion.Euler(0f, 0f, ang);
         sr.sortingOrder = 24;                                               // 在右手（29）、新弹匣（25）、枪身（26）后面，身体前面
         Destroy(sr.gameObject, qrGroundTime + 3f);                         // 保险：中途被打断也一定会删掉
-        StartCoroutine(FallMag(sr, pos, ang, vel, RandIn(qrSpin), RandIn(qrGroundY)));
+        StartCoroutine(FallMag(sr, pos, ang, vel, spin, RandIn(qrGroundY)));
     }
 
     // 旧弹匣往下掉 → 落地躺平 → 留在原地（不再跟着人走）→ 过一会儿淡出消失
@@ -1417,6 +1424,14 @@ public class NpcRig : MonoBehaviour
         if (levelReloadTime == null || levelReloadTime.Length == 0) return 1f;
         int i = Mathf.Clamp(weaponLevel, 1, levelReloadTime.Length) - 1;
         return Mathf.Max(0.1f, levelReloadTime[i]);
+    }
+
+    // 按武器等级，平时持枪手抖多少（0 = 不抖）
+    float LevelTremble()
+    {
+        if (levelTremble == null || levelTremble.Length == 0) return 0f;
+        int i = Mathf.Clamp(weaponLevel, 1, levelTremble.Length) - 1;
+        return Mathf.Clamp01(levelTremble[i]);
     }
 
     // 外部调用：这个人换这种弹匣要几秒（动画标准时间 × 武器等级倍数；NpcCombat 用）
@@ -1475,9 +1490,9 @@ public class NpcRig : MonoBehaviour
         AddShaky(PosePouch, PosePouch, rlGrabTime, 3, 0);                   // ⑤ 放下旧的，拿起新的
         for (int i = 0; i < 2 && Random.value < srDropChance; i++)          // 新弹匣掉了（最多 2 次）：回身后再拿一个
         {
-            AddShaky(PosePouch, PoseSlip, rlBringTime * srDropAt, 2, 0);    //   拿回来的路上……
+            AddShaky(PosePouch, PoseSlip, rlBringTime, 2, 0);               //   拿到手枪下方……
             AddShaky(PoseSlip, PoseSlip, srFumbleTime, 0, 2);               //   手一滑掉了，愣一下
-            AddShaky(PoseSlip, PosePouch, rlBringTime * srDropAt, 0, 0);    //   回身后
+            AddShaky(PoseSlip, PosePouch, rlBringTime, 0, 0);               //   回身后
             AddShaky(PosePouch, PosePouch, rlGrabTime, 4, 0);               //   再拿一个
         }
         AddShaky(PosePouch, PoseUnder, rlBringTime, 2, 0);                  // ⑥ 拿到握把下方
@@ -1542,8 +1557,8 @@ public class NpcRig : MonoBehaviour
         float failAng = gunAng + srFailTilt;                                             // 插歪了：歪一点、偏一点、只插进去一半
         _poseA[PoseFail] = failAng;
         _poseP[PoseFail] = gunPos + Rot(magIn - MAG_DIR * (rlReady * (1f - Mathf.Clamp01(srFailDepth))) + new Vector2(srFailOffset, 0f), gunAng) - Rot(rlMagInHand, failAng);
-        _poseP[PoseSlip] = Vector2.Lerp(_poseP[PosePouch], _poseP[PoseUnder], srDropAt); // 掉弹匣的地方：身后 → 握把下方的路上
-        _poseA[PoseSlip] = Mathf.LerpAngle(_poseA[PosePouch], _poseA[PoseUnder], srDropAt);
+        _poseP[PoseSlip] = _poseP[PoseUnder] + srSlipOffset;                            // 掉弹匣的地方：握把下方再偏一点（身体外面、手枪下面）
+        _poseA[PoseSlip] = _poseA[PoseUnder];
 
         // ---- 3. 右手 ----
         Vector2 hp = Vector2.Lerp(_poseP[cur.from], _poseP[cur.to], e);
@@ -1591,7 +1606,7 @@ public class NpcRig : MonoBehaviour
             _shakyFired++;
             if (g.evt == 2)                                                              // 新弹匣从手里滑掉，掉到地上
             {
-                DropMag(nb, ha, new Vector2(RandIn(qrKick), 0f));
+                DropMag(nb, ha, srFling * Random.Range(0.7f, 1.3f), RandIn(srFlingSpin));   // 手一甩：往前上方弹出去，边飞边转
                 if (OnNewMagDropped != null) OnNewMagDropped();
             }
         }
