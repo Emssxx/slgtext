@@ -270,6 +270,7 @@ public class BuildManager : MonoBehaviour
         SpriteRenderer sr = _gridOverlay.AddComponent<SpriteRenderer>();
         sr.sprite = Sprite.Create(_overlayTex, new Rect(0, 0, w, h), Vector2.zero, 1f / grid.cellSize); // 1 像素 = 1 小格
         sr.sortingOrder = 10; // 在Tilemap地图层上方
+        RenderMats.MakeUnlit(sr); // 2D 光照：建造网格一直看得清
         _overlayDirty = false;
     }
 
@@ -338,6 +339,7 @@ public class BuildManager : MonoBehaviour
             _ghost = new GameObject("BuildGhost");
             _ghostSr = _ghost.AddComponent<SpriteRenderer>();
             _ghostSr.sortingOrder = 11;
+            RenderMats.MakeUnlit(_ghostSr);   // 2D 光照：建造预览一直看得清
         }
         SpriteRenderer psr = _selectedData.prefab != null ? _selectedData.prefab.GetComponent<SpriteRenderer>() : null;
         _ghostSr.sprite = psr != null && psr.sprite != null ? psr.sprite : _selectedData.sprite;

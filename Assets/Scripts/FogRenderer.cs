@@ -56,6 +56,7 @@ public class FogRenderer : MonoBehaviour
                 sr.sprite = _squareSprite;
                 sr.color = new Color(fogColor.r, fogColor.g, fogColor.b, unexploredAlpha); // 初始全黑
                 sr.sortingOrder = sortingOrder;
+                RenderMats.MakeUnlit(sr);                               // 2D 光照：迷雾一直盖住，不被光照亮
 
                 _tiles[x, y] = sr;
             }

@@ -143,6 +143,12 @@ public class FogParticleRenderer : MonoBehaviour
     //   所以下面这些必须一项一项手动设。
     Material BuildFogMaterial()
     {
+        if (RenderMats.IsURP)                                    // URP：旧管线的粒子 shader 会变粉红，换成精灵 shader（同样是按 alpha 半透明叠上去）
+        {
+            Material u = new Material(Shader.Find("Sprites/Default"));
+            u.mainTexture = CreateSoftCircleTexture(64);
+            return u;
+        }
         Shader sh = Shader.Find("Particles/Standard Unlit");
         if (sh == null)
         {

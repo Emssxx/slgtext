@@ -82,6 +82,7 @@ public class NpcSpeechBubble : MonoBehaviour
         _body.drawMode = SpriteDrawMode.Sliced;
         _body.color = BodyColor;
         _body.sortingOrder = order;
+        RenderMats.MakeUnlit(_body);                                // 2D 光照：气泡一直看得清
 
         // 小尾巴（指向说话的人）
         GameObject tailGo = new GameObject("Tail");
@@ -90,6 +91,7 @@ public class NpcSpeechBubble : MonoBehaviour
         _tail.sprite = TailSprite();
         _tail.color = BodyColor;
         _tail.sortingOrder = order;
+        RenderMats.MakeUnlit(_tail);
 
         // 文字（3D 版 TextMeshPro，画在背景上面一层）
         GameObject textGo = new GameObject("Text");

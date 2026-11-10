@@ -97,6 +97,7 @@ public class FogOfWarRenderer : MonoBehaviour
         SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
         sr.sprite = Sprite.Create(_tex, new Rect(0, 0, _tw, _th), Vector2.zero, 1f / cs, 0, SpriteMeshType.FullRect);
         sr.sortingOrder = sortingOrder;
+        RenderMats.MakeUnlit(sr);                                   // 2D 光照：迷雾一直盖住，不被光照亮
         Refresh(0f);
     }
 

@@ -511,6 +511,7 @@ public class EnemyDirector : MonoBehaviour
         sr.sprite = WhiteSprite;
         sr.color = c;
         sr.sortingOrder = order;
+        RenderMats.MakeUnlit(sr);                                   // 2D 光照：血条 / 弹道线一直看得清
         return go.transform;
     }
 

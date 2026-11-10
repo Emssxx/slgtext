@@ -546,6 +546,7 @@ public static class WireTool
         sr.sprite = PowerBuildings.OutlineSprite();
         sr.color = new Color(1f, 0.85f, 0.3f, 0.95f);
         sr.sortingOrder = 12;
+        RenderMats.MakeUnlit(sr);                                   // 2D 光照：选中框一直看得清
     }
 
     static void Say(string msg)

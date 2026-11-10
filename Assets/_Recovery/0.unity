@@ -1363,7 +1363,7 @@ TilemapRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: a97c105638bdf8b4a8650670310a4cd3, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -4496,6 +4496,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::NpcBehaviorDriver
   decideInterval: 5
+  physicalNeeds: 1
 --- !u!4 &294606944
 Transform:
   m_ObjectHideFlags: 0
@@ -5036,6 +5037,9 @@ MonoBehaviour:
   gridHeight: 11
   cellSize: 1
   origin: {x: -12, y: -5}
+  subdivision: 3
+  mapSize: {x: 144, y: 66}
+  mapCenter: {x: 0, y: 0}
 --- !u!4 &445757494
 Transform:
   m_ObjectHideFlags: 0
@@ -6393,6 +6397,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 10bcefde556d4734c9a46a5cde9e57a4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ChatManager
+  hideLegacyChat: 1
   inputField: {fileID: 114308383}
   sendButton: {fileID: 494221817}
   contentParent: {fileID: 1561546700}
@@ -7179,6 +7184,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GridClickInput
   mainCamera: {fileID: 519420031}
   chatManager: {fileID: 684264370}
+  insertCoordOnClick: 0
 --- !u!4 &908406531
 Transform:
   m_ObjectHideFlags: 0
@@ -7747,7 +7753,7 @@ TilemapRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: a97c105638bdf8b4a8650670310a4cd3, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -9077,6 +9083,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 684d9fa82a169d24c80f18424ac15be0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::EventExecutor
+  warpRadius: 12
 --- !u!4 &1045335228
 Transform:
   m_ObjectHideFlags: 0
@@ -9205,7 +9212,13 @@ MonoBehaviour:
     worldItems: []
     sharedStorage: []
     eventLog: []
-  npcCount: 3
+    terminalLevel: 0
+    unlockedTechs: []
+    placedUniqueBuilds: []
+    leaderId: 
+    lastElectionDay: 0
+  startNpcCount: 4
+  playOpening: 1
 --- !u!4 &1123199522
 Transform:
   m_ObjectHideFlags: 0
@@ -9859,6 +9872,7 @@ MonoBehaviour:
   npcCardPrefab: {fileID: 7339783345350403218, guid: 4391e5b4a72890a4aae4080afc2d987a, type: 3}
   npcAgent: {fileID: 1623750296}
   font: {fileID: 0}
+  useChatWindow: 1
   refreshInterval: 0.5
 --- !u!114 &1285419526
 MonoBehaviour:
@@ -9955,6 +9969,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OllamaAIClient
   ollamaApiUrl: http://localhost:11434/api/chat
   modelName: qwen2.5:7b
+  temperature: 0.6
+  topP: 0.9
+  repeatPenalty: 1.1
+  numCtx: 8192
+  disableThinking: 1
+  liteEnabled: 1
+  liteModelName: qwen3:4b
+  liteApiUrl: 
+  liteTemperature: 0.3
+  liteNumCtx: 4096
+  keepAlive: 30m
+  liteCpuOnly: 0
+  liteCpuThreads: 6
 --- !u!4 &1285447923
 Transform:
   m_ObjectHideFlags: 0
@@ -10191,6 +10218,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::BuildModeToggle
   buildPanel: {fileID: 83738755}
   gridOverlay: {fileID: 519420033}
+  showLegacyPanel: 0
 --- !u!114 &1428673483
 MonoBehaviour:
   m_ObjectHideFlags: 0

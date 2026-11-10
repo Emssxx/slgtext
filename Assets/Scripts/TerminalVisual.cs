@@ -29,6 +29,11 @@ public class TerminalVisual : MonoBehaviour
     public Vector2 bubbleSpeed = new Vector2(120f, 300f);      // 上浮速度（原图像素 / 秒，随机）
     public int maxBubbles = 14;                                // 同时最多几个
 
+    [Header("灯光（URP 2D 光；建成后缸里发光照亮周围）")]
+    public Color lightColor = new Color(0.45f, 0.95f, 0.9f);   // 光的颜色（青色）
+    public float lightIntensity = 1.2f;                        // 亮度（0 = 关）
+    public float lightRadius = 5f;                             // 照多远（单位）
+
     // ---------------- 固定换算（和导出素材时一致，不要改） ----------------
     const float PPU_C = 2394f;                            // 原图上多少像素 = 1 单位（整台机器底部宽度 = 1 单位 = 3 小格）
     static readonly Vector2 ROOT = new Vector2(1384, 1595);   // 终端机本体的轴心在原图上的位置（占地正中）
@@ -52,6 +57,7 @@ public class TerminalVisual : MonoBehaviour
     readonly List<Bubble> _bubbles = new List<Bubble>();                // 气泡池（用完的重复利用）
     bool _ok;                              // 素材齐不齐（不齐就保持静态图）
     bool _animating;                       // 现在在不在播动画
+    UnityEngine.Rendering.Universal.Light2D _light;   // 缸里的光（URP 2D 光；旧管线下没有）
     float _t, _nextBubble;                 // 动画时间 / 距离下一个气泡还有多久
 
     class Bubble
@@ -131,6 +137,11 @@ public class TerminalVisual : MonoBehaviour
     void SetAnimating(bool on)
     {
         _animating = on;
+        if (on && _light == null && _brain != null)                   // 第一次建成：在缸（大脑）的位置加一盏灯；施工中跟着动画子物体一起关掉
+        {
+            _light = WorldLighting.CreatePoint("TerminalLight", _brain.parent, lightColor, lightIntensity, lightRadius, 360f);
+            if (_light != null) _light.transform.localPosition = _brainBase;
+        }
         _root.sprite = on ? _backSprite : _fullSprite;                // 换本体的图
         _parts.SetActive(on);                                         // 子物体开 / 关
     }
@@ -142,6 +153,11 @@ public class TerminalVisual : MonoBehaviour
         bool built = _ctrl == null || _ctrl.isBuilt;                  // 建成了吗
         if (built != _animating) SetAnimating(built);                 // 状态变了就切换
         if (!_animating) return;
+        if (_light != null)                                           // Inspector 里改的灯光参数马上生效
+        {
+            _light.enabled = lightIntensity > 0f;
+            WorldLighting.SetPoint(_light, lightColor, lightIntensity, lightRadius, 360f);
+        }
         float dt = Time.deltaTime;
         if (dt <= 0f) return;                                         // 暂停（建造模式）时不动
         _t += dt;
@@ -222,7 +238,7 @@ public class TerminalVisual : MonoBehaviour
             go.transform.localPosition = CanvasToLocal(cx, cy);          // 放在它的轴心位置
             MeshFilter mf = go.AddComponent<MeshFilter>();
             MeshRenderer mr = go.AddComponent<MeshRenderer>();
-            if (_mat == null) _mat = new Material(Shader.Find("Sprites/Default"));
+            if (_mat == null) _mat = RenderMats.MeshSpriteMaterial();    // 2D 光照：软管是建筑的一部分，受光（旧管线 = Sprites/Default）
             mr.sharedMaterial = _mat;
             mr.sortingOrder = order;                                     // 在 SortingGroup 里的前后顺序
             if (sprite == null) return;

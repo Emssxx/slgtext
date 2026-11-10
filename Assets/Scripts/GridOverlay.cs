@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;   // URP 的"相机画完"回调
 
 // 网格线渲染器：建造模式下在地图上画半透明网格线。
 // 读 GridManager 的尺寸设置，用 GL 直接画线，零额外物体开销。
@@ -21,8 +22,33 @@ public class GridOverlay : MonoBehaviour
         _mat.SetInt("_ZWrite",  0);
     }
 
-    // OnPostRender 在相机渲染完场景后调用，画在场景最上层。
+    Camera _cam;                   // 挂在哪个相机上
+
+    // URP 不会调用 OnPostRender，改用"某个相机画完"的回调（旧管线照样走 OnPostRender）
+    void OnEnable()
+    {
+        _cam = GetComponent<Camera>();
+        RenderPipelineManager.endCameraRendering += OnEndCamera;
+    }
+
+    void OnDisable()
+    {
+        RenderPipelineManager.endCameraRendering -= OnEndCamera;
+    }
+
+    void OnEndCamera(ScriptableRenderContext ctx, Camera cam)
+    {
+        if (cam == _cam) DrawGrid();   // 只在自己这个相机上画
+    }
+
+    // 旧管线（内置管线）：OnPostRender 在相机渲染完场景后调用，画在场景最上层。
     void OnPostRender()
+    {
+        DrawGrid();
+    }
+
+    // 画网格线
+    void DrawGrid()
     {
         if (GridManager.Instance == null) return;
         // 不在建造模式就不画（Esc 退出建造模式时不会经过 BuildModeToggle，之前网格线会一直留着）
@@ -35,6 +61,11 @@ public class GridOverlay : MonoBehaviour
         float totalH = gm.gridHeight * gm.cellSize;
 
         GL.PushMatrix();
+        if (_cam != null)                                       // 明确用这个相机的视角画（URP 的回调里不会自动设好）
+        {
+            GL.LoadProjectionMatrix(_cam.projectionMatrix);
+            GL.modelview = _cam.worldToCameraMatrix;
+        }
         _mat.SetPass(0);
         GL.Begin(GL.LINES);
         GL.Color(lineColor);

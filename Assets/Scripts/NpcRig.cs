@@ -198,6 +198,25 @@ public class NpcRig : MonoBehaviour
     public float trembleFreq = 9f;                            // 抖得多快
     public float trembleReloadMul = 1.5f;                     // 颤抖换弹时抖动是"紧张 = 1 持枪"的几倍
 
+    [Header("灯光（URP 2D 光；亚空间很暗，靠防护服上的灯照亮）")]
+    public bool headlamp = true;                              // 手电筒开不开（头盔上两个淡蓝色的圆灯，PSD 躯干图层）
+    public Color headlampColor = new Color(0.78f, 0.92f, 1f); // 手电筒光的颜色（冷白偏蓝）
+    public float headlampIntensity = 0.7f;                    // 每盏手电筒的亮度（两盏叠在一起）
+    public float headlampRange = 4f;                          // 手电筒照多远（单位）
+    public float headlampAngle = 50f;                         // 手电筒光束多宽（度）
+    public float headlampDown = -12f;                         // 平时手电筒往下照多少度（拿枪时跟着枪口方向）
+    public Color lampGlowColor = new Color(0.6f, 0.95f, 1f);  // 两个圆灯本身的发光颜色
+    public float lampGlowSize = 1f;                           // 圆灯发光多大（倍数）
+    public Color antennaColor = new Color(0.35f, 1f, 0.45f);  // 天线顶上呼吸灯的颜色（绿）
+    public float antennaPeriod = 2.2f;                        // 呼吸灯一呼一吸多少秒
+    public float antennaLight = 0.5f;                         // 呼吸灯照亮周围的亮度（最亮时；0 = 只发光不照亮）
+    public Color suitGlowColor = new Color(0.7f, 0.85f, 1f);  // 防护服身上的一圈微光颜色
+    public float suitGlowIntensity = 0.35f;                   // 身上微光亮度（0 = 关）
+    public float suitGlowRadius = 1.1f;                       // 身上微光范围（单位）
+    public Color muzzleLightColor = new Color(1f, 0.72f, 0.38f);   // 开枪时火光照亮周围的颜色
+    public float muzzleLightIntensity = 2.5f;                 // 开枪火光亮度
+    public float muzzleLightRadius = 2.2f;                    // 开枪火光照多远（单位）
+
     [Header("测试（运行时选中 NPC 用；不受腰上挂件限制）")]
     public TestHeld testHeld = TestHeld.None;                 // 强制拿什么（不测试 = 按游戏里的情况）
     public bool testLoop = true;                              // 斧头 / 锤子一直循环挥；手枪每 1.4 秒开一枪
@@ -802,6 +821,142 @@ public class NpcRig : MonoBehaviour
         UpdateTest(dt);                                           // 测试开关
         AnimateHeld(dt);                                          // 挥动 / 后坐
         Apply();
+        UpdateLights();                                           // 头灯 / 身上的光（跟着朝向和枪口）
+    }
+
+    // ---------------- 灯光 ----------------
+    // 头盔上两个淡蓝色圆灯 = 手电筒（P_LAMP_A 前面那盏、P_LAMP_B 后面那盏）；天线顶上的绿点 = 呼吸灯（都从 npc12.PSD 量的，原图像素）
+    static readonly Vector2 P_LAMP_A = new Vector2(1444.5f, 495.2f), P_LAMP_B = new Vector2(1015.1f, 502.5f);
+    static readonly Vector2 P_ANT_LED = new Vector2(578.6f, 138.9f);
+    UnityEngine.Rendering.Universal.Light2D _beamA, _beamB, _suitLight, _antLight;   // 两道手电筒光 / 身上的微光 / 呼吸灯的光
+    Transform _lampA, _lampB, _antLed;                                // 两个圆灯、天线绿点的位置（挂在身体 / 天线上，跟着晃）
+    SpriteRenderer _lampGlowA, _lampGlowB, _antGlow;                  // 它们自己发的光（不受光照，一直亮）
+    bool _lightsMade;                                                 // 灯已经加过了
+    static Sprite _glowSprite;                                        // 发光圆点图（代码画）
+
+    // 每帧：手电筒跟着朝向照（拿枪时跟着枪口方向），呼吸灯一明一暗；Inspector 里改的参数马上生效。旧管线下只有发光点、没有照明
+    void UpdateLights()
+    {
+        if (!_lightsMade) MakeLights();
+        float breath = 0.5f + 0.5f * Mathf.Sin(2f * Mathf.PI * _time / Mathf.Max(0.2f, antennaPeriod));   // 呼吸：0 ~ 1
+        SetGlow(_lampGlowA, lampGlowColor, headlamp ? 1f : 0.15f, lampGlowSize);                         // 圆灯本身
+        SetGlow(_lampGlowB, lampGlowColor, headlamp ? 1f : 0.15f, lampGlowSize);
+        SetGlow(_antGlow, antennaColor, 0.25f + 0.75f * breath, 0.6f + 0.4f * breath);                   // 呼吸灯本身
+        if (!RenderMats.IsURP) return;
+        bool left = FacingLeft;
+        float local = _held == "pistol" ? _aimAng : headlampDown;        // 手电筒朝哪照（按角色朝向的角度，0 = 正前方）
+        float world = left ? 180f - local : local;                       // 朝左时镜像
+        Beam(_beamA, _lampA, world);
+        Beam(_beamB, _lampB, world);
+        if (_suitLight != null)
+        {
+            _suitLight.enabled = suitGlowIntensity > 0f;
+            WorldLighting.SetPoint(_suitLight, suitGlowColor, suitGlowIntensity, suitGlowRadius, 360f);
+            _suitLight.transform.localPosition = new Vector3(0f, FEET_Y + 0.4f, 0f);   // 身体中间
+        }
+        if (_antLight != null && _antLed != null)
+        {
+            _antLight.enabled = antennaLight > 0f;
+            WorldLighting.SetPoint(_antLight, antennaColor, antennaLight * breath, 0.7f, 360f);   // 跟着呼吸一明一暗
+            _antLight.transform.position = _antLed.position;
+        }
+    }
+
+    // 第一次：在身体 / 天线上找好位置，加发光点和灯
+    void MakeLights()
+    {
+        _lightsMade = true;
+        _lampA = Anchor("LampA", _body, P_LAMP_A, P_BODY);                // 跟着身体颠动、摇摆、压扁
+        _lampB = Anchor("LampB", _body, P_LAMP_B, P_BODY);
+        _antLed = Anchor("AntennaLED", _antenna, P_ANT_LED, P_ANTENNA);   // 跟着天线晃
+        _lampGlowA = GlowDot(_lampA);
+        _lampGlowB = GlowDot(_lampB);
+        _antGlow = GlowDot(_antLed);
+        if (!RenderMats.IsURP) return;
+        // 照明的灯挂在角色根物体上（不跟着左右翻），每帧自己对位置、算方向
+        _beamA = WorldLighting.CreatePoint("FlashlightA", transform, headlampColor, headlampIntensity, headlampRange, headlampAngle);
+        _beamB = WorldLighting.CreatePoint("FlashlightB", transform, headlampColor, headlampIntensity, headlampRange, headlampAngle);
+        _suitLight = WorldLighting.CreatePoint("SuitGlow", transform, suitGlowColor, suitGlowIntensity, suitGlowRadius, 360f);
+        _antLight = WorldLighting.CreatePoint("AntennaLight", transform, antennaColor, antennaLight, 0.7f, 360f);
+    }
+
+    // 在某个部件上放一个空物体当位置标记（pivot = 部件自己的轴心，原图像素）
+    static Transform Anchor(string name, Transform parent, Vector2 at, Vector2 pivot)
+    {
+        Transform t = new GameObject(name).transform;
+        if (parent != null) t.SetParent(parent, false);
+        t.localPosition = CanvasToLocal(at - pivot);
+        return t;
+    }
+
+    // 一个发光圆点：叠加发光（找不到就用不受光材质），画在面罩上面，所以在黑暗里也一直亮
+    SpriteRenderer GlowDot(Transform at)
+    {
+        if (at == null) return null;
+        if (_glowSprite == null) _glowSprite = GlowSprite();
+        EnsureFx();                                                       // 借用枪火的叠加发光材质
+        SpriteRenderer sr = new GameObject("Glow").AddComponent<SpriteRenderer>();
+        sr.transform.SetParent(at, false);
+        sr.sprite = _glowSprite;
+        sr.sortingOrder = 23;                                             // 面罩（22）上面
+        if (_fxAdditive != null) sr.sharedMaterial = _fxAdditive;
+        else RenderMats.MakeUnlit(sr);
+        return sr;
+    }
+
+    // 发光点的颜色 / 亮度 / 大小
+    static void SetGlow(SpriteRenderer sr, Color c, float bright, float size)
+    {
+        if (sr == null) return;
+        c.a = Mathf.Clamp01(bright);
+        sr.color = c;
+        sr.transform.localScale = Vector3.one * Mathf.Max(0.01f, size);
+    }
+
+    // 一道手电筒光：放在圆灯的位置，朝 world 度照（2D 聚光是朝自己的"上方"照的）
+    void Beam(UnityEngine.Rendering.Universal.Light2D l, Transform lamp, float world)
+    {
+        if (l == null || lamp == null) return;
+        l.enabled = headlamp && headlampIntensity > 0f;
+        WorldLighting.SetPoint(l, headlampColor, headlampIntensity, headlampRange, headlampAngle);
+        l.transform.position = lamp.position;
+        l.transform.rotation = Quaternion.Euler(0f, 0f, world - 90f);
+    }
+
+    // 发光圆点图：中间亮、往外柔和变暗的白色圆（颜色由 SpriteRenderer 染）
+    static Sprite GlowSprite()
+    {
+        const int n = 64;
+        Texture2D t = new Texture2D(n, n, TextureFormat.RGBA32, false);
+        t.wrapMode = TextureWrapMode.Clamp;
+        t.filterMode = FilterMode.Bilinear;
+        for (int x = 0; x < n; x++)
+            for (int y = 0; y < n; y++)
+            {
+                float d = Vector2.Distance(new Vector2(x, y), new Vector2((n - 1) * 0.5f, (n - 1) * 0.5f)) / (n * 0.5f);   // 0 = 中心，1 = 边
+                float core = Mathf.Clamp01(1f - d / 0.3f);                // 中间一小圈实心
+                float halo = Mathf.Pow(Mathf.Clamp01(1f - d), 2.2f);      // 外面一圈柔光
+                t.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Clamp01(core + halo * 0.7f)));
+            }
+        t.Apply();
+        return Sprite.Create(t, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), 640f);   // 约 0.1 单位大（圆灯的 3 倍左右）
+    }
+
+    // 开枪火光：枪口那一下把周围照亮，很快暗下去
+    IEnumerator MuzzleLight(Vector3 at)
+    {
+        UnityEngine.Rendering.Universal.Light2D l = WorldLighting.CreatePoint("MuzzleLight", null, muzzleLightColor, muzzleLightIntensity, muzzleLightRadius, 360f);
+        if (l == null) yield break;
+        l.transform.position = at;
+        Destroy(l.gameObject, 1f);                                        // 保险：一定删掉
+        float life = Mathf.Max(0.03f, flashTime * 1.3f), t = 0f;
+        while (l != null && t < life)
+        {
+            l.intensity = muzzleLightIntensity * (1f - t / life);         // 越来越暗
+            t += Time.deltaTime;
+            yield return null;
+        }
+        if (l != null) Destroy(l.gameObject);
     }
 
     // 测试开关：换了测试选项马上换手；勾了"测试出手"就挥一下 / 开一枪；手枪循环时每 1.4 秒自动开一枪
@@ -1017,6 +1172,7 @@ public class NpcRig : MonoBehaviour
         SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
         sr.sprite = BulletSprite();
         sr.sortingOrder = 60;                                               // 画在人和建筑上面
+        RenderMats.MakeUnlit(sr);                                           // 2D 光照：子弹自己发亮，不受光
         float dur = Mathf.Max(0.04f, d.magnitude / Mathf.Max(1f, bulletSpeed));  // 飞多久
         Destroy(go, dur + 0.5f);                                            // 保险：到时间一定删掉
         StartCoroutine(FlyBullet(go.transform, from, target, dur, canRicochet));   // 飞过去
@@ -1070,6 +1226,7 @@ public class NpcRig : MonoBehaviour
         if (g >= 0) FxLayer("MuzzleGlow", _fxGlow[g], 56, glowTime, k * size, 0.95f, 1.05f, g == 0, at, ang, left);   // 亮光 1 = 叠加发光，亮光 2 = 普通
         FxLayer("MuzzleFlash", Pick(_fxFlash), 57, sparkTime, k * size, 0.9f, 1.1f, false, at, ang, left);
         if (flashSmoke) MuzzleSmoke(k);
+        if (RenderMats.IsURP && muzzleLightIntensity > 0f) StartCoroutine(MuzzleLight(at));   // 火光照亮周围
     }
 
     // 从几张图里随机挑一张（没有就返回 null）
@@ -1109,6 +1266,7 @@ public class NpcRig : MonoBehaviour
         SpriteRenderer sr = new GameObject(name).AddComponent<SpriteRenderer>();
         sr.sprite = sprite;
         sr.sortingOrder = order;
+        RenderMats.MakeUnlit(sr);                                            // 2D 光照：枪火 / 跳弹 / 烟自己发亮，不受光（亮光 1 之后会换成叠加材质）
         if (parent != null) sr.transform.SetParent(parent, false);
         return sr;
     }
@@ -2187,7 +2345,7 @@ public class NpcRig : MonoBehaviour
             go.transform.SetParent(parent, false);                       // 放在身体下，原点 = 身体转动点（软管素材的轴心也在这）
             MeshFilter mf = go.AddComponent<MeshFilter>();
             MeshRenderer mr = go.AddComponent<MeshRenderer>();
-            if (_mat == null) _mat = new Material(Shader.Find("Sprites/Default"));
+            if (_mat == null) _mat = RenderMats.MeshSpriteMaterial();    // 2D 光照：软管是身体的一部分，受光（旧管线 = Sprites/Default）
             mr.sharedMaterial = _mat;
             mr.sortingOrder = order;
             if (sprite == null) return;

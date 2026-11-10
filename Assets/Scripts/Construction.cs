@@ -151,6 +151,7 @@ public class ConstructionSite : MonoBehaviour
         bsr.sprite = _white;
         bsr.color = new Color(0f, 0f, 0f, 0.6f);
         bsr.sortingOrder = 15;
+        RenderMats.MakeUnlit(bsr);                                  // 2D 光照：进度条一直看得清
 
         GameObject fill = new GameObject("Fill");
         fill.transform.SetParent(_bar, false);
@@ -159,6 +160,7 @@ public class ConstructionSite : MonoBehaviour
         fsr.sprite = _white;
         fsr.color = new Color(0.45f, 0.9f, 0.5f, 0.95f);
         fsr.sortingOrder = 16;
+        RenderMats.MakeUnlit(fsr);
         _fill = fill.transform;
     }
 }
