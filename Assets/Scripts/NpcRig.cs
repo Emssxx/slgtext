@@ -606,7 +606,21 @@ public class NpcRig : MonoBehaviour
 
     void Start()
     {
-        StartCoroutine(BuildWhenReady());                // 等 NPC 的 id 和数据就绪再拼角色
+        TryStartBuild();                                 // 等 NPC 的 id 和数据就绪再拼角色
+    }
+
+    // 物体被藏起来时（比如动画测试中心切换显示），正在等的协程会被 Unity 停掉、之后也不会再调 Start：
+    // 所以重新显示时，如果还没拼好，就重新开始等（不然角色一直是一张不会动的旧图）
+    bool _buildStarted, _building;                       // Start 已经跑过 / 正在等着拼
+    void OnEnable() { if (_buildStarted) TryStartBuild(); }
+    void OnDisable() { _building = false; }              // 协程被停掉了
+
+    void TryStartBuild()
+    {
+        _buildStarted = true;
+        if (_built || _building) return;                 // 拼好了 / 已经在等了
+        _building = true;
+        StartCoroutine(BuildWhenReady());
     }
 
     // 等 NpcSpawner 设好 id、数据能查到，再拼角色（最多等 3 秒拿年龄档案，拿不到就按 30 岁算）。

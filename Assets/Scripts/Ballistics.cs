@@ -62,6 +62,12 @@ public class Ballistics : MonoBehaviour
     [Tooltip("身体多粗：子弹离身体中心多近算打中（单位；敌人再 × 体型）")]
     public float bodyRadius = 0.3f;
 
+    [Header("击退（NPC 的手枪）")]
+    [Tooltip("NPC 手枪子弹打中时把目标往后推的初速度（单位 / 秒；推出去的距离约 = 这个 ÷ 10；0 = 不击退）。ABA 的手枪在 AbaForce 里调")]
+    public float npcPistolKnockback = 2.5f;
+    [Tooltip("被 NPC 手枪打中后打断攻击几秒（再除以体型的平方：大块头几乎打不断）")]
+    public float npcPistolStagger = 0.25f;
+
     [Header("散布（度）：σ = 基础 × 武器等级 × 状态 + 后坐力")]
     [Tooltip("手枪基础散布（3 级、站着、冷静）")]
     public float pistolSpread = 10f;
@@ -194,7 +200,8 @@ public class Ballistics : MonoBehaviour
         Vector2 dir = Rotate(aim, Gauss() * sigma);
         b.AddRecoil(n != null ? n.id : "?");
         if (rig != null) rig.MuzzleFlash();
-        b.Spawn(from, dir, speed, damage, aimDist, n, null, rig != null ? rig.ricochetChance : 0.3f);
+        Bullet bullet = b.Spawn(from, dir, speed, damage, aimDist, n, null, rig != null ? rig.ricochetChance : 0.3f);
+        bullet.knock = b.npcPistolKnockback;                                   // 手枪子弹带击退
         b.DrawSpread(from, aim, dir, sigma, aimDist);
     }
 
@@ -383,6 +390,7 @@ public class Ballistics : MonoBehaviour
             Raise(p, b, -b.dir, ImpactMaterial.Flesh, hitAba.gameObject, Vector2Int.zero);
             ImpactFx(p, b.dir, -b.dir, ImpactMaterial.Flesh);
             hitAba.TakeHit(b.damage, b.dir, b.byEnemy, b.byNpc);
+            if (b.knock > 0f && hitAba.Alive) Knockback.Push(hitAba.gameObject, b.dir * b.knock);   // NPC 的手枪也能把 ABA 队员推一下
             return false;
         }
 
@@ -396,6 +404,7 @@ public class Ballistics : MonoBehaviour
             if (b.byAba != null) { HitByAba(b, hitEnemy, hitNpc, who); return false; }
             if (hitEnemy != null) hitEnemy.TakeDamage(b.damage, b.byNpc);
             else NpcCombat.OnHit(hitNpc, b.damage, b.byEnemy, b.byNpc);
+            if (b.knock > 0f) KnockNpcShot(b, hitEnemy, hitNpc, who);          // NPC 手枪：击退 + 打断攻击
             return false;
         }
 
@@ -437,6 +446,20 @@ public class Ballistics : MonoBehaviour
         NpcCombat.OnHit(hitNpc, b.damage, null, null, op);
         if (b.knock > 0f && !hitNpc.IsDead && who != null) Knockback.Push(who, b.dir * b.knock);
         if (hitNpc.IsDead && op != null) op.OnKill(null, hitNpc);
+    }
+
+    // NPC 手枪打中：敌人往后推（体型越大推得越少）并打断一下攻击；流弹打中自己人也会被推一下
+    void KnockNpcShot(Bullet b, Enemy hitEnemy, NpcData hitNpc, GameObject who)
+    {
+        if (hitEnemy != null)
+        {
+            if (!hitEnemy.Alive) return;
+            float mass = Mathf.Max(0.6f, hitEnemy.Def.scale * hitEnemy.Def.scale);
+            Knockback.Push(hitEnemy.gameObject, b.dir * (b.knock / mass));
+            if (npcPistolStagger > 0f) hitEnemy.Stagger(npcPistolStagger / mass);
+            return;
+        }
+        if (hitNpc != null && !hitNpc.IsDead && who != null) Knockback.Push(who, b.dir * b.knock);
     }
 
     // ABA 队员的身体（ABA 自己开的枪穿过队员：不打自己人）
