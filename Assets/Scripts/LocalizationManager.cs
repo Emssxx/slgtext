@@ -130,6 +130,7 @@ public class LocalizationManager : MonoBehaviour
             { "combat_log_fight",   ("{0} 迎战{1}（{2}）", "{0}は{1}に立ち向かう（{2}）") },
             { "combat_log_flee",    ("{0} 躲开了{1}", "{0}は{1}から逃げた") },
             { "combat_log_kill",    ("{0} 打倒了{1}", "{0}が{1}を倒した") },
+            { "combat_log_friendly", ("{0} 被{1}的流弹打中了", "{0}は{1}の流れ弾に当たった") },
             { "combat_log_injured", ("{0} 被{1}打伤了（{2}）", "{0}は{1}にやられて怪我をした（{2}）") },
             { "combat_act_fight",   ("正在和{0}战斗", "{0}と戦っている") },
             { "combat_act_flee",    ("在躲{0}", "{0}から逃げている") },

@@ -1212,7 +1212,7 @@ public class NpcRig : MonoBehaviour
 
     // 开一枪：枪火（2 种）+ 闪光（2 种）+ 亮光（2 种）各随机挑一种拼起来。
     // 都放在开枪那一刻的子弹生成点上，朝着那一刻的枪口方向（朝左时左右翻）；之后枪往上跳（后坐）枪火也不跟着动
-    void MuzzleFlash()
+    public void MuzzleFlash()   // public：Ballistics 开枪时调（子弹由 Ballistics 飞，枪火还是这里画）
     {
         if (_muzzle == null) return;
         EnsureFx();

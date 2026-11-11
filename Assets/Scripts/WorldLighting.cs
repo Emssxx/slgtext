@@ -41,7 +41,7 @@ public class WorldLighting : MonoBehaviour
         foreach (Light2D l in FindObjectsByType<Light2D>(FindObjectsSortMode.None))
             if (l.lightType == Light2D.LightType.Global) return;         // 场景里自己放了全局光：用自己的
         WorldLighting w = new GameObject("WorldLighting").AddComponent<WorldLighting>();
-        if (scene == "AnimTest") w.ambientIntensity = 0.5f;             // 动画测试场景亮一点（要看清动作）
+        if (scene.StartsWith("AnimTest")) w.ambientIntensity = 0.5f;    // 动画测试场景（AnimTest、AnimTest2）亮一点（要看清动作）
     }
 
     void Awake()

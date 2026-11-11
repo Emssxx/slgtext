@@ -32,6 +32,8 @@ public class Enemy : MonoBehaviour
     public bool Visible { get; private set; } = true;   // 不在迷雾里（玩家看得见）
     public string Name => Def != null ? Def.Name : name;
     public NpcData Target => _target;
+    // 现在的移动速度（开枪的人预判走位用）
+    public Vector3 Velocity => _agent != null && _agent.isActiveAndEnabled ? _agent.velocity : Vector3.zero;
     // 现在是不是冲着人来的：造物永远是；人类只有来袭 / 来抢、正盯着某人、或者挨过打时才算（游荡的拾荒者路过不算）
     public bool Hostile => Def != null && (Def.kind == EnemyKind.Creature || goal != Goal.Wander || _target != null || _lastHitBy != null);
 
@@ -318,9 +320,20 @@ public class Enemy : MonoBehaviour
         if (_attackCd > 0f) return;
         if (Dist(transform.position, tp) > Def.attackRange + 0.25f) return;
         _attackCd = Def.attackInterval * Random.Range(0.9f, 1.1f);
+        if (Def.Ranged)
+        {
+            // 远程（带枪的）：子弹真的飞过去，路上先碰到什么就打中什么（Ballistics；不掷命中率）
+            Vector2 aim = tp - transform.position;
+            Vector2 fwd = aim.sqrMagnitude > 0.0001f ? aim.normalized : Vector2.right;
+            Vector3 muzzle = transform.position + new Vector3(fwd.x, fwd.y, 0f) * 0.25f * Def.scale + new Vector3(0f, 0.05f, 0f);
+            NpcMover tm = NpcView.GetMover(_target.id);
+            UnityEngine.AI.NavMeshAgent ta = tm != null ? tm.GetComponent<UnityEngine.AI.NavMeshAgent>() : null;
+            Vector3 tv = ta != null && ta.isActiveAndEnabled ? ta.velocity : Vector3.zero;
+            Ballistics.FireFromEnemy(this, muzzle, tp, tv, Def.damage, Velocity.sqrMagnitude > 0.05f);
+            return;
+        }
         _lunge = 1f;
-        if (Def.Ranged) EnemyDirector.Tracer(transform.position, tp, new Color(1f, 0.85f, 0.5f, 0.9f));
-        float hit = Def.kind == EnemyKind.Creature ? 0.8f : 0.7f;
+        float hit = Def.kind == EnemyKind.Creature ? 0.8f : 0.7f;   // 近战：照旧按命中率
         if (Random.value < hit) NpcCombat.OnEnemyHit(_target, Def.damage, this);
     }
 

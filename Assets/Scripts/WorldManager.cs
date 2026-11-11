@@ -39,6 +39,7 @@ public class WorldManager : MonoBehaviour
         NpcHealth.Ensure();                              // 7. NPC 健康系统（饥饿值 / 水分 / 体力 / 状态词条，每秒结算）
         ConstructionManager.Ensure();                    // 8. 规划区施工（点蓝图指派施工的人）
         NpcInventory.Ensure();                           // 8.4 NPC 物品栏（按分工去仓库拿东西 / 放回、自己包扎、遗物）
+        Ballistics.Ensure();                             // 8.45 弹道（子弹飞行、散布、打中什么；数值在它的 Inspector 上）
         EnemyDirector.Ensure();                          // 8.5 敌人（游荡的造物 / 拾荒者，导演事件里的来袭；NPC 打或躲）
         OpeningDirector.Begin(playOpening);              // 9. 开场：黑屏对话 → AI 启动 → 投票选领导（期间世界静止）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
