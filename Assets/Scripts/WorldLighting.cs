@@ -10,7 +10,9 @@ using UnityEngine.SceneManagement;
 //   主菜单不加；场景里已经自己放了全局光（Global Light 2D）就用自己的，不再加。
 //   运行时选中 WorldLighting 物体，在 Inspector 里调环境光颜色 / 亮度，马上生效。
 // 【别的地方加灯】用 CreatePoint（NPC 头灯 / 身上的光、终端机、枪口火光都用它）；要投影子的灯再调 EnableShadows。
-// 【阴影】建筑 / 树 / 石头每秒自动检查一次，加上投影体（形状 = 底部占地）；人 / 敌人加脚下的影子（GroundShadow）。
+// 【阴影】Shadow Mode 选：
+//   Silhouette（默认）：剪影投影（SilhouetteShadows）——人 / 敌人 / 建筑 / 树石的影子 = 它们自己的边缘剪影，按灯的位置、高度真实投影，带半影和渐变。
+//   Classic（旧）：建筑 / 树 / 石头加 Unity 投影体（形状 = 底部占地）；人 / 敌人加脚下拉长的一条（GroundShadow）。
 // 【旧管线下】什么都不做。
 // ============================================================================
 public class WorldLighting : MonoBehaviour
@@ -68,8 +70,15 @@ public class WorldLighting : MonoBehaviour
     // 建筑（有占地的）、树、石头会自动加"投影体"：形状 = 它们底部占地的一块，被手电筒 / 终端机 / 枪火照到就往后投影子。
     // 投影体和它的图在同一个物体上，并且"用图的轮廓"，所以物体自己的图不会被自己的影子盖黑。
 
+    public enum ShadowMode
+    {
+        [InspectorName("剪影投影（拟真）")] Silhouette,
+        [InspectorName("旧：投影体 + 脚下一条")] Classic,
+    }
+
     [Header("阴影")]
     public bool shadows = true;                                   // 建筑 / 树 / 石头投影子
+    public ShadowMode shadowMode = ShadowMode.Silhouette;         // 影子用哪一套（剪影投影的细节参数在运行时的 SilhouetteShadows 物体上调）
     [Range(0f, 1f)] public float shadowStrength = 0.9f;           // 影子多黑（灯的阴影强度）
     [Range(0f, 1f)] public float shadowSoftness = 0.3f;           // 影子边缘多软（新版 Unity 才有）
 
@@ -81,6 +90,10 @@ public class WorldLighting : MonoBehaviour
         _scanTimer -= Time.deltaTime;
         if (_scanTimer > 0f) return;
         _scanTimer = 1f;                                          // 每秒找一次（新盖的建筑、新长的树也会加上）
+        ShadowLights.RemoveAll(l => l == null);                   // 删掉已经没了的灯
+        bool silhouette = shadowMode == ShadowMode.Silhouette;
+        foreach (Light2D l in ShadowLights) SetMember(l, "shadowsEnabled", !silhouette);   // 剪影模式：不用 Unity 自带的阴影（免得两套叠在一起）
+        if (silhouette) { SilhouetteShadows.Ensure(); return; }   // 剪影投影自己找要投影子的东西
         float cell = GridManager.Instance != null ? GridManager.Instance.cellSize : 1f / 3f;   // 1 小格多长
         foreach (BuildingFootprint f in BuildingFootprint.All)
             if (f != null) AddCaster(f.gameObject, new Vector2(f.size.x * cell * 0.95f, f.size.y * cell * 0.95f));   // 建筑：整块占地
@@ -124,13 +137,22 @@ public class WorldLighting : MonoBehaviour
 
     // 会投影子的灯（人 / 敌人脚下的影子按它们算）
     public static readonly System.Collections.Generic.List<Light2D> ShadowLights = new System.Collections.Generic.List<Light2D>();
+    static readonly System.Collections.Generic.Dictionary<Light2D, float> _heights = new System.Collections.Generic.Dictionary<Light2D, float>();
 
-    // 给一盏灯打开阴影（手电筒、终端机、枪火用）
-    public static void EnableShadows(Light2D l)
+    // 这盏灯离地多高（EnableShadows 时给过就用给的，没给用 fallback）。挂在人身上的灯剪影投影会自己算，不看这个
+    public static float LightHeight(Light2D l, float fallback)
+    {
+        return l != null && _heights.TryGetValue(l, out float h) ? h : fallback;
+    }
+
+    // 给一盏灯打开阴影（手电筒、终端机、枪火用）。height = 灯离地多高（单位；不给 = 剪影投影按默认值 / 挂在谁身上自动算）
+    public static void EnableShadows(Light2D l, float height = -1f)
     {
         if (l == null) return;
         if (!ShadowLights.Contains(l)) ShadowLights.Add(l);       // 登记：人 / 敌人的影子会参考它
+        if (height > 0f) _heights[l] = height;
         if (Instance == null || !Instance.shadows) return;
+        if (Instance.shadowMode == ShadowMode.Silhouette) { SilhouetteShadows.Ensure(); return; }   // 剪影模式：不开 Unity 自带的阴影
         SetMember(l, "shadowsEnabled", true);
         SetMember(l, "shadowIntensity", Instance.shadowStrength);
         SetMember(l, "shadowSoftness", Instance.shadowSoftness);

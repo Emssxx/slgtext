@@ -130,6 +130,7 @@ GameObject:
   - component: {fileID: 19386477}
   - component: {fileID: 19386476}
   - component: {fileID: 19386475}
+  - component: {fileID: 19386478}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -211,6 +212,50 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &19386478
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 19386474}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
+  m_RenderShadows: 1
+  m_RequiresDepthTextureOption: 2
+  m_RequiresOpaqueTextureOption: 2
+  m_CameraType: 0
+  m_Cameras: []
+  m_RendererIndex: -1
+  m_VolumeLayerMask:
+    serializedVersion: 2
+    m_Bits: 1
+  m_VolumeTrigger: {fileID: 0}
+  m_VolumeFrameworkUpdateModeOption: 2
+  m_RenderPostProcessing: 0
+  m_Antialiasing: 0
+  m_AntialiasingQuality: 2
+  m_StopNaN: 0
+  m_Dithering: 0
+  m_ClearDepth: 1
+  m_AllowXRRendering: 1
+  m_AllowHDROutput: 1
+  m_UseScreenCoordOverride: 0
+  m_ScreenSizeOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_ScreenCoordScaleBias: {x: 0, y: 0, z: 0, w: 0}
+  m_RequiresDepthTexture: 0
+  m_RequiresColorTexture: 0
+  m_TaaSettings:
+    m_Quality: 3
+    m_FrameInfluence: 0.1
+    m_JitterScale: 1
+    m_MipBias: 0
+    m_VarianceClampScale: 0.9
+    m_ContrastAdaptiveSharpening: 0
+  m_Version: 2
 --- !u!1 &600000001
 GameObject:
   m_ObjectHideFlags: 0
@@ -255,8 +300,138 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bc4db73ff7594795ba524f3f3d4f78bc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  walkFullSpeed: 1.2
+  runStartSpeed: 3.3
+  runFullSpeed: 3.8
+  cadenceSlow: 1.15
+  cadenceFast: 1.9
+  cadenceRun: 2.3
+  footSwing: {x: 0.08, y: 0.138}
+  footLift: {x: 0.031, y: 0.092}
+  footRot: {x: 12, y: 24}
+  flight: 0.023
+  handSwing: {x: 0.069, y: 0.134}
+  handLift: {x: 0.019, y: 0.054}
+  handRot: {x: 16, y: 34}
+  easePow: 0.8
+  bob: {x: 0.019, y: 0.046}
+  waddle: {x: 2, y: 1}
+  runLean: -7
+  squash: {x: 0.025, y: 0.07}
+  mountAmount: 1
+  helmetAmount: 1
+  packAmount: 1
+  gearAmount: 1
+  hoseAmount: 1
+  testSpeed: -1
   testCycle: 1
+  cycleIdle: 1.2
+  cycleWalk: 2.5
+  cycleRun: 2
+  cycleStop: 1.5
+  cycleWalkSpeed: 1.65
+  cycleRunSpeed: 3.9
+  testAccel: 6
   testKeyboard: 1
+  testFaceLeft: 0
+  testHeld: 0
+  testLoop: 1
+  testFire: 0
+  testAimTarget: {fileID: 0}
+  testReload: 0
+  testReloadKind: 0
+  currentState: 
+  recoilKick: {x: 80, y: 100}
+  slideKick: 150
+  slideBackTime: 0.03
+  slideHoldTime: 0.03
+  slideReturnTime: 0.15
+  bulletSpeed: 100
+  flashTime: 0.07
+  flashSize: 1
+  ricochetChance: 0.3
+  ricochetTime: 0.15
+  recoilHandX: {x: -0.4, y: -0.2}
+  recoilHandY: {x: 0.1, y: 0.3}
+  handRecoilRise: 0.03
+  handRecoilReturn: {x: 0.18, y: 0.24}
+  muzzleRise: {x: 0.03, y: 0.15}
+  muzzleReturn: 0.09
+  recoilLean: 3
+  actionShift: 0.012
+  muzzleLightColor: {r: 1, g: 0.72, b: 0.38, a: 1}
+  muzzleLightIntensity: 2.5
+  muzzleLightRadius: 2.2
+  muzzleLightRandom: {x: 0.4, y: 1.3}
+  aimShoulder: {x: 0.175, y: 0.466}
+  rifleBurst: 3
+  rifleShotInterval: 0.1
+  rifleRecoilKick: {x: 4, y: 8}
+  rifleRecoilHandX: {x: -0.06, y: -0.035}
+  rifleRecoilHandY: {x: 0.005, y: 0.02}
+  rifleHandRecoilRise: 0.02
+  rifleHandRecoilReturn: {x: 0.06, y: 0.09}
+  rifleMuzzleRise: {x: 0.02, y: 0.04}
+  rifleMuzzleReturn: 0.07
+  rifleRecoilLean: 1.5
+  rifleActionShift: 0.01
+  rifleChargerKick: 80
+  rifleBoltKick: 80
+  rifleBoltBackTime: 0.02
+  rifleBoltHoldTime: 0
+  rifleBoltReturnTime: 0.05
+  rifleFlashTime: 0.05
+  rifleFlashSize: 1
+  rifleShoulder: {x: -0.083, y: 0.51}
+  gunLight: 1
+  gunLightColor: {r: 0.85, g: 0.93, b: 1, a: 1}
+  gunLightIntensity: 1
+  gunLightRange: 5
+  gunLightAngle: 35
+  gunLightGlowSize: 0.6
+  aimTurnSpeed: 720
+  aimFlipOver: 5
+  rigMags: 
+  lastReloadKind: 
+  testRefillMags: 0
+  reloadSpeed: 1
+  rlLockTime: 0.12
+  rlFetchTime: 0.2
+  rlGrabTime: 0.28
+  rlBringTime: 0.3
+  rlDropTime: 0.3
+  rlAlignTime: 0.1
+  rlInsertTime: 0.1
+  rlReleaseTime: 0.3
+  rlStowTime: 0.4
+  rlReturnTime: 0.3
+  rlSlideLock: 1
+  rlGunRaise: {x: 0.03, y: 0.06}
+  rlGunTilt: 30
+  rlGunAlign: 30
+  rlArc: -0.05
+  rlPullOut: 0.06
+  rlMagInHand: {x: 0, y: 0.012}
+  rlUnderGap: 0.03
+  rlReady: 0.085
+  rlNewTilt: 18
+  rlOldTilt: -18
+  rlOldOffset: {x: 0.012, y: 0}
+  rlShake: 0.1
+  rlShakeAngle: 45
+  rlSlideDelay: 0.3
+  rlShakeFreq: 5
+  qrDropAt: 0
+  qrDropTime: 0
+  qrWait: {x: 0, y: 0}
+  qrSlideSpeed: 0.6
+  qrGravity: 5
+  qrKick: {x: -0.1, y: 0.1}
+  qrSpin: {x: -500, y: -250}
+  qrGroundY: {x: -0.05, y: 0.03}
+  qrGroundTime: 3
+  nrCatchTime: 0.15
+  nrSwitchTime: 0.2
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

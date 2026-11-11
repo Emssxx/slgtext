@@ -40,6 +40,7 @@ public struct Impact
     public Vector2Int cell;          // 打中的小格（墙 / 树 / 石头 / 建筑才有意义）
     public NpcData byNpc;            // 谁开的枪（NPC）
     public Enemy byEnemy;            // 谁开的枪（敌人）
+    public AbaOperative byAba;       // 谁开的枪（ABA 清除小组）
 }
 
 public class Ballistics : MonoBehaviour
@@ -102,6 +103,8 @@ public class Ballistics : MonoBehaviour
         public float speed, damage, traveled, groundDist, ricochet;
         public NpcData byNpc;
         public Enemy byEnemy;
+        public AbaOperative byAba;   // ABA 清除小组开的枪：穿过 ABA 队员（不打自己人）
+        public float knock;          // 击退（ABA 手枪）
         public int bounces;
     }
 
@@ -208,6 +211,68 @@ public class Ballistics : MonoBehaviour
         b.DrawSpread(from, aim, dir, sigma, aimDist);
     }
 
+    // ABA 清除小组开一枪（专属武器，函数见 AbaForce / AbaWeapon）：
+    //   σ = 武器散布（已是 5 级手感）× 等级倍数（5 级 = 1）× (边走边打 ? 武器自己的 movingMul : 1) × 体力（< 20：1.2）× 重伤（< 35%：1.15）
+    //       + 后坐力（每枪 recoilPerShot，每秒恢复 recoilRecover——训练过，比普通人压得住）
+    //   预判误差只有 ±leadError（6~8%）；每一枪有 critChance 的几率打中要害（伤害 × critMul）；手枪子弹带击退。
+    public static void FireFromAba(AbaOperative op, Vector3 from, Vector3 target, Vector3 targetVel, AbaWeapon w, bool moving)
+    {
+        Ballistics b = Ensure();
+        if (w == null) return;
+        string key = op != null ? "aba#" + op.GetInstanceID() + w.id : "aba";
+        int level = AbaForce.Instance != null ? Mathf.Clamp(AbaForce.Instance.weaponLevel, 1, 5) : 5;
+        float s = w.spread * At(b.levelSpread, level - 1, 0.25f) / Mathf.Max(0.01f, At(b.levelSpread, 4, 0.25f));
+        if (moving) s *= w.movingMul;
+        if (op != null && op.Stamina < 20f) s *= 1.2f;
+        if (op != null && op.Hp < op.MaxHp * 0.35f) s *= 1.15f;
+        float sigma = s + b.RecoilOf(key, w.recoilRecover);
+        Vector2 to = target - from;
+        float tof = to.magnitude / Mathf.Max(1f, w.bulletSpeed);
+        Vector2 aim = to + (Vector2)targetVel * tof * (1f + UnityEngine.Random.Range(-w.leadError, w.leadError));
+        float aimDist = aim.magnitude;
+        aim = aimDist > 0.0001f ? aim / aimDist : Vector2.right;
+        Vector2 dir = Rotate(aim, Gauss() * sigma);
+        b.AddRecoil(key, w.recoilPerShot, w.recoilRecover);
+        if (op != null && op.Rig != null) op.Rig.MuzzleFlash();
+        float dmg = w.damage * (UnityEngine.Random.value < w.critChance ? w.critMul : 1f);
+        Bullet bullet = b.Spawn(from, dir, w.bulletSpeed, dmg, Mathf.Max(aimDist, 0.5f), null, null, op != null && op.Rig != null ? op.Rig.ricochetChance : 0.3f);
+        bullet.byAba = op;
+        bullet.knock = w.knockback;
+        // 瞄准射击打偏了也飞得远：落地距离拉到 2.5~4 倍瞄准距离
+        bullet.groundDist = Mathf.Clamp(Mathf.Max(aimDist, 0.5f) * UnityEngine.Random.Range(2.5f, 4f), 0.5f, b.maxRange);
+        if (!string.IsNullOrEmpty(w.bulletSprite) && bullet.t != null)
+        {
+            Sprite sp = Resources.Load<Sprite>(w.bulletSprite);
+            SpriteRenderer sr = bullet.t.GetComponent<SpriteRenderer>();
+            if (sp != null && sr != null) sr.sprite = sp;
+        }
+        b.DrawSpread(from, aim, dir, sigma, aimDist);
+    }
+
+    // a → b 之间有没有挡子弹的东西（墙 / 石头 / 树 / 建筑）。ABA 判断视线、选掩护位置用
+    public static bool LineClear(Vector3 a, Vector3 c)
+    {
+        Ballistics b = Ensure();
+        return !b.TraceCells(a, c, out float t, out Vector2 n, out Vector2Int cell, out ImpactMaterial m, out GameObject o);
+    }
+
+    // p 周围一圈 8 个小格里有几个能挡子弹（越多越像掩体）
+    public static int CoverAround(Vector3 p)
+    {
+        Ballistics b = Ensure();
+        GridManager g = GridManager.Instance;
+        if (g == null) return 0;
+        Vector2Int c = g.WorldToCell(p);
+        int k = 0;
+        for (int dx = -1; dx <= 1; dx++)
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                if (dx == 0 && dy == 0) continue;
+                if (b.Blocking(g, c.x + dx, c.y + dy, out ImpactMaterial m, out GameObject o)) k++;
+            }
+        return k;
+    }
+
     // 开火线上有没有自己人挡着（NPC 开枪前看一眼：有人挡着就先别开，换个角度）。ally = 挡着的那个人的位置
     public static bool AllyInLine(Vector3 from, Vector3 target, string selfId, out Vector3 ally)
     {
@@ -242,7 +307,7 @@ public class Ballistics : MonoBehaviour
         return aimDist > 0.0001f ? aim / aimDist : Vector2.right;
     }
 
-    void Spawn(Vector3 from, Vector2 dir, float speed, float damage, float aimDist, NpcData byNpc, Enemy byEnemy, float ricochet)
+    Bullet Spawn(Vector3 from, Vector2 dir, float speed, float damage, float aimDist, NpcData byNpc, Enemy byEnemy, float ricochet)
     {
         GameObject go = new GameObject("Bullet");
         go.transform.position = from;
@@ -252,11 +317,13 @@ public class Ballistics : MonoBehaviour
         sr.sortingOrder = 60;                                                  // 画在人和建筑上面
         RenderMats.MakeUnlit(sr);                                              // 2D 光照：子弹自己发亮
         float g = aimDist * UnityEngine.Random.Range(Mathf.Min(groundAt.x, groundAt.y), Mathf.Max(groundAt.x, groundAt.y));
-        _bullets.Add(new Bullet
+        Bullet b = new Bullet
         {
             t = go.transform, pos = from, dir = dir, speed = Mathf.Max(1f, speed), damage = damage,
             groundDist = Mathf.Clamp(g, 0.3f, maxRange), ricochet = ricochet, byNpc = byNpc, byEnemy = byEnemy
-        });
+        };
+        _bullets.Add(b);
+        return b;
     }
 
     // ============ 每帧：子弹往前飞、查碰撞 ============
@@ -283,7 +350,9 @@ public class Ballistics : MonoBehaviour
         float best = 2f;
         Enemy hitEnemy = null;
         NpcData hitNpc = null;
+        AbaOperative hitAba = null;
         FindBody(b, a, c, ref best, ref hitEnemy, ref hitNpc);
+        FindAba(b, a, c, ref best, ref hitEnemy, ref hitNpc, ref hitAba);
 
         // 2. 挡路的东西（按小格）
         bool wall = TraceCells(a, c, out float tw, out Vector2 normal, out Vector2Int cell, out ImpactMaterial mat, out GameObject obj);
@@ -308,6 +377,15 @@ public class Ballistics : MonoBehaviour
             return false;
         }
 
+        if (hitAba != null)
+        {
+            Vector2 p = Vector2.Lerp(a, c, best);
+            Raise(p, b, -b.dir, ImpactMaterial.Flesh, hitAba.gameObject, Vector2Int.zero);
+            ImpactFx(p, b.dir, -b.dir, ImpactMaterial.Flesh);
+            hitAba.TakeHit(b.damage, b.dir, b.byEnemy, b.byNpc);
+            return false;
+        }
+
         if (hitEnemy != null || hitNpc != null)
         {
             Vector2 p = Vector2.Lerp(a, c, best);
@@ -315,6 +393,7 @@ public class Ballistics : MonoBehaviour
             ImpactMaterial m = hitEnemy != null && hitEnemy.Def.kind == EnemyKind.Creature ? ImpactMaterial.Creature : ImpactMaterial.Flesh;
             Raise(p, b, -b.dir, m, who, Vector2Int.zero);
             ImpactFx(p, b.dir, -b.dir, m);
+            if (b.byAba != null) { HitByAba(b, hitEnemy, hitNpc, who); return false; }
             if (hitEnemy != null) hitEnemy.TakeDamage(b.damage, b.byNpc);
             else NpcCombat.OnHit(hitNpc, b.damage, b.byEnemy, b.byNpc);
             return false;
@@ -338,10 +417,44 @@ public class Ballistics : MonoBehaviour
         b.t.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(b.dir.y, b.dir.x) * Mathf.Rad2Deg);
     }
 
+    // ABA 的子弹打中人 / 敌人：扣血 + 击退（手枪，体型越大推得越少）+ 打断攻击；打死了告诉开枪的人
+    void HitByAba(Bullet b, Enemy hitEnemy, NpcData hitNpc, GameObject who)
+    {
+        AbaOperative op = b.byAba;
+        if (hitEnemy != null)
+        {
+            hitEnemy.TakeHitFromAba(b.damage, op);
+            if (b.knock > 0f && hitEnemy.Alive)
+            {
+                float mass = Mathf.Max(0.6f, hitEnemy.Def.scale * hitEnemy.Def.scale);
+                Knockback.Push(hitEnemy.gameObject, b.dir * (b.knock / mass));
+                hitEnemy.Stagger(0.35f / mass);
+            }
+            if (!hitEnemy.Alive && op != null) op.OnKill(hitEnemy, null);
+            return;
+        }
+        if (hitNpc == null) return;
+        NpcCombat.OnHit(hitNpc, b.damage, null, null, op);
+        if (b.knock > 0f && !hitNpc.IsDead && who != null) Knockback.Push(who, b.dir * b.knock);
+        if (hitNpc.IsDead && op != null) op.OnKill(null, hitNpc);
+    }
+
+    // ABA 队员的身体（ABA 自己开的枪穿过队员：不打自己人）
+    void FindAba(Bullet b, Vector2 a, Vector2 c, ref float best, ref Enemy hitEnemy, ref NpcData hitNpc, ref AbaOperative hitAba)
+    {
+        if (b.byAba != null) return;
+        foreach (AbaOperative o in AbaOperative.All)
+        {
+            if (o == null || !o.Alive) continue;
+            float t = SegmentCircle(a, c, o.transform.position, bodyRadius);
+            if (t >= 0f && t < best) { best = t; hitAba = o; hitEnemy = null; hitNpc = null; }
+        }
+    }
+
     // 这一段 a→c 上最先碰到的身体
     void FindBody(Bullet b, Vector2 a, Vector2 c, ref float best, ref Enemy hitEnemy, ref NpcData hitNpc)
     {
-        bool shooterIsNpc = b.byNpc != null;
+        bool shooterIsNpc = b.byNpc != null || b.byAba != null;   // ABA 的子弹和 NPC 一样：打敌人
         foreach (Enemy e in Enemy.All)
         {
             if (e == null || !e.Alive || e == b.byEnemy) continue;
@@ -354,7 +467,7 @@ public class Ballistics : MonoBehaviour
         foreach (NpcData n in w.npcs)
         {
             if (n == null || n.IsDead || n == b.byNpc) continue;
-            if (!friendlyFire && shooterIsNpc) continue;                       // NPC 的流弹不打 NPC
+            if (!friendlyFire && b.byNpc != null) continue;                    // NPC 的流弹不打 NPC（ABA 的子弹照打）
             NpcMover m = NpcView.GetMover(n.id);
             if (m == null) continue;
             float t = SegmentCircle(a, c, m.transform.position, bodyRadius);
@@ -462,22 +575,26 @@ public class Ballistics : MonoBehaviour
         OnImpact(new Impact
         {
             point = new Vector3(p.x, p.y, 0f), dir = b.dir, normal = normal, power = b.damage, material = mat,
-            target = obj, cell = cell, byNpc = b.byNpc, byEnemy = b.byEnemy
+            target = obj, cell = cell, byNpc = b.byNpc, byEnemy = b.byEnemy, byAba = b.byAba
         });
     }
 
     // ============ 后坐力 ============
 
-    float RecoilOf(string key)
+    float RecoilOf(string key) => RecoilOf(key, recoilRecover);
+
+    float RecoilOf(string key, float recover)
     {
         if (string.IsNullOrEmpty(key) || !_recoil.TryGetValue(key, out Vector2 r)) return 0f;
-        return Mathf.Max(0f, r.x - recoilRecover * (Time.time - r.y));
+        return Mathf.Max(0f, r.x - recover * (Time.time - r.y));
     }
 
-    void AddRecoil(string key)
+    void AddRecoil(string key) => AddRecoil(key, recoilPerShot, recoilRecover);
+
+    void AddRecoil(string key, float amount, float recover)
     {
         if (string.IsNullOrEmpty(key)) return;
-        _recoil[key] = new Vector2(RecoilOf(key) + recoilPerShot, Time.time);
+        _recoil[key] = new Vector2(RecoilOf(key, recover) + amount, Time.time);
     }
 
     static string EnemyKey(Enemy e) => e != null ? "enemy#" + e.GetInstanceID() : "enemy";

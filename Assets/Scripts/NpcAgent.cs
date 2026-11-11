@@ -83,6 +83,13 @@ public class NpcAgent : MonoBehaviour
             return;
         }
 
+        // 3a0. 有敌人时的团队指令："集火那个大家伙" / "全员退回营地" / "包抄" / "原地守住" → 小队战术（NpcTactics）
+        if (EnemyDirector.AnyThreat && NpcTactics.TryParseOrder(body, out NpcTactics.Order tacOrder, out string tacFocus))
+        {
+            HandleTacticOrder(npc, tacOrder, tacFocus, body);
+            return;
+        }
+
         // 3a. 有敌人时："迎战！" / "快躲起来" / "大家自己看着办" → 打还是躲（NpcCombat 的姿态）
         if (EnemyDirector.AnyThreat && NpcCombat.TryParseStance(body, out NpcCombat.Stance stance, out bool everyone))
         {
@@ -121,6 +128,20 @@ public class NpcAgent : MonoBehaviour
         else NpcCombat.SetStance(npc.id, stance);
         NpcChat.Post(npc.id, ChatRole.System, LF("chatwin_order_started", npc.npcName, order));
         RequestReply(npc, playerText, LF("sit_order_ok", order));
+    }
+
+    // ============ 团队战术指令（他把你的话传给所有人）============
+    void HandleTacticOrder(NpcData npc, NpcTactics.Order order, string focus, string playerText)
+    {
+        if (!TrustRules.WillObey(npc))
+        {
+            NpcChat.Post(npc.id, ChatRole.Npc, Prefix(npc) + GetRefuseLine(npc), true);
+            return;
+        }
+        NpcTactics.Command(order, focus, "", NpcTactics.Ensure().playerOrderSeconds, L("tac_by_player"), true);
+        string text = NpcTactics.OrderName(order) + (string.IsNullOrEmpty(focus) ? "" : LF("tac_log_focus", focus));
+        NpcChat.Post(npc.id, ChatRole.System, LF("chatwin_order_started", npc.npcName, text));
+        RequestReply(npc, playerText, LF("sit_order_ok", text));
     }
 
     // ============ 建造指令 ============

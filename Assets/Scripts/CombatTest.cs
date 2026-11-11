@@ -10,7 +10,7 @@ using NavMeshPlus.Extensions;
 // 战斗测试场景（Scenes/CombatTest）：灰色地砖铺满的空场地，自己挑属性放 NPC 和敌人，看他们打。
 //
 // 【用法】运行后左边有面板：
-//   · 选"放 NPC"或"放敌人"，调好属性，在地图上左键点哪里就放在哪里；右键点一个人 / 敌人 = 删掉它。
+//   · 选"放 NPC"/"放敌人"/"ABA 小组"，调好属性，在地图上左键点哪里就放在哪里；右键点一个人 / 敌人 / ABA 队员 = 删掉它。
 //   · WASD / 方向键 移动镜头，滚轮缩放。
 //   · 地砖：细线 = 1 小格，粗线 = 1 大格（1 大格 = 3×3 小格），方便看射击距离。
 // 【无限弹匣】勾着时，拿枪的 NPC 身上的弹匣一直补满 3 个（空弹匣也自动清掉）。
@@ -37,6 +37,10 @@ public class CombatTest : MonoBehaviour
     [Range(1, 6)] public int enemyCount = 1;                  // 一次放几个
     public bool enemyAssault = true;                          // 袭击（见人就打）；不勾 = 游荡（造物见人就扑，人类只找落单的）
 
+    [Header("要放的 ABA 清除小组（运行时面板里也能改）")]
+    [Range(1, 6)] public int abaCount = 4;                    // 一组几个人
+    public bool abaHitSurvivors = true;                       // 也打没带小型 AI 终端机的 NPC（不勾 = 只打敌人）
+
     [Header("其他")]
     public bool infiniteMags = true;                          // 无限弹匣
 
@@ -48,7 +52,7 @@ public class CombatTest : MonoBehaviour
         [InspectorName("空手")] Fists,
     }
 
-    enum PlaceMode { None, Npc, Enemy }                       // 左键点地图时放什么
+    enum PlaceMode { None, Npc, Enemy, Aba }                  // 左键点地图时放什么
     PlaceMode _mode = PlaceMode.Npc;
     bool _ready;                                              // 导航网格烘焙好了才能放
     int _npcCounter;                                          // NPC 编号（id 不重复）
@@ -145,6 +149,7 @@ public class CombatTest : MonoBehaviour
         MoveCamera();
         HandleClicks();
         if (infiniteMags) RefillMags();
+        if (AbaForce.Instance != null) AbaForce.Instance.targetSurvivors = abaHitSurvivors;
         _npcs.RemoveAll(g => g == null);
     }
 
@@ -183,6 +188,7 @@ public class CombatTest : MonoBehaviour
         {
             if (_mode == PlaceMode.Npc) SpawnNpc(wp);
             else if (_mode == PlaceMode.Enemy) SpawnEnemies(wp);
+            else if (_mode == PlaceMode.Aba) SpawnAba(wp);
         }
         if (m.rightButton.wasPressedThisFrame) DeleteNear(wp);
     }
@@ -252,7 +258,21 @@ public class CombatTest : MonoBehaviour
         }
     }
 
-    // 右键：删掉离鼠标最近的 NPC / 敌人（0.6 单位以内）
+    // 放一个 ABA 清除小组（AbaForce.Deploy：队形 / 战术都是正式规则，和主场景一样）
+    void SpawnAba(Vector3 at)
+    {
+        if (!NavMesh.SamplePosition(at, out NavMeshHit hit, 1f, NavMesh.AllAreas)) return;
+        AbaForce.Ensure().targetSurvivors = abaHitSurvivors;
+        AbaForce.Deploy(hit.position, abaCount);
+    }
+
+    void ClearAba()
+    {
+        foreach (AbaOperative o in AbaOperative.All.ToArray()) if (o != null) Destroy(o.gameObject);
+        foreach (AbaSquad q in AbaSquad.All.ToArray()) if (q != null) Destroy(q.gameObject);
+    }
+
+    // 右键：删掉离鼠标最近的 NPC / 敌人 / ABA 队员（0.6 单位以内）
     void DeleteNear(Vector3 at)
     {
         GameObject best = null; float bestD = 0.6f;
@@ -267,6 +287,12 @@ public class CombatTest : MonoBehaviour
             if (e == null) continue;
             float d = Vector2.Distance(e.transform.position, at);
             if (d < bestD) { bestD = d; best = e.gameObject; }
+        }
+        foreach (AbaOperative o in AbaOperative.All)
+        {
+            if (o == null) continue;
+            float d = Vector2.Distance(o.transform.position, at);
+            if (d < bestD) { bestD = d; best = o.gameObject; }
         }
         if (best == null) return;
         RemoveNpcData(best);
@@ -305,6 +331,7 @@ public class CombatTest : MonoBehaviour
             int empty = NpcInventory.Count(n, NpcInventory.EmptyMag);
             if (empty > 0) NpcInventory.Remove(n, NpcInventory.EmptyMag, empty);
         }
+        foreach (AbaOperative o in AbaOperative.All) if (o != null && o.Alive && o.SpareMags < 2) o.RefillSpare();   // ABA：备用弹匣补满
     }
 
     // ============ 面板 ============
@@ -321,7 +348,7 @@ public class CombatTest : MonoBehaviour
         GUILayout.Label(_ready ? "战斗测试（左键放置，右键删除，WASD 移动，滚轮缩放）" : "正在搭场地……");
 
         GUILayout.Label("左键放：");
-        _mode = (PlaceMode)GUILayout.Toolbar((int)_mode, new[] { "不放", "NPC", "敌人" });
+        _mode = (PlaceMode)GUILayout.Toolbar((int)_mode, new[] { "不放", "NPC", "敌人", "ABA" });
 
         GUILayout.Space(6);
         GUILayout.Label("—— NPC ——");
@@ -348,10 +375,17 @@ public class CombatTest : MonoBehaviour
         enemyAssault = GUILayout.Toggle(enemyAssault, "袭击（见人就打；不勾 = 游荡）");
 
         GUILayout.Space(6);
+        GUILayout.Label("—— ABA 清除小组 ——");
+        abaCount = IntSlider("一组几个人", abaCount, 1, 6);
+        abaHitSurvivors = GUILayout.Toggle(abaHitSurvivors, "也打 NPC（没带小型 AI 终端机的）");
+        GUILayout.Label("（F10 也能在鼠标位置放一组）");
+
+        GUILayout.Space(6);
         infiniteMags = GUILayout.Toggle(infiniteMags, "无限弹匣");
         GUILayout.BeginHorizontal();
         if (GUILayout.Button("清空敌人")) ClearEnemies();
         if (GUILayout.Button("清空 NPC")) ClearNpcs();
+        if (GUILayout.Button("清空 ABA")) ClearAba();
         GUILayout.EndHorizontal();
         GUILayout.EndScrollView();
         GUILayout.EndArea();
@@ -395,6 +429,14 @@ public class CombatTest : MonoBehaviour
             if (e == null || !e.Alive) continue;
             Label(cam, e.transform.position + new Vector3(0f, 0.25f + 0.9f * e.Def.scale, 0f), e.Def.id + "  HP " + e.Hp.ToString("0"), st, s);
         }
+        foreach (AbaOperative o in AbaOperative.All)
+        {
+            if (o == null || !o.Alive || o.Weapon == null) continue;
+            string gun = o.Weapon.id == "pistol" ? "手枪" : "步枪";
+            string phase = o.Squad != null ? " [" + o.Squad.phase + "]" : "";
+            string text = $"ABA{o.Slot + 1} {gun} {o.InGun}/{o.Weapon.magSize}+{o.SpareMags}  HP {o.Hp:0}  体力 {o.Stamina:0}" + (o.Slot == 0 ? phase : "");
+            Label(cam, o.transform.position + new Vector3(0f, 0.75f, 0f), text, st, s);
+        }
     }
 
     // 在世界坐标的位置写一行字
@@ -402,7 +444,7 @@ public class CombatTest : MonoBehaviour
     {
         Vector3 sp = cam.WorldToScreenPoint(world);
         if (sp.z < 0f) return;
-        Rect r = new Rect(sp.x / s - 90f, (Screen.height - sp.y) / s - 10f, 180f, 20f);
+        Rect r = new Rect(sp.x / s - 140f, (Screen.height - sp.y) / s - 10f, 280f, 20f);   // 加宽：ABA 那行字比较长
         GUI.Label(r, text, st);
     }
 }

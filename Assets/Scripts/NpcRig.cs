@@ -214,9 +214,61 @@ public class NpcRig : MonoBehaviour
     public float suitGlowIntensity = 0.35f;                   // 身上微光亮度（0 = 关）
     public float suitGlowRadius = 1.1f;                       // 身上微光范围（单位）
     public Color muzzleLightColor = new Color(1f, 0.72f, 0.38f);   // 开枪时火光照亮周围的颜色
-    public float muzzleLightIntensity = 2.5f;                 // 开枪火光亮度
-    public float muzzleLightRadius = 2.2f;                    // 开枪火光照多远（单位）
-    public Vector2 muzzleLightRandom = new Vector2(0.4f, 1.3f);   // 每一枪火光亮度的倍数：在这个范围里随机（每枪亮度都不一样，闪的过程中也会轻微跳动）
+    public float muzzleLightIntensity = 5f;                   // 开枪火光亮度（原来 2.5，加强了）
+    public float muzzleLightRadius = 3.2f;                    // 开枪火光照多远（单位；原来 2.2）
+    public Vector2 muzzleLightRandom = new Vector2(0.7f, 1.3f);   // 每一枪火光亮度的倍数（最暗原来 0.4，提到 0.7）：在这个范围里随机（每枪亮度都不一样，闪的过程中也会轻微跳动）
+    [Header("子弹曳光（所有子弹都有：子弹自己微微发光 + 照亮周围一点点）")]
+    public bool tracer = true;                                // 开 / 关曳光
+    public Color tracerColor = new Color(1f, 0.75f, 0.42f);   // 曳光颜色（暖橙，和枪火一个色调）
+    public float tracerLight = 0.3f;                          // 照亮周围的亮度（微弱；0 = 只发光不照亮）
+    public float tracerRadius = 0.6f;                         // 照多远（单位）
+    public float tracerGlow = 0.45f;                          // 子弹本身光晕的亮度（0 = 不要光晕）
+    public Vector2 tracerGlowSize = new Vector2(0.5f, 0.08f); // 光晕拖尾的长 / 宽（单位；拖在弹头后面）
+
+    [Header("受击 / 死亡测试（勾 Test Hit 挨一下，勾 Test Death 倒下，勾 Test Revive 站起来）")]
+    public bool testHit;                                      // 勾一下：挨一下打（自动取消勾选）
+    public bool testDeath;                                    // 勾一下：中弹倒地
+    public bool testRevive;                                   // 勾一下：站起来（重新测；掉在地上的武器会收走）
+    public HitFrom testHitFrom = HitFrom.Front;               // 测试时从哪边打过来
+    public float testHitStrength = 1f;                        // 测试时这一下多重（1 = 正常，2 = 很重的一下）
+    [Header("受击：被打中时身体吃到冲击的惯性（从前面打 = 往后仰，从背后打 = 往前栽）")]
+    public float hitLean = 9f;                                // 身体被打得仰 / 栽多少度
+    public float hitShove = 0.03f;                            // 整个人被推开多远（单位；之后自己站回原位）
+    public float hitBuckle = 0.012f;                          // 身体被打得往下一沉（单位）
+    public float hitFreq = 3.2f;                              // 回正的快慢（越大回得越快）
+    [Range(0.05f, 1f)] public float hitDamp = 0.4f;           // 回正时的阻尼（越小来回晃得越多）
+    public float hitGunJolt = 0.6f;                           // 手上的东西被震歪的程度（身体仰的角度再乘这个数）
+    public float hitHeadWhip = 1f;                            // 头被甩的程度
+    public float hitGearKick = 1f;                            // 受击 / 倒地时身上挂件被甩的程度
+    [Header("死亡：中弹的冲击 + 重力，朝子弹飞的方向倒下")]
+    public float deathImpulse = 110f;                         // 中弹冲击：开始倒的速度（度/秒；越大倒得越猛）
+    public float deathGravity = 0.6f;                         // 重力（越大后半段摔得越快）
+    public float deathCOM = 0.35f;                            // 重心高度（单位；越高前半段倒得越慢、越"沉"）
+    public float deathSink = 0.05f;                           // 腿一软，身体先往下沉多少（单位）
+    public float deathSinkTime = 0.2f;                        // 往下沉用几秒
+    public float deathSlide = 0.08f;                          // 倒的时候整个人被冲击带着滑多远（单位，往倒的方向）
+    [Range(0f, 0.9f)] public float deathBounce = 0.25f;       // 摔到地上弹起来的程度（0 = 不弹）
+    public float deathLieAngle = 88f;                         // 躺平时的角度（度）
+    public float deathGroundLift = 0.08f;                    // 躺平后离地多高（防止身体 / 背包陷进地里；单位）
+    public float deathArmFlop = 1f;                           // 手臂软了跟着甩的程度
+    [Header("死亡：武器脱手")]
+    public float weaponDropAt = 25f;                          // 倒到多少度时武器脱手
+    public float weaponThrow = 0.6f;                          // 脱手时往倒的方向飞多快（单位/秒）
+    public float weaponUp = 0.5f;                             // 脱手时往上抛多快（单位/秒）
+    public Vector2 weaponSpin = new Vector2(200f, 500f);      // 飞的时候转多快（度/秒，在范围里随机）
+    public float weaponGravity = 1f;                          // 武器下落的重力倍率
+    [Range(0f, 0.9f)] public float weaponBounce = 0.3f;       // 落地弹起来的程度
+    public float weaponRestLift = 0.02f;                      // 落地后离地多高（单位）
+    [Header("着弹点效果（图在 NpcArt/Fx/HitFlesh1~3、HitMetal1~3；子弹没打中落到地上用金属那组）")]
+    public bool impactFx = true;                              // 开 / 关着弹点效果
+    public float impactScale = 1f;                            // 效果大小
+    public float impactHeight = 0.2f;                         // 测试时中弹的位置：腰往上多高（单位，大约胸口）
+    [Range(0f, 1f)] public float fleshChance = 1f;           // 打中时出血的概率（其余是打在装甲 / 装备上的火花）
+    public float fleshLife = 0.45f;                           // 血雾持续多久（秒）
+    public float metalLife = 0.12f;                           // 火花持续多久（秒）
+    public Color metalLightColor = new Color(1f, 0.8f, 0.55f);   // 火花照亮周围的颜色
+    public float metalLight = 0.8f;                           // 火花照亮周围的亮度（微弱；0 = 不照亮）
+    public float metalLightRadius = 0.6f;                     // 火花照多远（单位）
 
     [Header("测试（运行时选中 NPC 用；不受腰上挂件限制）")]
     public TestHeld testHeld = TestHeld.None;                 // 强制拿什么（不测试 = 按游戏里的情况）
@@ -804,24 +856,29 @@ public class NpcRig : MonoBehaviour
         float dt = Mathf.Min(Time.deltaTime, 0.05f);             // 卡顿时不要一步跳太远
         if (dt <= 0f) return;                                     // 暂停时不动
 
-        UpdateAim(dt);                                            // 瞄准（可能会翻身，所以放在定朝向前面）
-        // 朝向：读旧图的翻转（NpcMover 管它）。朝左 = 整个角色水平翻转
-        float facing = FacingLeft ? -1f : 1f;
+        UpdateReactTest();                                        // 受击 / 死亡的测试开关
+        if (!_dead) UpdateAim(dt);                                // 瞄准（可能会翻身，所以放在定朝向前面）
+        // 朝向：读旧图的翻转（NpcMover 管它）。朝左 = 整个角色水平翻转（死了就不再翻身）
+        float facing = (_dead ? _deadLeft : FacingLeft) ? -1f : 1f;
         _rig.localScale = new Vector3(facing, 1f, 1f);
 
         // 速度：只看水平面上的移动快慢
         Vector3 v3 = _agent != null && _agent.enabled ? _agent.velocity : Vector3.zero;
         float speed = new Vector2(v3.x, v3.y).magnitude;
         if (testSpeed >= 0f) speed = testSpeed;                   // 测试：强制速度（原地踏步）
+        if (_dead) speed = 0f;                                    // 死了：不走
 
         const int SUB = 4;                                        // 每帧分 4 小步算，弹簧更稳
-        for (int i = 0; i < SUB; i++) Step(dt / SUB, speed);
+        for (int i = 0; i < SUB; i++) { StepReact(dt / SUB); Step(dt / SUB, speed); }   // 受击 / 倒地先算，挂件才能被它甩
         UpdateFace(dt);                                           // 表情 + 面罩开合
         _speedNow = speed;                                        // 记下速度（判断停下来干活用）
-        UpdateHeld(dt);                                           // 拿东西的手
-        UpdateTest(dt);                                           // 测试开关
+        if (!_dead) UpdateHeld(dt);                               // 拿东西的手（死了不再换）
+        if (!_dead) UpdateTest(dt);                               // 测试开关
         AnimateHeld(dt);                                          // 挥动 / 后坐
         Apply();
+        ApplyReact();                                             // 叠上受击 / 倒地
+        if (_dead && !_weaponDropped && Mathf.Abs(_dieAng) >= weaponDropAt) DropWeapon(dt);   // 倒到一定角度：手上的东西脱手
+        if (_handPoint != null) _prevHandWorld = _handPoint.position;   // 记下手点（算脱手速度）
         UpdateLights();                                           // 头灯 / 身上的光（跟着朝向和枪口）
     }
 
@@ -1131,7 +1188,7 @@ public class NpcRig : MonoBehaviour
     // 外部调用（NpcCombat 出手的那一下）：马上换好手，然后挥一下 / 开枪后坐一下
     public void PlayAttack()
     {
-        if (_heldSprite == null) return;                                    // 还没拼好
+        if (_heldSprite == null || _dead) return;                           // 还没拼好 / 死了
         _rig.localScale = new Vector3(FacingLeft ? -1f : 1f, 1f, 1f);  // 刚转身也先对好朝向（枪口位置才准）
         string want = PickHeld();                                           // 不等 0.25 秒，马上判断拿什么
         if (want != _held) ApplyHeld(want);
@@ -1178,11 +1235,36 @@ public class NpcRig : MonoBehaviour
         sr.sprite = BulletSprite();
         sr.sortingOrder = 60;                                               // 画在人和建筑上面
         RenderMats.MakeUnlit(sr);                                           // 2D 光照：子弹自己发亮，不受光
+        AddTracer(go, sr);                                                  // 曳光（微弱发光 + 照亮）
         float dur = Mathf.Max(0.04f, d.magnitude / Mathf.Max(1f, bulletSpeed));  // 飞多久
         Destroy(go, dur + 0.5f);                                            // 保险：到时间一定删掉
         StartCoroutine(FlyBullet(go.transform, from, target, dur, canRicochet));   // 飞过去
         MuzzleFlash();                                                      // 枪火
         return true;
+    }
+
+    // 给子弹加曳光：一条拖在弹头后面的淡光晕（叠加发光）+ 一盏很弱的点光（2D 光照下照亮经过的地面 / 人）
+    // 都挂在子弹下面：子弹删掉时一起删，不用另外收拾
+    void AddTracer(GameObject bullet, SpriteRenderer bulletSr)
+    {
+        if (!tracer) return;                                                // 关了：什么都不加
+        if (tracerGlow > 0f)
+        {
+            if (_glowSprite == null) _glowSprite = GlowSprite();            // 发光圆点图（和灯头共用）
+            EnsureFx();                                                     // 借用枪火的叠加发光材质
+            SpriteRenderer g = new GameObject("TracerGlow").AddComponent<SpriteRenderer>();
+            g.transform.SetParent(bullet.transform, false);                 // 跟着子弹飞、跟着子弹转
+            g.sprite = _glowSprite;                                         // 圆形柔光图（约 0.1 单位大）
+            g.transform.localScale = new Vector3(tracerGlowSize.x / 0.1f, tracerGlowSize.y / 0.1f, 1f);   // 拉成细长条
+            g.transform.localPosition = new Vector3(-tracerGlowSize.x * 0.4f, 0f, 0f);   // 往后挪：拖在弹头后面（子弹朝自己的 +x 飞）
+            g.color = new Color(tracerColor.r, tracerColor.g, tracerColor.b, tracerGlow);   // 颜色 + 亮度（透明度）
+            g.sortingOrder = bulletSr.sortingOrder - 1;                     // 画在子弹下面一层
+            g.sortingLayerID = bulletSr.sortingLayerID;                     // 和子弹同一个排序层
+            if (_fxAdditive != null) g.sharedMaterial = _fxAdditive;        // 叠加发光
+            else RenderMats.MakeUnlit(g);                                   // 找不到就用不受光材质
+        }
+        if (tracerLight > 0f)                                               // 旧管线（没有 2D 光照）时这里返回 null，不影响
+            WorldLighting.CreatePoint("TracerLight", bullet.transform, tracerColor, tracerLight, tracerRadius, 360f);
     }
 
     IEnumerator FlyBullet(Transform b, Vector3 from, Vector3 to, float dur, bool canRicochet)
@@ -1195,6 +1277,7 @@ public class NpcRig : MonoBehaviour
             yield return null;
         }
         if (b != null) Destroy(b.gameObject);                               // 到了：消失
+        if (canRicochet && impactFx) HitFx.Metal(to, impactScale * 0.8f, metalLife, metalLightColor, metalLight, metalLightRadius, ImpactLayer());   // 没打中、落到地上：火花 + 一点光
         if (canRicochet && Random.value < ricochetChance) Ricochet(to, to.x < from.x);   // 落到地上：有概率跳弹
     }
 
@@ -1524,7 +1607,7 @@ public class NpcRig : MonoBehaviour
     // 0 = 按上面调的时间 × reloadSpeed 播（测试用）。kind = 战术换弹 / 快速换弹
     public void PlayReload(float fitSeconds, ReloadKind kind)
     {
-        if (_handPoint == null) return;                                     // 还没拼好
+        if (_handPoint == null || _dead) return;                            // 还没拼好 / 死了
         string want = PickHeld();                                           // 先确认手上拿的是枪
         if (want != _held) ApplyHeld(want);
         if (_held != "pistol") return;                                      // 没拿枪就不换
@@ -2066,7 +2149,7 @@ public class NpcRig : MonoBehaviour
         float sv = Mathf.Sign(c) * Mathf.Pow(Mathf.Abs(c), easePow);             // 摆动位置 -1~1（两头停留更久）
 
         // 身体上下颠：手脚在两头（最高处）时身体也最高；站着时轻轻呼吸
-        float breath = 0.0057f * (1f - move) * (0.5f - 0.5f * Mathf.Cos(2f * Mathf.PI * 0.45f * _time + _phaseSeed));
+        float breath = (_dead ? 0f : 0.0057f) * (1f - move) * (0.5f - 0.5f * Mathf.Cos(2f * Mathf.PI * 0.45f * _time + _phaseSeed));
         float bobUp = Mathf.Lerp(bob.x, bob.y, run) * sv * sv * move + breath;
         float bobRef = -bobUp * REF;                                              // 换成预览刻度（向下为正）
         float bobV = (bobRef - _prevBob) / dt; float boba = (bobV - _prevBobV) / dt;
@@ -2075,6 +2158,8 @@ public class NpcRig : MonoBehaviour
         float tilt = Mathf.Lerp(waddle.x, waddle.y, run) * sv * move + runLean * run;
         float tiltV = (tilt - _prevTilt) / dt; float tilta = (tiltV - _prevTiltV) / dt;
         _prevTilt = tilt; _prevTiltV = tiltV;
+        float bodyTilt = tilt;                                                    // 身体自己的摇摆（摆到身体上的还是它）
+        tilt += _hitAng + _dieAng; tilta += _reactAcc * hitGearKick;              // 挂件 / 头感受到的倾斜：再加上受击后仰和倒地（被甩、躺下后往下垂）
 
         // 天线：弹簧 + 加减速甩 + 跑动后仰 + 跟着身体摇摆
         float k = Sq(2f * Mathf.PI * 3.2f), cc = 2f * 0.13f * 2f * Mathf.PI * 3.2f;
@@ -2108,7 +2193,7 @@ public class NpcRig : MonoBehaviour
         if (_glareX < GLARE_END - GLARE_GAP)                                      // 扫出面罩左边、再空走一小段后
             _glareX += GLARE_ENTER - (GLARE_END - GLARE_GAP);                     // 从右边重新进来
 
-        _move = move; _run = run; _sv = sv; _bobUp = bobUp; _tilt = tilt;
+        _move = move; _run = run; _sv = sv; _bobUp = bobUp; _tilt = bodyTilt;
     }
 
     // ============================================================================
@@ -2231,7 +2316,7 @@ public class NpcRig : MonoBehaviour
         PlaceFoot(_footL, _footLBase, _theta);
         PlaceFoot(_footR, _footRBase, _theta + Mathf.PI);
         // 手：右手和左脚同方向，左手和右脚同方向；站着时轻轻浮动
-        float idle = 1f - move;
+        float idle = _dead ? 0f : 1f - move;                          // 死了：手不再轻轻浮动
         PlaceHand(_handR, _handRBase, sv, idle * 0.0038f * Mathf.Sin(2f * Mathf.PI * 0.45f * _time + 1.3f));
         PlaceHand(_handL, _handLBase, -sv, idle * 0.0038f * Mathf.Sin(2f * Mathf.PI * 0.45f * _time));
 
@@ -2292,6 +2377,333 @@ public class NpcRig : MonoBehaviour
         if (!_gear.TryGetValue(key, out Transform t)) return;         // 这个 NPC 没带这件挂件
         t.localPosition = _gearBase[key] + offset;
         t.localRotation = Quaternion.Euler(0f, 0f, angle);
+    }
+
+    // ============================================================================
+    // 受击 / 死亡（测试开关在 Inspector「受击 / 死亡测试」里；游戏里由战斗系统调 PlayHit / PlayDeath）
+    //   受击：身体后仰（弹簧，会回正）+ 整个人被推开一点 + 往下一沉；挂件 / 头被这一下甩起来。
+    //   死亡：腿一软往下沉，同时中弹的冲击让人开始倒，之后重力让他越倒越快（像一根绕脚底转的棍子），
+    //         摔到地上弹几下停住；手臂软了跟着甩，倒到一定角度武器脱手飞出去、落地弹一下再滑停。
+    // ============================================================================
+    public enum HitFrom { [InspectorName("前面")] Front, [InspectorName("后面")] Back, [InspectorName("随机")] Random }
+
+    bool _dead, _settled, _weaponDropped, _deadLeft;   // 死了 / 已经躺稳 / 武器已经脱手 / 死的时候朝左
+    float _hitAng, _hitV, _shove, _shoveV;             // 受击：身体后仰角度和角速度 / 被推开的距离和速度（本地，正 = 往前）
+    float _dieAng, _dieV, _dieSign = 1f, _deadT;       // 倒地：角度和角速度（本地，正 = 往后倒）/ 往哪边倒 / 死了多久
+    float _reactAcc, _prevReactV, _groundY;            // 身体整体转动的角加速度（甩挂件用）/ 上一步的角速度 / 地面高度（世界）
+    string _heldBeforeDeath;                           // 死之前手上拿着什么（站起来时拿回来）
+    Vector3 _prevHandWorld;                            // 上一帧手点的世界坐标（算武器脱手时的速度）
+    readonly List<GameObject> _dropped = new List<GameObject>();   // 掉在地上的武器（站起来 / 人删掉时一起收走）
+    //                       频率  阻尼  加减速 跑动 跟身体转 颠动 最大角度 吊着的程度
+    readonly Pend _armL = new Pend(2.2f, 0.18f, 0f, 0f, 2.5f, 0f, 70f, 0.2f);   // 死后前手：软了，跟着甩
+    readonly Pend _armR = new Pend(2.0f, 0.18f, 0f, 0f, 2.5f, 0f, 70f, 0.2f);   // 死后后手（频率不一样，两只手不会一起甩）
+
+    // （只读）死了没有
+    public bool IsDead => _dead;
+
+    // 外部调用：挨了一下。dir = 子弹 / 攻击飞的方向（世界坐标，比如 被打的人 - 开枪的人）；strength = 多重（1 = 正常）
+    public void PlayHit(Vector2 dir, float strength = 1f)
+    {
+        if (!_built || _dead) return;                                       // 还没拼好 / 已经死了
+        PlayHit(dir, strength, HitPoint(dir));                              // 没给打中的点：当作打在胸口
+    }
+
+    // 同上；point = 打中的位置（世界坐标，着弹点效果从这里出来）
+    public void PlayHit(Vector2 dir, float strength, Vector3 point)
+    {
+        if (!_built || _dead) return;
+        HitKick(PushLocal(dir, FacingLeft), Mathf.Max(0f, strength) * Random.Range(0.8f, 1.2f));   // 每一下轻重有点不一样
+        SpawnImpact(point, dir, strength, false);                           // 着弹点效果
+    }
+
+    // 外部调用：被打死。朝 dir（子弹飞的方向）倒下：前面中弹往后倒，背后中弹往前扑
+    public void PlayDeath(Vector2 dir, float strength = 1f)
+    {
+        if (!_built || _dead) return;
+        PlayDeath(dir, strength, HitPoint(dir));                            // 没给打中的点：当作打在胸口
+    }
+
+    // 同上；point = 打中的位置（世界坐标）
+    public void PlayDeath(Vector2 dir, float strength, Vector3 point)
+    {
+        if (!_built || _dead) return;
+        SpawnImpact(point, dir, strength, true);                            // 着弹点效果（致命的一下：大团血雾）
+        _deadLeft = FacingLeft;                                             // 倒下后不再翻身
+        float push = PushLocal(dir, _deadLeft);                             // 被往哪边推（本地）
+        float k = Mathf.Max(0f, strength) * Random.Range(0.85f, 1.15f);
+        HitKick(push, k);                                                   // 先吃一下冲击（身体一震、头一甩）
+        _dead = true; _settled = false; _weaponDropped = false; _deadT = 0f;
+        _dieSign = -push;                                                   // 往推的方向倒（本地角度：正 = 往后倒）
+        _dieAng = 0f;
+        _dieV = _dieSign * deathImpulse * k;                                // 冲击给的初速度，之后交给重力
+        _armL.a = _armR.a = 0f;
+        _armL.v = Random.Range(-60f, 60f); _armR.v = Random.Range(-60f, 60f);   // 两只手一开始就甩得不一样
+        _heldBeforeDeath = _held;                                           // 记下手上拿的（站起来时拿回来）
+        _groundY = transform.TransformPoint(new Vector3(0f, FEET_Y, 0f)).y; // 脚底 = 地面（武器落到这里）
+        _prevHandWorld = _handPoint != null ? _handPoint.position : transform.position;
+        StopForDeath();                                                     // 停掉开枪 / 换弹 / 挥动 / 瞄准
+    }
+
+    // 外部调用：站起来（测试用：重新开始；掉在地上的武器收走，手上拿回原来的东西）
+    public void Revive()
+    {
+        if (!_dead) return;
+        _dead = false; _settled = false;
+        _dieAng = _dieV = 0f; _hitAng = _hitV = 0f; _shove = _shoveV = 0f; _deadT = 0f; _prevReactV = 0f;   // 全部归零
+        foreach (GameObject g in _dropped) if (g != null) Destroy(g);      // 地上的武器收走
+        _dropped.Clear();
+        _rig.localRotation = Quaternion.identity;                           // 站直
+        _rig.localPosition = new Vector3(0f, FEET_Y, 0f);
+        RestoreAfterRevive();                                               // 手上拿回原来的东西
+    }
+
+    // 受击 / 死亡的测试开关（勾一下做一次，自动取消勾选）
+    void UpdateReactTest()
+    {
+        if (testRevive) { testRevive = false; Revive(); }
+        if (testHit) { testHit = false; PlayHit(TestHitDir(), testHitStrength); }
+        if (testDeath) { testDeath = false; PlayDeath(TestHitDir(), testHitStrength); }
+    }
+
+    // 测试：子弹飞的方向（从前面打来 = 往角色身后飞；带一点上下随机）
+    Vector2 TestHitDir()
+    {
+        float s = FacingLeft ? -1f : 1f;
+        bool front = testHitFrom == HitFrom.Front || (testHitFrom == HitFrom.Random && Random.value < 0.5f);
+        return new Vector2(front ? -s : s, Random.Range(-0.2f, 0.2f));
+    }
+
+    // 中弹的位置（世界坐标）：胸口附近，靠子弹打来的那一面，带一点随机（游戏里由战斗系统直接给打中的点）
+    Vector3 HitPoint(Vector2 dir)
+    {
+        Vector3 c = _body.TransformPoint(new Vector3(0f, impactHeight, 0f));          // 胸口
+        float from = dir.x > 0f ? -1f : 1f;                                           // 子弹从哪边来（世界左右）
+        return c + new Vector3(from * 0.06f + Random.Range(-0.03f, 0.03f), Random.Range(-0.06f, 0.06f), 0f);
+    }
+
+    // 着弹点效果：多半是血雾，有时打在装备上是火花；致命的一下 / 很重的一下用最大那团血
+    void SpawnImpact(Vector3 at, Vector2 dir, float strength, bool fatal)
+    {
+        if (!impactFx) return;
+        if (fatal || Random.value < fleshChance)
+        {
+            int v = fatal || strength >= 1.5f ? 2 : (Random.value < 0.5f ? 0 : 1);   // 普通一下：小 / 中随机
+            HitFx.Flesh(at, dir, v, impactScale * Random.Range(0.85f, 1.15f), fleshLife, ImpactLayer());
+        }
+        else HitFx.Metal(at, impactScale, metalLife, metalLightColor, metalLight, metalLightRadius, ImpactLayer());
+    }
+
+    int ImpactLayer() { return _oldSprite != null ? _oldSprite.sortingLayerID : 0; }   // 和人同一个排序层
+
+    // 子弹飞的方向 → 人被推的方向（本地：+1 = 往角色前面推，-1 = 往后推）
+    static float PushLocal(Vector2 dir, bool left)
+    {
+        float x = dir.x * (left ? -1f : 1f);                                // 换成角色自己的左右
+        return Mathf.Abs(x) < 0.001f ? -1f : Mathf.Sign(x);                 // 没方向（正上 / 正下）：当作从前面打来
+    }
+
+    // 吃一下冲击：后仰的弹簧、被推开的弹簧都给一个初速度（之后弹簧自己回正）
+    void HitKick(float push, float k)
+    {
+        float w = 2f * Mathf.PI * Mathf.Max(0.1f, hitFreq);                 // 弹簧的角频率
+        _hitV += -push * hitLean * w * 1.6f * k;                            // 上身往推的方向仰（往前推 = 往前栽）
+        float ws = w * 0.6f;
+        _shoveV += push * hitShove * ws * 2.718f * k;                       // 整个人往推的方向挪
+        HeadWhip(push, k);                                                  // 头再多甩一下
+    }
+
+    // 每小步：受击的两个弹簧 + 倒地（重力让人越倒越快，摔到地上弹几下停住）+ 死后手臂
+    void StepReact(float dt)
+    {
+        float w = 2f * Mathf.PI * Mathf.Max(0.1f, hitFreq);
+        _hitV += (-w * w * _hitAng - 2f * hitDamp * w * _hitV) * dt;        // 后仰：弹回来（阻尼小会来回晃几下）
+        _hitAng += _hitV * dt;
+        float ws = w * 0.6f;
+        _shoveV += (-ws * ws * _shove - 2f * ws * _shoveV) * dt;            // 推开：慢慢站回原位（不来回晃）
+        _shove += _shoveV * dt;
+        if (_dead)
+        {
+            _deadT += dt;
+            if (!_settled)
+            {
+                float g = 9.81f * Mathf.Max(0f, deathGravity) / Mathf.Max(0.05f, deathCOM);   // 重力 ÷ 重心高度
+                float a = g * Mathf.Sin(_dieAng * Mathf.Deg2Rad) + _dieSign * g * 0.03f;     // 歪得越多倒得越快（加一点点，保证不会立在那里）
+                _dieV += a * Mathf.Rad2Deg * dt;
+                _dieAng += _dieV * dt;
+                float lie = Mathf.Clamp(deathLieAngle, 10f, 120f);
+                if (Mathf.Abs(_dieAng) >= lie && _dieV * _dieAng > 0f)     // 摔到地上
+                {
+                    _dieAng = Mathf.Sign(_dieAng) * lie;
+                    if (Mathf.Abs(_dieV) > 40f) _dieV = -_dieV * deathBounce;   // 还很快：弹一下
+                    else { _dieV = 0f; _settled = true; }                   // 慢了：停住
+                }
+            }
+        }
+        float rv = _hitV + _dieV;                                           // 身体整体转动的角速度
+        _reactAcc = (rv - _prevReactV) / dt; _prevReactV = rv;              // 角加速度：受击 / 落地那一下很大，挂件 / 头 / 手臂被它甩起来
+        if (_dead)
+        {
+            _armL.Step(dt, 0f, 0f, _dieAng + _hitAng, _reactAcc * deathArmFlop, 0f, 0f);
+            _armR.Step(dt, 0f, 0f, _dieAng + _hitAng, _reactAcc * deathArmFlop, 0f, 0f);
+        }
+    }
+
+    // 摆完部件之后叠上受击 / 倒地
+    void ApplyReact()
+    {
+        float s = (_dead ? _deadLeft : FacingLeft) ? -1f : 1f;
+        float sink = _dead ? deathSink * Smooth01(_deadT / Mathf.Max(0.01f, deathSinkTime)) : 0f;     // 腿一软往下沉
+        sink += hitBuckle * Mathf.Clamp01(Mathf.Abs(_hitAng) / Mathf.Max(0.1f, hitLean));            // 挨打往下一沉
+        _body.localPosition += new Vector3(0f, -sink, 0f);
+        _body.localRotation = _body.localRotation * Quaternion.Euler(0f, 0f, _hitAng);               // 上身仰 / 栽（绕腰）
+        float fall = _dead ? Mathf.Clamp01(Mathf.Abs(_dieAng) / Mathf.Max(1f, deathLieAngle)) : 0f;   // 倒了多少（0~1）
+        float slide = _dead ? -_dieSign * deathSlide * Smooth01(fall) : 0f;                          // 被冲击带着往倒的方向滑
+        float lift = _dead ? deathGroundLift * Mathf.Abs(Mathf.Sin(_dieAng * Mathf.Deg2Rad)) : 0f;   // 越躺平越要抬起来一点（身体有厚度）
+        _rig.localPosition = new Vector3((_shove + slide) * s, FEET_Y + lift, 0f);                    // 本地的前后 → 世界的左右
+        _rig.localRotation = Quaternion.Euler(0f, 0f, _dieAng * s);                                  // 整个人绕脚底倒下
+        if (_handPoint != null && _handPoint.parent == _rig && Mathf.Abs(_hitAng) > 0.001f)          // 枪挂在根节点上：跟着上身仰，枪口再多歪一点
+        {
+            Vector3 p = _handPoint.localPosition - _bodyBase;
+            _handPoint.localPosition = _bodyBase + Quaternion.Euler(0f, 0f, _hitAng) * p + new Vector3(0f, -sink, 0f);
+            _handPoint.localRotation = _handPoint.localRotation * Quaternion.Euler(0f, 0f, _hitAng * (1f + hitGunJolt));
+        }
+        if (_dead)                                                          // 死了：两只手臂软了甩
+        {
+            _handL.localRotation = _handL.localRotation * Quaternion.Euler(0f, 0f, _armL.a);
+            _handR.localRotation = _handR.localRotation * Quaternion.Euler(0f, 0f, _armR.a);
+        }
+    }
+
+    // 把手上那件东西复制一份扔进世界（不挂在人身上）。skip = 名字里带这个的部件不复制（持枪手）；
+    // single 不为空时不复制，直接用这张图（拿着的图连着手的东西，掉下去用腰上挂的那张）
+    void SpawnDropped(Transform src, string skip, Sprite single, int singleOrder, float dt, Color lightColor, float lightIntensity, float lightRadius)
+    {
+        GameObject root = new GameObject("DroppedWeapon");
+        Transform rt = root.transform;
+        rt.position = src.position;
+        Vector3 ax = src.TransformVector(Vector3.right), ay = src.TransformVector(Vector3.up);       // 这件东西现在的"右"和"上"
+        bool mirror = ax.x * ay.y - ax.y * ay.x < 0f;                                               // 朝左（左右翻过来了）
+        rt.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(-ay.x, ay.y) * Mathf.Rad2Deg);            // 用"上"算角度（左右翻转不影响它）
+        rt.localScale = new Vector3(mirror ? -ax.magnitude : ax.magnitude, ay.magnitude, 1f);        // 大小 + 翻转都带上
+        SortingGroup mine = GetComponent<SortingGroup>();
+        SortingGroup sg = root.AddComponent<SortingGroup>();                                        // 整件当成一个整体排序（和人同一层）
+        if (mine != null) { sg.sortingLayerID = mine.sortingLayerID; sg.sortingOrder = mine.sortingOrder; }
+        if (single != null)
+        {
+            SpriteRenderer one = new GameObject("Part").AddComponent<SpriteRenderer>();
+            one.transform.SetParent(rt, false);
+            one.sprite = single;
+            one.sortingOrder = singleOrder;
+        }
+        else
+        {
+            foreach (SpriteRenderer sr in src.GetComponentsInChildren<SpriteRenderer>())
+            {
+                if (!sr.enabled || sr.sprite == null || sr.name.Contains(skip)) continue;          // 藏着的 / 持枪手 不要
+                SpriteRenderer c = new GameObject(sr.name).AddComponent<SpriteRenderer>();
+                c.transform.SetParent(rt, false);
+                c.transform.localPosition = src.InverseTransformPoint(sr.transform.position);       // 相对位置不变
+                Vector3 cu = src.InverseTransformVector(sr.transform.TransformVector(Vector3.up));   // 相对角度、大小不变
+                c.transform.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(-cu.x, cu.y) * Mathf.Rad2Deg);
+                c.transform.localScale = new Vector3(cu.magnitude, cu.magnitude, 1f);
+                c.sprite = sr.sprite; c.color = sr.color; c.flipX = sr.flipX; c.flipY = sr.flipY;
+                c.sortingOrder = sr.sortingOrder;
+                c.sharedMaterial = sr.sharedMaterial;                                               // 发光的部件还是发光
+            }
+        }
+        if (lightIntensity > 0f && RenderMats.IsURP)                                                // 激光刃掉在地上还亮着
+            WorldLighting.CreatePoint("DroppedLight", rt, lightColor, lightIntensity, lightRadius, 360f);
+        Vector3 hv = (src.position - _prevHandWorld) / Mathf.Max(0.001f, dt);                      // 手当时在往哪动（人倒下带着甩）
+        float fallW = -_dieSign * (_deadLeft ? -1f : 1f);                                           // 往倒的方向（世界左右）
+        Vector2 vel = new Vector2(hv.x + fallW * weaponThrow, hv.y + weaponUp);
+        float spin = RandIn(weaponSpin) * (Random.value < 0.5f ? -1f : 1f);
+        _dropped.Add(root);
+        StartCoroutine(FlyDropped(rt, vel, spin));
+    }
+
+    // 脱手的武器：抛出去 → 砸到地上弹一下 → 在地上滑一下，慢慢放平停住
+    IEnumerator FlyDropped(Transform t, Vector2 vel, float spin)
+    {
+        float ground = _groundY + weaponRestLift, rest = 0f;
+        float ang = t.eulerAngles.z;
+        while (t != null && rest < 1.2f)
+        {
+            float dt = Time.deltaTime;
+            if (dt > 0f)
+            {
+                vel.y -= 9.81f * weaponGravity * dt;                                                // 重力
+                Vector3 p = t.position + new Vector3(vel.x * dt, vel.y * dt, 0f);
+                ang += spin * dt;
+                if (p.y <= ground)
+                {
+                    p.y = ground;
+                    if (vel.y < -0.5f) { vel.y = -vel.y * weaponBounce; vel.x *= 0.6f; spin *= -0.5f; }   // 砸到地上：弹一下，转向反过来
+                    else
+                    {
+                        vel.y = 0f;
+                        vel.x = Mathf.MoveTowards(vel.x, 0f, 4f * dt);                              // 在地上滑一下停住
+                        spin = Mathf.MoveTowards(spin, 0f, 2000f * dt);
+                        ang = Mathf.MoveTowardsAngle(ang, Mathf.Round(ang / 180f) * 180f, 300f * dt);   // 慢慢放平
+                        rest += dt;
+                    }
+                }
+                t.position = p;
+                t.rotation = Quaternion.Euler(0f, 0f, ang);
+            }
+            yield return null;
+        }
+    }
+
+    // 人删掉时，地上的武器一起收走
+    void OnDestroy()
+    {
+        foreach (GameObject g in _dropped) if (g != null) Destroy(g);
+    }
+
+    // 死的时候：停掉开枪 / 换弹 / 挥动 / 瞄准
+    void StopForDeath()
+    {
+        StopReload();
+        _recoilT = -1f; _swingT = -1f; _heldLoop = false;
+        _aimUntil = 0f;
+    }
+
+    // 受击时头在面罩里多甩一下
+    void HeadWhip(float push, float k)
+    {
+        if (_faceLag != null) _faceLag.v += new Vector2(-push * 60f * k * hitHeadWhip, 0f);
+    }
+
+    // 拿着的图连着手的东西：掉下去用腰上挂的那张图
+    static readonly Dictionary<string, string> DROP_ART = new Dictionary<string, string>
+    {
+        { "axe", "Gear/Axe" }, { "hammer", "Gear/Hammer" }, { "medkit", "Gear/Medkit" }, { "bottle", "Gear/Bottle" },
+    };
+
+    // 武器脱手：复制一份扔出去，手上换回空手；腰上对应的那件不再出现（已经掉出去了）
+    void DropWeapon(float dt)
+    {
+        _weaponDropped = true;
+        string was = _held;
+        if (was == null || _heldSprite == null) return;                    // 本来就空手
+        Transform src = _heldSprite.transform;
+        if (was == "pistol") SpawnDropped(src, "Hand", null, 0, dt, Color.white, 0f, 0f);          // 手枪：枪身 + 弹匣 + 滑套（不要两只持枪手）
+        else if (DROP_ART.TryGetValue(was, out string art)) SpawnDropped(src, "Hand", Load(art), 24, dt, Color.white, 0f, 0f);
+        ApplyHeld(null);                                                    // 手上空了（两只手换回来，腰上的挂件放回去）
+        if (was == "axe" || was == "hammer" || was == "bottle") HideGear(was);   // 掉出去的那件不在腰上了
+        else if (was == "medkit") { HideGear("medkit"); HideGear("zipper"); }
+        else if (was == "pistol" && _gear.TryGetValue("holster", out Transform h))
+        {
+            Transform pistol = h.Find("Pistol");                            // 枪套里的手枪
+            if (pistol != null) HideRenderer(pistol.GetComponent<SpriteRenderer>());
+        }
+    }
+
+    // 站起来后按情况重新拿东西（腰上的挂件也放回去）
+    void RestoreAfterRevive()
+    {
+        ApplyHeld(null);
+        _heldTimer = 0f;
     }
 
     // ============================================================================

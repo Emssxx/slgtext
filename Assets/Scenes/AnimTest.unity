@@ -457,6 +457,24 @@ MonoBehaviour:
   trembleAngle: 5
   trembleFreq: 9
   trembleReloadMul: 1.5
+  headlamp: 1
+  headlampColor: {r: 0.78, g: 0.92, b: 1, a: 1}
+  headlampIntensity: 0.7
+  headlampRange: 4
+  headlampAngle: 50
+  headlampDown: -12
+  lampGlowColor: {r: 0.6, g: 0.95, b: 1, a: 1}
+  lampGlowSize: 1
+  antennaColor: {r: 0.35, g: 1, b: 0.45, a: 1}
+  antennaPeriod: 2.2
+  antennaLight: 0.5
+  suitGlowColor: {r: 0.7, g: 0.85, b: 1, a: 1}
+  suitGlowIntensity: 0.35
+  suitGlowRadius: 1.1
+  muzzleLightColor: {r: 1, g: 0.72, b: 0.38, a: 1}
+  muzzleLightIntensity: 5
+  muzzleLightRadius: 3.2
+  muzzleLightRandom: {x: 0.7, y: 1.3}
   testHeld: 0
   testLoop: 1
   testFire: 0
@@ -610,8 +628,216 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bc4db73ff7594795ba524f3f3d4f78bc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  walkFullSpeed: 1.2
+  runStartSpeed: 3.3
+  runFullSpeed: 3.8
+  cadenceSlow: 1.15
+  cadenceFast: 1.9
+  cadenceRun: 2.3
+  footSwing: {x: 0.08, y: 0.138}
+  footLift: {x: 0.031, y: 0.092}
+  footRot: {x: 12, y: 24}
+  flight: 0.023
+  handSwing: {x: 0.069, y: 0.134}
+  handLift: {x: 0.019, y: 0.054}
+  handRot: {x: 16, y: 34}
+  easePow: 0.8
+  bob: {x: 0.019, y: 0.046}
+  waddle: {x: 2, y: 1}
+  runLean: -7
+  squash: {x: 0.025, y: 0.07}
+  mountAmount: 1
+  helmetAmount: 1
+  packAmount: 1
+  gearAmount: 1
+  hoseAmount: 1
+  testSpeed: -1
   testCycle: 0
+  cycleIdle: 1.2
+  cycleWalk: 2.5
+  cycleRun: 2
+  cycleStop: 1.5
+  cycleWalkSpeed: 1.65
+  cycleRunSpeed: 3.9
+  testAccel: 6
   testKeyboard: 1
+  testFaceLeft: 0
+  testHeld: 0
+  testLoop: 1
+  testFire: 0
+  testAimTarget: {fileID: 0}
+  testReload: 0
+  testReloadKind: 0
+  currentState: 
+  recoilKick: {x: 50, y: 50}
+  slideKick: 150
+  slideBackTime: 0.03
+  slideHoldTime: 0.03
+  slideReturnTime: 0.15
+  bulletSpeed: 100
+  flashTime: 0.07
+  flashSize: 1
+  ricochetChance: 0.274
+  ricochetTime: 0.15
+  recoilHandX: {x: -0.05, y: -0.1}
+  recoilHandY: {x: 0.09, y: 0.18}
+  handRecoilRise: 0.03
+  handRecoilReturn: {x: 0.09, y: 0.24}
+  muzzleRise: {x: 0.09, y: 0.15}
+  muzzleReturn: 0.09
+  recoilLean: 3
+  actionShift: 0.012
+  muzzleLightColor: {r: 1, g: 0.72, b: 0.38, a: 1}
+  muzzleLightIntensity: 5
+  muzzleLightRadius: 3.2
+  muzzleLightRandom: {x: 0.7, y: 1.3}
+  aimShoulder: {x: 0.175, y: 0.466}
+  rifleBurst: 10
+  rifleRPM: 400
+  rifleRecoilKick: {x: 5.28, y: 1.65}
+  rifleRecoilHandX: {x: -0.06, y: -0.035}
+  rifleRecoilHandY: {x: 0.005, y: 0.02}
+  rifleHandRecoilRise: 0.02
+  rifleHandRecoilReturn: {x: 0.06, y: 0.09}
+  rifleMuzzleRise: {x: 0.02, y: 0.04}
+  rifleMuzzleReturn: 0.07
+  rifleRecoilLean: 1.5
+  rifleActionShift: 0.01
+  rifleChargerKick: 120
+  rifleBoltKick: 0
+  rifleBoltBackTime: 0.02
+  rifleBoltHoldTime: 0
+  rifleBoltReturnTime: 0.05
+  rifleFlashTime: 0.05
+  rifleFlashSize: 2
+  rifleShoulder: {x: -0.083, y: 0.51}
+  rigRifleMags: 
+  rrMagInHand: {x: 0, y: -0.04}
+  rrReady: 0.1
+  rrPullOut: 0.1
+  rtRaiseTime: 0.3
+  rtGunUp: 40
+  rtGunBack: {x: -0.3, y: 0.03}
+  rtFetchTime: 0.3
+  rtGrabTime: 0.2
+  rtBringTime: 0.25
+  rtPullOldTime: 0.15
+  rtPullOldDist: 0.17
+  rtAlignTime: 0.12
+  rtInsertTime: 0.1
+  rtInsertShake: 8
+  rtNewTilt: 15
+  rtOldTilt: -15
+  rtOldOffset: {x: 0.04, y: 0}
+  rtStowTime: 0.35
+  rtPushTime: 0.12
+  rtGunMid: 45
+  rtZoom: 0.12
+  rtZoomTime: 0.25
+  rtZoomShake: 6
+  rtBoltReturnTime: 0.05
+  rtLevelTime: 0.25
+  rtGripShake: 6
+  rtGripShakeY: 0.01
+  rtGripShakeTime: 0.25
+  rsFlickTime: 0.18
+  rsFlickY: 0.04
+  rsFlickAngle: 8
+  rsRaiseTime: 0.3
+  rsGunUp: 30
+  rsGunBack: {x: -0.3, y: 0.03}
+  rsInsertShakeY: 0.04
+  rsInsertShakeTime: 0.2
+  rsRegripTime: 0.12
+  rsSettleTime: 0.3
+  rnReachTime: 0.2
+  rnRaiseTime: 0.3
+  rnGunUp: 80
+  rnGunBack: {x: -0.3, y: 0.03}
+  daggerPopTime: 0.12
+  daggerPopDist: 230
+  daggerFlickerTime: 0.6
+  daggerOverexpose: 1.5
+  daggerHum: 0.06
+  daggerLightColor: {r: 0.55, g: 0.95, b: 1, a: 1}
+  daggerLightIntensity: 1.2
+  daggerLightRadius: 1.5
+  daggerPeriod: 1.2
+  daggerAngles: {x: 90, y: -37.9}
+  daggerHandUp: {x: -0.14, y: 0.35}
+  daggerHandDown: {x: 0.32, y: -0.02}
+  daggerHandDownY: {x: -0.09, y: 0.15}
+  daggerLean: {x: 5, y: -7}
+  daggerShift: 0.012
+  rifleDrawAnim: 1
+  rdReachTime: 0.3
+  rdGrabPoint: {x: 1650, y: 800}
+  rdGrabAngle: 0
+  rdLiftTime: 0.35
+  rdCenterGrip: {x: 1060, y: 1150}
+  rdCenterAngle: 15
+  rdStockGrabTime: 0.2
+  rdStockGrabPoint: {x: 1000, y: 1010}
+  rdStockCollapse: 120
+  rdStockPullTime: 0.15
+  rdStockShake: 5
+  rdLeftHomeTime: 0.2
+  rdRightHomeTime: 0.3
+  rdDropAngle: 30
+  rdSettleTime: 0.3
+  gunLight: 1
+  gunLightColor: {r: 0.85, g: 0.93, b: 1, a: 1}
+  gunLightIntensity: 1
+  gunLightRange: 5
+  gunLightAngle: 35
+  gunLightGlowSize: 0.6
+  aimTurnSpeed: 720
+  aimFlipOver: 5
+  lowReadyAngle: -45
+  lowReadySpeed: 180
+  lowReadyHold: 1.5
+  lowReadyOffset: {x: 0, y: -0.08}
+  rigMags: 
+  lastReloadKind: 
+  testRefillMags: 0
+  reloadSpeed: 1
+  rlLockTime: 0.12
+  rlFetchTime: 0.2
+  rlGrabTime: 0.28
+  rlBringTime: 0.3
+  rlDropTime: 0.3
+  rlAlignTime: 0.1
+  rlInsertTime: 0.1
+  rlReleaseTime: 0.3
+  rlStowTime: 0.4
+  rlReturnTime: 0.3
+  rlSlideLock: 1
+  rlGunRaise: {x: 0.03, y: 0.06}
+  rlGunTilt: 30
+  rlGunAlign: 30
+  rlArc: -0.05
+  rlPullOut: 0.06
+  rlMagInHand: {x: 0, y: 0.012}
+  rlUnderGap: 0.03
+  rlReady: 0.085
+  rlNewTilt: 18
+  rlOldTilt: -18
+  rlOldOffset: {x: 0.012, y: 0}
+  rlShake: 0.1
+  rlShakeAngle: 45
+  rlSlideDelay: 0.3
+  rlShakeFreq: 5
+  qrDropAt: 0
+  qrDropTime: 0
+  qrWait: {x: 0, y: 0}
+  qrSlideSpeed: 0.6
+  qrGravity: 5
+  qrKick: {x: -0.1, y: 0.1}
+  qrSpin: {x: -500, y: -250}
+  qrGroundY: {x: -0.05, y: 0.03}
+  qrGroundTime: 3
+  nrCatchTime: 0.15
+  nrSwitchTime: 0.2
 --- !u!1 &500000031
 GameObject:
   m_ObjectHideFlags: 0
@@ -658,18 +884,26 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   entries:
   - category: 0
-    label: "\u7b2c\u4e00\u79cd NPC\uff08\u9632\u62a4\u670d\uff09"
+    label: "\u7B2C\u4E00\u79CD NPC\uFF08\u9632\u62A4\u670D\uFF09"
     target: {fileID: 500000001}
     cameraSize: 0.8
     cameraY: 0.05
-    hint: "\u9009\u4e2d\u540e\u5728 Inspector \u91cc\u7528\u6d4b\u8bd5\u5f00\u5173\uff1a\nTest Held \u62ff\u4e1c\u897f / Test Fire \u5f00\u67aa / Test Reload \u6362\u5f39 / Test Speed \u8d70\u8dd1 / Test Expression \u8868\u60c5"
+    hint: "\u9009\u4E2D\u540E\u5728 Inspector \u91CC\u7528\u6D4B\u8BD5\u5F00\u5173\uFF1A\nTest
+      Held \u62FF\u4E1C\u897F / Test Fire \u5F00\u67AA / Test Reload \u6362\u5F39
+      / Test Speed \u8D70\u8DD1 / Test Expression \u8868\u60C5"
   - category: 0
-    label: "\u7b2c\u4e8c\u79cd NPC\uff08\u5934\u76d4\u58eb\u5175\uff09"
+    label: "\u7B2C\u4E8C\u79CD NPC\uFF08\u5934\u76D4\u58EB\u5175\uFF09"
     target: {fileID: 500000021}
     cameraSize: 0.8
     cameraY: 0.05
-    hint: "\u9009\u4e2d\u540e\u5728 Inspector \u91cc\u7528\u6d4b\u8bd5\u5f00\u5173\uff08\u548c\u7b2c\u4e00\u79cd\u4e00\u6837\uff09\uff1a\nTest Held \u9009\u624b\u67aa / Test Loop \u81ea\u52a8\u5f00\u67aa / Test Fire \u5f00\u4e00\u67aa / Test Reload \u6362\u5f39 / Test Aim Target \u7784\u51c6\nTest Speed \u8d70\u8dd1 / Test Face Left \u671d\u5de6\uff1b\u53e6\u5916\uff1aTest Cycle \u81ea\u52a8\u5faa\u73af\uff0cD / A \u8d70\u3001Shift \u8dd1"
+    hint: "\u9009\u4E2D\u540E\u5728 Inspector \u91CC\u7528\u6D4B\u8BD5\u5F00\u5173\uFF08\u548C\u7B2C\u4E00\u79CD\u4E00\u6837\uFF09\uFF1A\nTest
+      Held \u9009\u624B\u67AA / \u6B65\u67AA\uFF08\u6709\u53D6\u51FA\u52A8\u753B\uFF09/
+      \u6218\u672F\u5315\u9996\uFF0CTest Loop \u81EA\u52A8\u5F00\u67AA\u6216\u6325\u5200
+      / Test Fire \u5F00\u4E00\u6B21\uFF0CTest Reload \u6362\u5F39\uFF0CTest Aim
+      Target \u7784\u51C6\nTest Speed \u8D70\u8DD1 / Test Face Left \u671D\u5DE6\uFF1B\u53E6\u5916\uFF1ATest
+      Cycle \u81EA\u52A8\u5FAA\u73AF\uFF0CD / A \u8D70\u3001Shift \u8DD1"
   startIndex: 0
+  timeScale: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

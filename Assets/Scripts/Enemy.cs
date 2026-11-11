@@ -35,7 +35,8 @@ public class Enemy : MonoBehaviour
     // 现在的移动速度（开枪的人预判走位用）
     public Vector3 Velocity => _agent != null && _agent.isActiveAndEnabled ? _agent.velocity : Vector3.zero;
     // 现在是不是冲着人来的：造物永远是；人类只有来袭 / 来抢、正盯着某人、或者挨过打时才算（游荡的拾荒者路过不算）
-    public bool Hostile => Def != null && (Def.kind == EnemyKind.Creature || goal != Goal.Wander || _target != null || _lastHitBy != null);
+    public bool Hostile => Def != null && (Def.kind == EnemyKind.Creature || goal != Goal.Wander || _target != null || _lastHitBy != null || _aba != null);
+    public bool KilledByAba { get; private set; }   // 被 ABA 清除小组打死的（不掉东西进仓库）
 
     const float FeetY = -0.453125f;   // 和 NPC 一样：物体中心在脚底上方 0.453（NavMeshAgent 的 baseOffset）
 
@@ -50,6 +51,9 @@ public class Enemy : MonoBehaviour
     NpcData _target;
     GameObject _wall;
     string _lastHitBy;
+    AbaOperative _aba;            // 正在对付的 ABA 队员
+    bool _vsAba;                  // 这一轮在打 ABA（不是打幸存者）
+    float _abaHitAt = -99f;       // 上一次挨 ABA 的打
 
     static readonly Dictionary<string, Sprite> _placeholders = new Dictionary<string, Sprite>();
 
@@ -189,6 +193,8 @@ public class Enemy : MonoBehaviour
         }
 
         // 4. 正在拆墙：除非有人贴到跟前，否则一直拆到墙倒（AttackWall 里处理；走不到墙边 8 秒会放弃）
+        _vsAba = false;
+        if (_wall != null && Time.time - _abaHitAt < 2f) _wall = null;   // 拆墙时挨了 ABA 的枪：先转过来对付它
         if (_wall != null)
         {
             NpcData close = NearestNpc(pos, Def.attackRange + 0.2f);
@@ -204,6 +210,22 @@ public class Enemy : MonoBehaviour
             NpcData n = NearestNpc(pos, Def.sight);
             if (n != null && WantsToAttack(n, pos, safe)) _target = n;
         }
+        // 5b. ABA 清除小组：造物见了就扑；人类只还手（10 秒内挨过它打）。它更近 / 刚打了我 → 先对付它
+        if (_aba != null && (!_aba.Alive || Dist(pos, _aba.transform.position) > Def.sight * 1.8f)) _aba = null;
+        if (_aba == null)
+        {
+            AbaOperative a = AbaOperative.Nearest(pos, Def.sight);
+            if (a != null && (Def.kind == EnemyKind.Creature || Time.time - _abaHitAt < 10f)) _aba = a;
+        }
+        if (_aba != null && (_target == null || Time.time - _abaHitAt < 3f || Dist(pos, _aba.transform.position) + 0.5f < Dist(pos, NpcPos(_target))))
+        {
+            _vsAba = true;
+            Vector3 ap = _aba.transform.position;
+            if (Dist(pos, ap) <= Def.attackRange) { state = State.Attack; Halt(); }
+            else { state = State.Chase; GoTo(ap, Def.speed); }
+            return;
+        }
+
         if (_target != null)
         {
             Vector3 tp = NpcPos(_target);
@@ -314,6 +336,7 @@ public class Enemy : MonoBehaviour
 
     void AttackTarget()
     {
+        if (_vsAba) { AttackAba(); return; }
         if (_target == null || _target.IsDead) { _target = null; return; }
         Vector3 tp = NpcPos(_target);
         Face(tp);
@@ -335,6 +358,28 @@ public class Enemy : MonoBehaviour
         _lunge = 1f;
         float hit = Def.kind == EnemyKind.Creature ? 0.8f : 0.7f;   // 近战：照旧按命中率
         if (Random.value < hit) NpcCombat.OnEnemyHit(_target, Def.damage, this);
+    }
+
+    // 打 ABA 队员（近战照旧按命中率；带枪的走 Ballistics）
+    void AttackAba()
+    {
+        if (_aba == null || !_aba.Alive) { _aba = null; _vsAba = false; return; }
+        Vector3 tp = _aba.transform.position;
+        Face(tp);
+        if (_attackCd > 0f) return;
+        if (Dist(transform.position, tp) > Def.attackRange + 0.25f) return;
+        _attackCd = Def.attackInterval * Random.Range(0.9f, 1.1f);
+        if (Def.Ranged)
+        {
+            Vector2 aim = tp - transform.position;
+            Vector2 fwd = aim.sqrMagnitude > 0.0001f ? aim.normalized : Vector2.right;
+            Vector3 muzzle = transform.position + new Vector3(fwd.x, fwd.y, 0f) * 0.25f * Def.scale + new Vector3(0f, 0.05f, 0f);
+            Ballistics.FireFromEnemy(this, muzzle, tp, _aba.Velocity, Def.damage, Velocity.sqrMagnitude > 0.05f);
+            return;
+        }
+        _lunge = 1f;
+        float hit = Def.kind == EnemyKind.Creature ? 0.8f : 0.7f;
+        if (Random.value < hit) _aba.TakeHit(Def.damage, (tp - transform.position).normalized, this, null);
     }
 
     void AttackWall(float dt)
@@ -391,6 +436,25 @@ public class Enemy : MonoBehaviour
             if (goal == Goal.Wander) _loiterUntil = 0f;
         }
         if (Hp <= 0f) Die(by);
+    }
+
+    // 挨了 ABA 清除小组的打（Ballistics 调）
+    public void TakeHitFromAba(float dmg, AbaOperative by)
+    {
+        if (!Alive || dmg <= 0f) return;
+        _abaHitAt = Time.time;
+        if (by != null && (Def.kind == EnemyKind.Human || _aba == null || Random.value < 0.4f)) _aba = by;
+        if (goal == Goal.Wander) _loiterUntil = 0f;
+        if (Hp - dmg <= 0f) KilledByAba = true;
+        TakeDamage(dmg, null);
+    }
+
+    // 被击退时打断一下（这几秒内不能出手）
+    public void Stagger(float seconds)
+    {
+        if (!Alive) return;
+        _attackCd = Mathf.Max(_attackCd, seconds);
+        _lunge = 0f;
     }
 
     void Die(NpcData by)

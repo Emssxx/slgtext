@@ -79,6 +79,8 @@ public class EnemyDirector : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(this); return; }
         Instance = this;
+        AbaForce.Ensure();   // ABA 清除小组（F10 测试；战斗测试场景也会有）
+        NpcTactics.Ensure(); // 幸存者的小队战术（团队大脑）
     }
 
     void OnDestroy()
@@ -106,6 +108,8 @@ public class EnemyDirector : MonoBehaviour
             Vector3 camp = NpcNav.CampCenter(Vector3.zero);
             foreach (Enemy e in Enemy.All)
                 if (e != null && e.Alive && (e.Visible || Vector2.Distance(e.transform.position, camp) < NpcNav.CampRadius + 10f)) return true;
+            foreach (AbaOperative o in AbaOperative.All)   // ABA 清除小组也算威胁
+                if (o != null && o.Alive && (o.Visible || Vector2.Distance(o.transform.position, camp) < NpcNav.CampRadius + 10f)) return true;
             return false;
         }
     }
@@ -351,6 +355,7 @@ public class EnemyDirector : MonoBehaviour
             if (LogManager.Instance != null) LogManager.Instance.AddLog(by.npcName, text, by.id);
         }
         if (e.Def.IsStrong) AddEvent(w, LF("enemy_event_strong_down", e.Name));
+        if (e.KilledByAba) return;   // ABA 打死的：东西不会进我们的仓库
         if (!string.IsNullOrEmpty(e.Def.dropItem) && Random.value < e.Def.dropChance && WorldManager.Instance != null)
         {
             WorldManager.Instance.AddToStorage(e.Def.dropItem, 1);
@@ -367,11 +372,11 @@ public class EnemyDirector : MonoBehaviour
         AddEvent(w, LF("enemy_event_fled", e.Name));
     }
 
-    public static void OnNpcKilled(NpcData n, Enemy by)
+    public static void OnNpcKilled(NpcData n, Enemy by, string byName = null)
     {
         WorldState w = World;
         if (n == null || w == null) return;
-        AddEvent(w, LF("enemy_event_npc_killed", n.npcName, by != null ? by.Name : "?"));
+        AddEvent(w, LF("enemy_event_npc_killed", n.npcName, by != null ? by.Name : (byName ?? "?")));
     }
 
     public static void OnStructureBroken(Vector3 pos, string structName, bool wall, Enemy by)

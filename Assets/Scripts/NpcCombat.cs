@@ -25,6 +25,9 @@ using UnityEngine;
 // 【挨打】伤害 × 防护服减伤（EnemyDirector.suitArmor）；一场仗里累计掉血到 injureAfterDamage → 「受伤」（伤在手臂 / 肋骨 / 大腿）。
 // 【占用】打 / 躲期间在 NpcBusy 登记 Combat（优先级 90）：施工、需求行为、闲置行为、自主干活都会让路。
 // 【以后接 AI】SetStance(npcId, 姿态, 秒数) 就是给领导（14B）/ 玩家下"打 / 躲"用的口子；不下就按上面的规则自己判断。
+// 【小队战术】NpcTactics（团队大脑）在打仗时给每个人排好：角色、打谁、站哪 / 退到哪、能不能开火（集火、交叉火力、放风筝、
+//   近战护卫、退回营地防守……，本地 AI 只下方针）。有安排时照安排执行（这里只管走过去、瞄准、开枪 / 挥砍、换弹）；
+//   没有安排（团队大脑不在 / 没打仗）时用上面的老规则。要打的对象可以是敌人，也可以是 ABA 队员（CombatFoe）。
 // ============================================================================
 [DisallowMultipleComponent]
 public class NpcCombat : MonoBehaviour
@@ -50,12 +53,14 @@ public class NpcCombat : MonoBehaviour
     static readonly Dictionary<string, float> _playerOrderAt = new Dictionary<string, float>();
 
     public Mode Current { get; private set; }
-    public Enemy Foe => _foe;
+    public Enemy Foe => _foe != null ? _foe.enemy : null;   // 正在打的敌人（打的是 ABA 队员时为 null）
+    public CombatFoe Target => _foe;                         // 正在打的对象（敌人或 ABA 队员）
 
     NpcView _view;
     NpcMover _mover;
     NpcTaskRunner _runner;
-    Enemy _foe, _lastAttacker;
+    CombatFoe _foe, _lastAttacker;
+    NpcTactics.Plan _plan;   // 团队大脑给的安排（null = 自己判断）
     float _decide, _attackCd, _calm, _repath, _barkCd, _logCd, _lastHit = -99f, _hurt;
     float _flankUntil;     // 开火线被自己人挡着、正在往旁边挪（这段时间不站定）
     bool _claimed, _injuredThisFight, _hasDest;
@@ -117,6 +122,13 @@ public class NpcCombat : MonoBehaviour
         if (!string.IsNullOrEmpty(npcId)) _playerOrderAt[npcId] = Time.time;
     }
 
+    // 正在做玩家交代的事（团队大脑不调动他）
+    public static bool UnderPlayerTask(string npcId)
+    {
+        NpcCombat c = Of(npcId);
+        return c != null && PlayerOrderActive(npcId, c._runner);
+    }
+
     static bool PlayerOrderActive(string npcId, NpcTaskRunner r)
     {
         return r != null && r.IsBusy && !string.IsNullOrEmpty(npcId)
@@ -142,7 +154,7 @@ public class NpcCombat : MonoBehaviour
     public static void OnEnemyHit(NpcData n, float damage, Enemy by) => OnHit(n, damage, by, null);
 
     // 这个 NPC 挨了一下：byEnemy = 敌人打的；byNpc = 自己人的流弹（Ballistics 调）
-    public static void OnHit(NpcData n, float damage, Enemy byEnemy, NpcData byNpc)
+    public static void OnHit(NpcData n, float damage, Enemy byEnemy, NpcData byNpc, AbaOperative byAba = null)
     {
         if (n == null || n.IsDead) return;
         Enemy by = byEnemy;
@@ -161,7 +173,8 @@ public class NpcCombat : MonoBehaviour
         if (c != null)
         {
             c._lastHit = Time.time;
-            c._lastAttacker = by;
+            c._lastAttacker = by != null ? CombatFoe.Of(by) : (byAba != null ? CombatFoe.Of(byAba) : null);
+            NpcTactics.NoteAttack(c._lastAttacker);   // 全队马上知道是谁在打人
             c._hurt += d;
             c._decide = 0f;   // 马上重新想（还手还是跑）
             hurt = c._hurt;
@@ -173,9 +186,9 @@ public class NpcCombat : MonoBehaviour
             bool wasInjured = NpcHealth.Has(n, HealthTag.Injured);
             NpcHealth.MarkInjured(n, InjuryCause.Combat);
             if (c != null) c._injuredThisFight = true;
-            if (!wasInjured) Log(n, LF("combat_log_injured", n.npcName, by != null ? by.Name : (byNpc != null ? byNpc.npcName : "?"), NpcHealth.InjuryPart(n, LanguageGuard.IsJp)), true);
+            if (!wasInjured) Log(n, LF("combat_log_injured", n.npcName, by != null ? by.Name : (byNpc != null ? byNpc.npcName : (byAba != null ? AbaForce.L("aba_name") : "?")), NpcHealth.InjuryPart(n, LanguageGuard.IsJp)), true);
         }
-        if (n.IsDead) EnemyDirector.OnNpcKilled(n, by);
+        if (n.IsDead) EnemyDirector.OnNpcKilled(n, by, byAba != null ? AbaForce.L("aba_name") : null);
     }
 
     // ============ 每帧 ============
@@ -212,13 +225,31 @@ public class NpcCombat : MonoBehaviour
 
     void Decide(NpcData n)
     {
+        // 团队大脑在打仗：照它的安排（玩家刚交代的事除外）
+        _plan = NpcTactics.PlanFor(Id);
+        if (_plan != null)
+        {
+            if (PlayerOrderActive(Id, _runner)) { if (Current != Mode.None) Stop(n, false); return; }
+            CombatFoe pf = _plan.foe != null && _plan.foe.Alive ? _plan.foe : null;
+            Mode pm = _plan.act == NpcTactics.Act.Flee ? Mode.Flee : _plan.act == NpcTactics.Act.Fight ? Mode.Fight : Mode.None;
+            if (pm == Mode.Fight && pf == null) pm = _plan.hasSpot ? Mode.Flee : Mode.None;   // 没有可打的：走到位置上就好
+            if (pm == Mode.None)
+            {
+                if (Current != Mode.None) { _calm += 0.3f; if (_calm >= 1f) Stop(n, true); }
+                return;
+            }
+            _calm = 0f;
+            if (pm != Current || pf != _foe) Begin(n, pm, pf);
+            return;
+        }
+
         Vector3 pos = transform.position;
         float alert = EnemyDirector.AlertRange;
-        Enemy threat = Enemy.NearestTo(pos, alert, true, true);
+        CombatFoe threat = CombatFoe.Of(Enemy.NearestTo(pos, alert, true, true));
         bool hitRecently = Time.time - _lastHit < 4f && _lastAttacker != null && _lastAttacker.Alive;
         if (threat == null && hitRecently) threat = _lastAttacker;
         // 正在打的那个还活着、没跑远：接着盯它（不要一会儿换一个）
-        if (Current == Mode.Fight && _foe != null && _foe.Alive && Dist(pos, _foe.transform.position) < alert * 1.6f) threat = _foe;
+        if (Current == Mode.Fight && _foe != null && _foe.Alive && Dist(pos, _foe.Position) < alert * 1.6f) threat = _foe;
 
         if (threat == null)
         {
@@ -242,7 +273,7 @@ public class NpcCombat : MonoBehaviour
         if (want != Current || threat != _foe) Begin(n, want, threat);
     }
 
-    Mode Choose(NpcData n, Enemy foe)
+    Mode Choose(NpcData n, CombatFoe foe)
     {
         if (!NpcHealth.CanFight(n)) return Mode.Flee;
         float fleeHp = 35f - n.personality.bravery * 0.2f;   // 和 NpcDecisionRules 的逃跑阈值一致
@@ -251,15 +282,14 @@ public class NpcCombat : MonoBehaviour
         if (st == Stance.Hide) return Mode.Flee;
         if (st == Stance.Fight) return Mode.Fight;
         float c = Courage(n, foe);
-        if (!foe.Def.IsStrong) return c >= 30f ? Mode.Fight : Mode.Flee;
+        if (!foe.IsStrong) return c >= 30f ? Mode.Fight : Mode.Flee;
         // 强敌：以防守为主
-        bool defend = Enemy.NearCamp(transform.position, 0.5f)
-                      && (foe.state == Enemy.State.BreakWall || Enemy.NearCamp(foe.transform.position, 0f));
+        bool defend = Enemy.NearCamp(transform.position, 0.5f) && (foe.BreakingWall || foe.InCamp);
         if (defend && c >= (WeaponOf(Id).ranged ? 55f : 70f)) return Mode.Fight;
         return Mode.Flee;
     }
 
-    float Courage(NpcData n, Enemy foe)
+    float Courage(NpcData n, CombatFoe foe)
     {
         float c = n.personality.bravery + WeaponOf(Id).courage;
         c += 8f * Mathf.Min(3, AlliesFighting());
@@ -279,7 +309,7 @@ public class NpcCombat : MonoBehaviour
         return k;
     }
 
-    void Begin(NpcData n, Mode m, Enemy foe)
+    void Begin(NpcData n, Mode m, CombatFoe foe)
     {
         bool fresh = Current == Mode.None;
         bool changed = m != Current;
@@ -302,14 +332,16 @@ public class NpcCombat : MonoBehaviour
         if (m == Mode.Fight)
         {
             Weapon w = WeaponOf(Id);
-            n.currentAction = LF("combat_act_fight", foe.Name);
-            Log(n, LF("combat_log_fight", n.npcName, foe.Name, L("weapon_" + w.key)));
+            string fn = foe != null ? foe.Name : "?";
+            n.currentAction = LF("combat_act_fight", fn);
+            Log(n, LF("combat_log_fight", n.npcName, fn, L("weapon_" + w.key)));
             Bark(Pick(FightZh, FightJa));
         }
         else
         {
-            n.currentAction = LF("combat_act_flee", foe.Name);
-            Log(n, LF("combat_log_flee", n.npcName, foe.Name));
+            string fn = foe != null ? foe.Name : "?";
+            n.currentAction = LF("combat_act_flee", fn);
+            Log(n, LF("combat_log_flee", n.npcName, fn));
             Bark(Pick(FleeZh, FleeJa));
         }
     }
@@ -320,10 +352,29 @@ public class NpcCombat : MonoBehaviour
         if (_mover == null) return;
         NpcHealth.ConsumeCombat(n, dt);
         Weapon w = WeaponOf(Id);
-        Vector3 pos = transform.position, fp = _foe.transform.position;
+        Vector3 pos = transform.position, fp = _foe.Position;
         float d = Dist(pos, fp);
-        float reach = w.range + Mathf.Max(0f, _foe.Def.scale - 1f) * 0.35f;   // 大块头好打到一点
-        if (w.ranged)
+        float reach = w.range + Mathf.Max(0f, _foe.Scale - 1f) * 0.35f;       // 大块头好打到一点
+        if (_plan != null && (_plan.hasSpot || _plan.stay))
+        {
+            // 团队安排的位置：走过去（放风筝 / 交叉火力位 / 守墙位……）；stay = 原地不动
+            if (_plan.hasSpot) TacticalMove(pos, _plan.spot, _plan.run);
+            else if (_hasDest && Time.time >= _flankUntil) { _mover.Stop(); _hasDest = false; }
+            if (w.ranged)
+            {
+                NpcRig aimT = GetComponent<NpcRig>();
+                if (aimT != null) aimT.LockOn(_foe.Transform);                  // 边走边打也一直瞄着它
+                if (!_plan.mayFire || d > reach) return;
+                if (!_hasDest) _mover.FaceTowards(fp);
+            }
+            else
+            {
+                if (d > reach) return;
+                if (_hasDest) { _mover.Stop(); _hasDest = false; }
+                _mover.FaceTowards(fp);
+            }
+        }
+        else if (w.ranged)
         {
             // 拿枪：边走边打——保持在射程里合适的距离（太远就靠近，太近就往后退），射程内随时开枪，不用停下
             float keep = reach * 0.75f;                                        // 想和敌人保持的距离
@@ -343,7 +394,7 @@ public class NpcCombat : MonoBehaviour
             }
             else if (_hasDest && Time.time >= _flankUntil) { _mover.Stop(); _hasDest = false; }   // 距离合适：站定（正在侧移就先走完）
             NpcRig aim = GetComponent<NpcRig>();
-            if (aim != null) aim.LockOn(_foe.transform);                       // 外观：锁定这个敌人——枪口一直对着它，边走边打（往后退）也面朝它
+            if (aim != null) aim.LockOn(_foe.Transform);                       // 外观：锁定这个敌人——枪口一直对着它，边走边打（往后退）也面朝它
             if (d > reach) return;                                             // 还在射程外：只走不打
             if (!_hasDest) _mover.FaceTowards(fp);
         }
@@ -402,7 +453,22 @@ public class NpcCombat : MonoBehaviour
             return;
         }
         float acc = 0.65f + n.personality.bravery * 0.002f - (n.sanity < 40f ? 0.15f : 0f);   // 近战：照旧按命中率
-        if (Random.value < acc) _foe.TakeDamage(w.damage, n);
+        if (Random.value < acc) _foe.TakeMelee(w.damage, n);
+    }
+
+    // 走到团队安排的位置（到了就站定；位置变了才重新寻路）
+    void TacticalMove(Vector3 pos, Vector3 spot, bool run)
+    {
+        if (Time.time < _flankUntil) return;                                  // 正在侧移换角度（火线被自己人挡着）
+        if (Dist(pos, spot) < 0.25f) { if (_hasDest) { _mover.Stop(); _hasDest = false; } return; }
+        _mover.SetSpeedMultiplier(run ? 1.3f : 1.1f);
+        if (!_hasDest || Dist(_dest, spot) > 0.2f || _repath <= 0f)
+        {
+            _repath = 0.6f;
+            _mover.MoveTo(spot);
+            _dest = spot;
+            _hasDest = true;
+        }
     }
 
     // 开火线被 ally 挡着：往开火线的一侧挪一步（挑离 ally 远的那一侧），换个角度再打
@@ -427,13 +493,18 @@ public class NpcCombat : MonoBehaviour
     {
         if (_mover == null) return;
         _mover.SetSpeedMultiplier(1.3f);   // 跑（NpcRig 会换成跑步动作）；每帧设，别被别的系统改回去
+        if (_plan != null && _plan.hasSpot)  // 团队安排的集合点 / 后撤点（一起躲，不各跑各的；不往死角跑）
+        {
+            if (!_hasDest || Dist(_dest, _plan.spot) > 0.3f) { _mover.MoveTo(_plan.spot); _dest = _plan.spot; _hasDest = true; }
+            return;
+        }
         if (_repath > 0f && _hasDest) return;
         _repath = 1f;
         Vector3 pos = transform.position;
         Vector3 camp = NpcNav.CampCenter(pos);
-        Enemy foe = _foe != null && _foe.Alive ? _foe : null;
+        CombatFoe foe = _foe != null && _foe.Alive ? _foe : null;
         Vector3 target;
-        if (foe == null || Dist(foe.transform.position, camp) > NpcNav.CampRadius + 1.5f)
+        if (foe == null || Dist(foe.Position, camp) > NpcNav.CampRadius + 1.5f)
         {
             // 敌人在营地外：躲回营地中心（已经在往那跑了就别换点）
             if (_hasDest && Dist(_dest, camp) < NpcNav.CampRadius && Dist(pos, _dest) > 0.4f) return;
@@ -442,7 +513,7 @@ public class NpcCombat : MonoBehaviour
         else
         {
             // 敌人已经闯进营地：往它的反方向跑
-            Vector2 away = pos - foe.transform.position;
+            Vector2 away = pos - foe.Position;
             if (away.sqrMagnitude < 0.01f) away = Random.insideUnitCircle;
             Vector3 want = pos + new Vector3(away.x, away.y, 0f).normalized * 5f;
             target = NpcNav.Sample(want, 3f, out Vector3 s) ? s : pos;

@@ -48,6 +48,7 @@ public enum AiKind
     LeaderObserve,  // 小模型当观察者：读大家的数值，判断谁最适合当领导
     Advisor,        // 小模型当营地参谋（隐形）：按规则手册 + 局势表判断营地眼下最要紧的事，交给 14B 演绎（CampAdvisor）
     Story,          // 剧情演出（开场第一场戏的台词、领导当选时说的话）：玩家在看着等，主模型优先写
+    CombatCommand,  // 战斗指挥：开打 / 局势大变时，领导给全队下一个战术指令（NpcTactics；只回方针，执行由代码算）
 }
 
 [Serializable]
@@ -124,6 +125,7 @@ public class AiScheduler : MonoBehaviour
             new AiKindRule(AiKind.LeaderObserve, AiLane.Lite,  30, 30f, 0, false),
             new AiKindRule(AiKind.Advisor,       AiLane.Lite,  50, 10f, 0, false),   // 局势变了才问（CampAdvisor 控制），排队超过 10 秒就过时了
             new AiKindRule(AiKind.Story,         AiLane.Main,  95, 0f,  0, false),   // 开场演出（OpeningDirector）：玩家在看，仅次于玩家对话
+            new AiKindRule(AiKind.CombatCommand, AiLane.Main,  97, 6f,  0, false),   // 战斗指挥：要快，排队超过 6 秒局势就变了（代码先按自己的判断打）
         };
     }
 
@@ -433,6 +435,9 @@ public class AiScheduler : MonoBehaviour
     {
         if (rules != null)
             foreach (AiKindRule r in rules) if (r != null && r.kind == kind) return r;
+        // 场景里存的规则表是旧的、没有这种请求：用默认规则补上（新加的请求种类不用手动去 Inspector 加）
+        foreach (AiKindRule d in DefaultRules())
+            if (d.kind == kind) { if (rules == null) rules = new List<AiKindRule>(); rules.Add(d); return d; }
         return null;
     }
 
