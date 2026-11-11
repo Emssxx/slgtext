@@ -216,6 +216,7 @@ public class NpcRig : MonoBehaviour
     public Color muzzleLightColor = new Color(1f, 0.72f, 0.38f);   // 开枪时火光照亮周围的颜色
     public float muzzleLightIntensity = 2.5f;                 // 开枪火光亮度
     public float muzzleLightRadius = 2.2f;                    // 开枪火光照多远（单位）
+    public Vector2 muzzleLightRandom = new Vector2(0.4f, 1.3f);   // 每一枪火光亮度的倍数：在这个范围里随机（每枪亮度都不一样，闪的过程中也会轻微跳动）
 
     [Header("测试（运行时选中 NPC 用；不受腰上挂件限制）")]
     public TestHeld testHeld = TestHeld.None;                 // 强制拿什么（不测试 = 按游戏里的情况）
@@ -953,9 +954,10 @@ public class NpcRig : MonoBehaviour
         l.transform.position = at;
         Destroy(l.gameObject, 1f);                                        // 保险：一定删掉
         float life = Mathf.Max(0.03f, flashTime * 1.3f), t = 0f;
+        float peak = muzzleLightIntensity * RandIn(muzzleLightRandom);    // 这一枪有多亮（随机）
         while (l != null && t < life)
         {
-            l.intensity = muzzleLightIntensity * (1f - t / life);         // 越来越暗
+            l.intensity = peak * (1f - t / life) * Random.Range(0.8f, 1f); // 越来越暗，中间轻微跳动
             t += Time.deltaTime;
             yield return null;
         }

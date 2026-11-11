@@ -668,7 +668,7 @@ MonoBehaviour:
     target: {fileID: 500000021}
     cameraSize: 0.8
     cameraY: 0.05
-    hint: "\u9009\u4e2d\u540e\u5728 Inspector \u91cc\u7528\u6d4b\u8bd5\u5f00\u5173\uff08\u548c\u7b2c\u4e00\u79cd\u4e00\u6837\uff09\uff1a\nTest Speed \u8d70\u8dd1 / Test Face Left \u671d\u5de6\n\u53e6\u5916\uff1aTest Cycle \u81ea\u52a8\u5faa\u73af\uff1b\u6309\u4f4f D / A \u8d70\uff0c\u52a0 Shift \u8dd1"
+    hint: "\u9009\u4e2d\u540e\u5728 Inspector \u91cc\u7528\u6d4b\u8bd5\u5f00\u5173\uff08\u548c\u7b2c\u4e00\u79cd\u4e00\u6837\uff09\uff1a\nTest Held \u9009\u624b\u67aa / Test Loop \u81ea\u52a8\u5f00\u67aa / Test Fire \u5f00\u4e00\u67aa / Test Reload \u6362\u5f39 / Test Aim Target \u7784\u51c6\nTest Speed \u8d70\u8dd1 / Test Face Left \u671d\u5de6\uff1b\u53e6\u5916\uff1aTest Cycle \u81ea\u52a8\u5faa\u73af\uff0cD / A \u8d70\u3001Shift \u8dd1"
   startIndex: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

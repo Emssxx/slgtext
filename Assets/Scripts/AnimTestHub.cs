@@ -38,6 +38,7 @@ public class AnimTestHub : MonoBehaviour
 
     public List<Entry> entries = new List<Entry>();   // 所有测试项（按顺序显示）
     public int startIndex = 0;                         // 一开始显示第几项（从 0 数）
+    [Range(0.05f, 1f)] public float timeScale = 1f;    // 播放速度（慢放看快动作，比如滑套、后坐；面板上也能拖）
 
     static readonly string[] CategoryNames = { "角色", "怪物", "建筑" };
     int _current = -1;                                 // 现在显示的是第几项
@@ -45,6 +46,8 @@ public class AnimTestHub : MonoBehaviour
     Vector2 _scroll;                                   // 列表滚动位置
     Camera _cam;                                       // 主镜头
     Vector2 _lastMouse;                                // 右键拖动：上一帧鼠标位置
+
+    void OnDisable() { Time.timeScale = 1f; }          // 离开场景 / 停止运行：播放速度恢复正常
 
     void Start()
     {
@@ -76,6 +79,7 @@ public class AnimTestHub : MonoBehaviour
 
     void Update()
     {
+        Time.timeScale = Mathf.Clamp(timeScale, 0.05f, 1f);                // 慢放（只在这个测试场景里）
         if (_cam == null) return;
         Mouse mouse = Mouse.current;                       // 没有鼠标就是 null
         if (mouse == null) return;
@@ -98,7 +102,7 @@ public class AnimTestHub : MonoBehaviour
     // ============ 面板 ============
 
     float GuiScale() { return Mathf.Max(0.5f, Screen.height / 720f); }   // 屏幕越大面板越大（和战斗测试一样）
-    static Rect PanelRect() { return new Rect(8f, 8f, 230f, 330f); }      // 面板位置（缩放前）
+    static Rect PanelRect() { return new Rect(8f, 8f, 230f, 370f); }      // 面板位置（缩放前）
     Vector2 GuiPoint(Vector2 screen) { float s = GuiScale(); return new Vector2(screen.x / s, (Screen.height - screen.y) / s); }   // 屏幕坐标 → 面板坐标
 
     void OnGUI()
@@ -134,6 +138,8 @@ public class AnimTestHub : MonoBehaviour
             GUILayout.EndHorizontal();
             if (!string.IsNullOrEmpty(cur.hint)) GUILayout.Label(cur.hint);   // 这一项的操作说明
         }
+        GUILayout.Label("播放速度：" + Mathf.RoundToInt(timeScale * 100f) + "%");
+        timeScale = GUILayout.HorizontalSlider(timeScale, 0.05f, 1f);       // 拖到左边 = 慢放
         GUILayout.Label("滚轮缩放，按住右键拖动镜头");
         GUILayout.EndArea();
     }

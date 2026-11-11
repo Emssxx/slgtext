@@ -19,7 +19,7 @@ public class WorldLighting : MonoBehaviour
 
     [Header("环境光（亚空间没有太阳：很暗）")]
     public Color ambientColor = new Color(0.55f, 0.6f, 0.85f);    // 环境光颜色（偏冷的蓝紫）
-    [Range(0f, 1f)] public float ambientIntensity = 0.04f;        // 环境光亮度（0 = 全黑，1 = 和以前一样亮；恐怖游戏标准：没灯的地方基本看不见）
+    [Range(0f, 1f)] public float ambientIntensity = 0.02f;        // 环境光亮度（0 = 全黑，1 = 和以前一样亮；恐怖游戏标准：没灯的地方基本看不见；原来 0.04，再调暗一半）
 
     Light2D _global;                   // 全局光
     static bool _hooked;               // 已经挂上"换场景时自动创建"了
