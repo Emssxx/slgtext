@@ -241,20 +241,21 @@ public class NpcRig : MonoBehaviour
     public float hitHeadWhip = 1f;                            // 头被甩的程度
     public float hitGearKick = 1f;                            // 受击 / 倒地时身上挂件被甩的程度
     [Header("死亡：中弹的冲击 + 重力，朝子弹飞的方向倒下")]
-    public float deathImpulse = 110f;                         // 中弹冲击：开始倒的速度（度/秒；越大倒得越猛）
+    public float deathImpulse = 37f;                          // 中弹冲击：开始倒的速度（度/秒；越大倒得越猛；原来 110，减弱到 1/3）
     public float deathGravity = 0.6f;                         // 重力（越大后半段摔得越快）
     public float deathCOM = 0.35f;                            // 重心高度（单位；越高前半段倒得越慢、越"沉"）
     public float deathSink = 0.05f;                           // 腿一软，身体先往下沉多少（单位）
     public float deathSinkTime = 0.2f;                        // 往下沉用几秒
-    public float deathSlide = 0.08f;                          // 倒的时候整个人被冲击带着滑多远（单位，往倒的方向）
+    public float deathSlide = 0.027f;                         // 倒的时候整个人被冲击带着滑多远（单位，往倒的方向；原来 0.08）
     [Range(0f, 0.9f)] public float deathBounce = 0.25f;       // 摔到地上弹起来的程度（0 = 不弹）
     public float deathLieAngle = 88f;                         // 躺平时的角度（度）
     public float deathGroundLift = 0.08f;                    // 躺平后离地多高（防止身体 / 背包陷进地里；单位）
     public float deathArmFlop = 1f;                           // 手臂软了跟着甩的程度
     [Header("死亡：武器脱手")]
     public float weaponDropAt = 25f;                          // 倒到多少度时武器脱手
-    public float weaponThrow = 1f;                            // 脱手时往倒的方向飞多快（单位/秒）
-    public float weaponUp = 1f;                               // 脱手时往上抛多快（单位/秒）
+    public float weaponThrow = 0.33f;                         // 脱手时往倒的方向飞多快（单位/秒；原来 1）
+    public float weaponUp = 0.33f;                            // 脱手时往上抛多快（单位/秒；原来 1）
+    [Range(0f, 1f)] public float weaponCarry = 0.35f;         // 武器带走多少手当时的速度（人倒下时手在甩；越小飞得越近）
     public Vector2 weaponSpin = new Vector2(200f, 500f);      // 飞的时候转多快（度/秒，在范围里随机）
     public float weaponGravity = 1f;                          // 武器下落的重力倍率
     [Range(0f, 0.9f)] public float weaponBounce = 0.3f;       // 落地弹起来的程度
@@ -2630,7 +2631,7 @@ public class NpcRig : MonoBehaviour
             WorldLighting.CreatePoint("DroppedLight", rt, lightColor, lightIntensity, lightRadius, 360f);
         Vector3 hv = (src.position - _prevHandWorld) / Mathf.Max(0.001f, dt);                      // 手当时在往哪动（人倒下带着甩）
         float fallW = -_dieSign * (_deadLeft ? -1f : 1f);                                           // 往倒的方向（世界左右）
-        Vector2 vel = new Vector2(hv.x + fallW * weaponThrow, hv.y + weaponUp);
+        Vector2 vel = new Vector2(hv.x * weaponCarry + fallW * weaponThrow, hv.y * weaponCarry + weaponUp);   // 带走一部分手的速度 + 往倒的方向抛
         float spin = RandIn(weaponSpin) * (Random.value < 0.5f ? -1f : 1f);
         _dropped.Add(root);
         StartCoroutine(FlyDropped(rt, vel, spin));

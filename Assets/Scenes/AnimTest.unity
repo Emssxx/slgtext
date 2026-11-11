@@ -494,19 +494,20 @@ MonoBehaviour:
   hitGunJolt: 0.6
   hitHeadWhip: 1
   hitGearKick: 1
-  deathImpulse: 110
+  deathImpulse: 37
   deathGravity: 0.6
   deathCOM: 0.35
   deathSink: 0.05
   deathSinkTime: 0.2
-  deathSlide: 0.08
+  deathSlide: 0.027
   deathBounce: 0.25
   deathLieAngle: 88
   deathGroundLift: 0.08
   deathArmFlop: 1
   weaponDropAt: 25
-  weaponThrow: 1
-  weaponUp: 1
+  weaponThrow: 0.33
+  weaponUp: 0.33
+  weaponCarry: 0.35
   weaponSpin: {x: 200, y: 500}
   weaponGravity: 1
   weaponBounce: 0.3
@@ -727,19 +728,20 @@ MonoBehaviour:
   hitGunJolt: 0.6
   hitHeadWhip: 1
   hitGearKick: 1
-  deathImpulse: 110
+  deathImpulse: 37
   deathGravity: 0.6
   deathCOM: 0.35
   deathSink: 0.05
   deathSinkTime: 0.2
-  deathSlide: 0.08
+  deathSlide: 0.027
   deathBounce: 0.25
   deathLieAngle: 88
   deathGroundLift: 0.12
   deathArmFlop: 1
   weaponDropAt: 25
-  weaponThrow: 1
-  weaponUp: 1
+  weaponThrow: 0.33
+  weaponUp: 0.33
+  weaponCarry: 0.35
   weaponSpin: {x: 200, y: 500}
   weaponGravity: 1
   weaponBounce: 0.3
