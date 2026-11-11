@@ -566,6 +566,110 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!1 &500000021
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 500000022}
+  - component: {fileID: 500000023}
+  m_Layer: 0
+  m_Name: TestNPC_B
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &500000022
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 500000021}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &500000023
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 500000021}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc4db73ff7594795ba524f3f3d4f78bc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  testCycle: 0
+  testKeyboard: 1
+--- !u!1 &500000031
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 500000032}
+  - component: {fileID: 500000033}
+  m_Layer: 0
+  m_Name: AnimTestHub
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &500000032
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 500000031}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &500000033
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 500000031}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cecc9b4f11f7462e85878662273f3c29, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  entries:
+  - category: 0
+    label: "\u7b2c\u4e00\u79cd NPC\uff08\u9632\u62a4\u670d\uff09"
+    target: {fileID: 500000001}
+    cameraSize: 0.8
+    cameraY: 0.05
+    hint: "\u9009\u4e2d\u540e\u5728 Inspector \u91cc\u7528\u6d4b\u8bd5\u5f00\u5173\uff1a\nTest Held \u62ff\u4e1c\u897f / Test Fire \u5f00\u67aa / Test Reload \u6362\u5f39 / Test Speed \u8d70\u8dd1 / Test Expression \u8868\u60c5"
+  - category: 0
+    label: "\u7b2c\u4e8c\u79cd NPC\uff08\u5934\u76d4\u58eb\u5175\uff09"
+    target: {fileID: 500000021}
+    cameraSize: 0.8
+    cameraY: 0.05
+    hint: "\u9009\u4e2d\u540e\u5728 Inspector \u91cc\u7528\u6d4b\u8bd5\u5f00\u5173\uff08\u548c\u7b2c\u4e00\u79cd\u4e00\u6837\uff09\uff1a\nTest Speed \u8d70\u8dd1 / Test Face Left \u671d\u5de6\n\u53e6\u5916\uff1aTest Cycle \u81ea\u52a8\u5faa\u73af\uff1b\u6309\u4f4f D / A \u8d70\uff0c\u52a0 Shift \u8dd1"
+  startIndex: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -573,3 +677,5 @@ SceneRoots:
   - {fileID: 19386477}
   - {fileID: 500000002}
   - {fileID: 500000012}
+  - {fileID: 500000022}
+  - {fileID: 500000032}

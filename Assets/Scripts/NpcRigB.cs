@@ -103,7 +103,7 @@ public class NpcRigB : MonoBehaviour
     static readonly Vector2 P_PISTOL = new Vector2(1268, 1160), P_RIFLE = new Vector2(716, 1240);
     // 挂件的挂点（各自绕它摆）
     static readonly Vector2 P_TERMINAL = new Vector2(860, 1025), P_MEDAL = new Vector2(659, 1061), P_CAMERA = new Vector2(1030, 1071);
-    static readonly Vector2 P_KNIFE = new Vector2(1480, 1480), P_MEDKIT = new Vector2(642, 1400), P_MEDKIT_S = new Vector2(873, 1448);
+    static readonly Vector2 P_KNIFE = new Vector2(1490, 1470), P_MEDKIT = new Vector2(642, 1400), P_MEDKIT_S = new Vector2(873, 1448);
     static readonly Vector2 P_GRENADE1 = new Vector2(1076, 1388), P_GRENADE2 = new Vector2(1200, 1382), P_CANTEEN = new Vector2(530, 1172);
 
     // ---------------- 运行时 ----------------
