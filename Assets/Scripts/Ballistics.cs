@@ -98,6 +98,15 @@ public class Ballistics : MonoBehaviour
     [Tooltip("全场最多同时有多少颗碎屑 / 火花")]
     public int maxFx = 400;
 
+    [Header("着弹点图（Resources/NpcArt/Fx/HitFlesh1~3、HitMetal1~3）：打中人 = 血雾，打中金属 / 地面 = 火花 + 一点光")]
+    public bool hitFx = true;                                   // 开 / 关（关掉只剩上面的碎屑）
+    public float hitFxScale = 2f;                               // 大小（和测试场景里 NPC 的 Impact Scale 一样）
+    public float hitFleshLife = 0.45f;                          // 血雾持续多久（秒）
+    public float hitMetalLife = 0.12f;                          // 火花持续多久（秒）
+    public Color hitMetalLightColor = new Color(1f, 0.8f, 0.55f);   // 火花照亮周围的颜色
+    public float hitMetalLight = 0.8f;                          // 火花照亮的亮度（微弱）
+    public float hitMetalLightRadius = 0.6f;                    // 火花照多远（单位）
+
     [Header("调试")]
     [Tooltip("Scene 窗口里画每一枪的散布扇形（±2σ，黄）和实际弹道（红）")]
     public bool showSpread = false;
@@ -627,6 +636,17 @@ public class Ballistics : MonoBehaviour
     void ImpactFx(Vector2 p, Vector2 dir, Vector2 normal, ImpactMaterial mat)
     {
         Vector2 back = normal.sqrMagnitude > 0.0001f ? normal.normalized : -dir;   // 碎屑往被打的那一面外面溅
+        if (hitFx && !NpcNav.IsUnseen(p))                                      // 你画的着弹点图（迷雾里看不见就不放）
+        {
+            Vector3 at = new Vector3(p.x, p.y, 0f);
+            if (mat == ImpactMaterial.Flesh)                                   // 打中人：血雾（小 / 中随机，偶尔一大团）
+            {
+                int v = UnityEngine.Random.value < 0.15f ? 2 : (UnityEngine.Random.value < 0.5f ? 0 : 1);
+                HitFx.Flesh(at, dir, v, hitFxScale * UnityEngine.Random.Range(0.85f, 1.15f), hitFleshLife, 0);
+            }
+            else if (mat == ImpactMaterial.Metal || mat == ImpactMaterial.Ground)   // 打中金属 / 地面：火花 + 一点光（地面小一点）
+                HitFx.Metal(at, hitFxScale * (mat == ImpactMaterial.Ground ? 0.8f : 1f), hitMetalLife, hitMetalLightColor, hitMetalLight, hitMetalLightRadius, 0);
+        }
         switch (mat)
         {
             case ImpactMaterial.Stone:

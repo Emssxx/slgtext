@@ -94,8 +94,8 @@ public class NpcRig : MonoBehaviour
     public float flashTime = 0.07f;                           // 枪火：① 枪火（火团）亮多久（秒）
     public float sparkTime = 0.05f;                           // 枪火：② 闪光（火花线）亮多久（秒）
     public float glowTime = 0.06f;                            // 枪火：③ 亮光亮多久（秒）
-    public float flashSize = 1f;                              // 枪火整体多大（倍数；1 = 按 PSD 画的大小）
-    public bool flashSmoke = false;                           // 开枪后冒烟（代码画的烟；默认不冒）
+    public float flashSize = 2f;                              // 枪火整体多大（倍数；1 = 按 PSD 画的大小；你在测试场景调成了 2）
+    public bool flashSmoke = true;                            // 开枪后冒烟（代码画的烟；你在测试场景打开了）
     public float smokeTime = 0.6f;                            // 烟飘多久（秒）
     [Range(0f, 1f)] public float ricochetChance = 0.3f;       // 子弹没打中、落到地上时出跳弹效果的概率
     public float ricochetTime = 0.15f;                        // 跳弹效果显示多久（秒）
@@ -253,15 +253,15 @@ public class NpcRig : MonoBehaviour
     public float deathArmFlop = 1f;                           // 手臂软了跟着甩的程度
     [Header("死亡：武器脱手")]
     public float weaponDropAt = 25f;                          // 倒到多少度时武器脱手
-    public float weaponThrow = 0.6f;                          // 脱手时往倒的方向飞多快（单位/秒）
-    public float weaponUp = 0.5f;                             // 脱手时往上抛多快（单位/秒）
+    public float weaponThrow = 1f;                            // 脱手时往倒的方向飞多快（单位/秒）
+    public float weaponUp = 1f;                               // 脱手时往上抛多快（单位/秒）
     public Vector2 weaponSpin = new Vector2(200f, 500f);      // 飞的时候转多快（度/秒，在范围里随机）
     public float weaponGravity = 1f;                          // 武器下落的重力倍率
     [Range(0f, 0.9f)] public float weaponBounce = 0.3f;       // 落地弹起来的程度
     public float weaponRestLift = 0.02f;                      // 落地后离地多高（单位）
     [Header("着弹点效果（图在 NpcArt/Fx/HitFlesh1~3、HitMetal1~3；子弹没打中落到地上用金属那组）")]
     public bool impactFx = true;                              // 开 / 关着弹点效果
-    public float impactScale = 1f;                            // 效果大小
+    public float impactScale = 2f;                            // 效果大小
     public float impactHeight = 0.2f;                         // 测试时中弹的位置：腰往上多高（单位，大约胸口）
     [Range(0f, 1f)] public float fleshChance = 1f;           // 打中时出血的概率（其余是打在装甲 / 装备上的火花）
     public float fleshLife = 0.45f;                           // 血雾持续多久（秒）
@@ -2422,12 +2422,12 @@ public class NpcRig : MonoBehaviour
         PlayHit(dir, strength, HitPoint(dir));                              // 没给打中的点：当作打在胸口
     }
 
-    // 同上；point = 打中的位置（世界坐标，着弹点效果从这里出来）
-    public void PlayHit(Vector2 dir, float strength, Vector3 point)
+    // 同上；point = 打中的位置（世界坐标，着弹点效果从这里出来）；fx = 要不要放着弹点效果（子弹打中时 Ballistics 已经放过了，传 false）
+    public void PlayHit(Vector2 dir, float strength, Vector3 point, bool fx = true)
     {
         if (!_built || _dead) return;
         HitKick(PushLocal(dir, FacingLeft), Mathf.Max(0f, strength) * Random.Range(0.8f, 1.2f));   // 每一下轻重有点不一样
-        SpawnImpact(point, dir, strength, false);                           // 着弹点效果
+        if (fx) SpawnImpact(point, dir, strength, false);                   // 着弹点效果
     }
 
     // 外部调用：被打死。朝 dir（子弹飞的方向）倒下：前面中弹往后倒，背后中弹往前扑
@@ -2437,11 +2437,11 @@ public class NpcRig : MonoBehaviour
         PlayDeath(dir, strength, HitPoint(dir));                            // 没给打中的点：当作打在胸口
     }
 
-    // 同上；point = 打中的位置（世界坐标）
-    public void PlayDeath(Vector2 dir, float strength, Vector3 point)
+    // 同上；point = 打中的位置（世界坐标）；fx = 要不要放着弹点效果（同 PlayHit）
+    public void PlayDeath(Vector2 dir, float strength, Vector3 point, bool fx = true)
     {
         if (!_built || _dead) return;
-        SpawnImpact(point, dir, strength, true);                            // 着弹点效果（致命的一下：大团血雾）
+        if (fx) SpawnImpact(point, dir, strength, true);                    // 着弹点效果（致命的一下：大团血雾）
         _deadLeft = FacingLeft;                                             // 倒下后不再翻身
         float push = PushLocal(dir, _deadLeft);                             // 被往哪边推（本地）
         float k = Mathf.Max(0f, strength) * Random.Range(0.85f, 1.15f);
@@ -2487,9 +2487,10 @@ public class NpcRig : MonoBehaviour
         return new Vector2(front ? -s : s, Random.Range(-0.2f, 0.2f));
     }
 
-    // 中弹的位置（世界坐标）：胸口附近，靠子弹打来的那一面，带一点随机（游戏里由战斗系统直接给打中的点）
-    Vector3 HitPoint(Vector2 dir)
+    // 中弹的位置（世界坐标）：胸口附近，靠子弹打来的那一面，带一点随机（战斗系统没有准确的点时也用它）
+    public Vector3 HitPoint(Vector2 dir)
     {
+        if (_body == null) return transform.position;                                 // 还没拼好：就用人的位置
         Vector3 c = _body.TransformPoint(new Vector3(0f, impactHeight, 0f));          // 胸口
         float from = dir.x > 0f ? -1f : 1f;                                           // 子弹从哪边来（世界左右）
         return c + new Vector3(from * 0.06f + Random.Range(-0.03f, 0.03f), Random.Range(-0.06f, 0.06f), 0f);
@@ -2666,6 +2667,14 @@ public class NpcRig : MonoBehaviour
             }
             yield return null;
         }
+    }
+
+    // 掉在地上的武器的图（尸体淡出时一起淡出用）
+    public List<SpriteRenderer> DroppedRenderers()
+    {
+        List<SpriteRenderer> list = new List<SpriteRenderer>();
+        foreach (GameObject g in _dropped) if (g != null) list.AddRange(g.GetComponentsInChildren<SpriteRenderer>());
+        return list;
     }
 
     // 人删掉时，地上的武器一起收走

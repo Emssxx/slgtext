@@ -360,8 +360,8 @@ MonoBehaviour:
   flashTime: 0.07
   sparkTime: 0.05
   glowTime: 0.06
-  flashSize: 1
-  flashSmoke: 0
+  flashSize: 2
+  flashSmoke: 1
   smokeTime: 0.6
   ricochetChance: 0.3
   ricochetTime: 0.15
@@ -475,6 +475,51 @@ MonoBehaviour:
   muzzleLightIntensity: 5
   muzzleLightRadius: 3.2
   muzzleLightRandom: {x: 0.7, y: 1.3}
+  tracer: 1
+  tracerColor: {r: 1, g: 0.75, b: 0.42, a: 1}
+  tracerLight: 0.3
+  tracerRadius: 0.6
+  tracerGlow: 0.45
+  tracerGlowSize: {x: 0.5, y: 0.08}
+  testHit: 0
+  testDeath: 0
+  testRevive: 0
+  testHitFrom: 0
+  testHitStrength: 1
+  hitLean: 9
+  hitShove: 0.03
+  hitBuckle: 0.012
+  hitFreq: 3.2
+  hitDamp: 0.4
+  hitGunJolt: 0.6
+  hitHeadWhip: 1
+  hitGearKick: 1
+  deathImpulse: 110
+  deathGravity: 0.6
+  deathCOM: 0.35
+  deathSink: 0.05
+  deathSinkTime: 0.2
+  deathSlide: 0.08
+  deathBounce: 0.25
+  deathLieAngle: 88
+  deathGroundLift: 0.08
+  deathArmFlop: 1
+  weaponDropAt: 25
+  weaponThrow: 1
+  weaponUp: 1
+  weaponSpin: {x: 200, y: 500}
+  weaponGravity: 1
+  weaponBounce: 0.3
+  weaponRestLift: 0.02
+  impactFx: 1
+  impactScale: 2
+  impactHeight: 0.2
+  fleshChance: 1
+  fleshLife: 0.45
+  metalLife: 0.12
+  metalLightColor: {r: 1, g: 0.8, b: 0.55, a: 1}
+  metalLight: 0.8
+  metalLightRadius: 0.6
   testHeld: 0
   testLoop: 1
   testFire: 0
@@ -669,6 +714,45 @@ MonoBehaviour:
   testReload: 0
   testReloadKind: 0
   currentState: 
+  testHit: 0
+  testDeath: 0
+  testRevive: 0
+  testHitFrom: 0
+  testHitStrength: 2
+  hitLean: 9
+  hitShove: 0.03
+  hitBuckle: 0.012
+  hitFreq: 3.2
+  hitDamp: 0.4
+  hitGunJolt: 0.6
+  hitHeadWhip: 1
+  hitGearKick: 1
+  deathImpulse: 110
+  deathGravity: 0.6
+  deathCOM: 0.35
+  deathSink: 0.05
+  deathSinkTime: 0.2
+  deathSlide: 0.08
+  deathBounce: 0.25
+  deathLieAngle: 88
+  deathGroundLift: 0.12
+  deathArmFlop: 1
+  weaponDropAt: 25
+  weaponThrow: 1
+  weaponUp: 1
+  weaponSpin: {x: 200, y: 500}
+  weaponGravity: 1
+  weaponBounce: 0.3
+  weaponRestLift: 0.02
+  impactFx: 1
+  impactScale: 1
+  impactHeight: 0.2
+  fleshChance: 0.6
+  fleshLife: 0.45
+  metalLife: 0.12
+  metalLightColor: {r: 1, g: 0.8, b: 0.55, a: 1}
+  metalLight: 0.8
+  metalLightRadius: 0.6
   recoilKick: {x: 50, y: 50}
   slideKick: 150
   slideBackTime: 0.03
@@ -692,6 +776,12 @@ MonoBehaviour:
   muzzleLightRadius: 3.2
   muzzleLightRandom: {x: 0.7, y: 1.3}
   aimShoulder: {x: 0.175, y: 0.466}
+  tracer: 1
+  tracerColor: {r: 1, g: 0.75, b: 0.42, a: 1}
+  tracerLight: 0.3
+  tracerRadius: 0.6
+  tracerGlow: 0.45
+  tracerGlowSize: {x: 0.5, y: 0.08}
   rifleBurst: 10
   rifleRPM: 400
   rifleRecoilKick: {x: 5.28, y: 1.65}

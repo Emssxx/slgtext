@@ -13,6 +13,7 @@ public class NpcDeathManager : MonoBehaviour
 {
     [Header("淡出设置")]
     public float fadeDuration = 1.5f;   // 淡出时长（秒）
+    public float corpseTime = 5f;       // 新外观（NpcRig）：倒地后躺多久再开始淡出（秒）
 
     [Header("检查频率")]
     public float checkInterval = 0.5f;  // 每隔多久检查一次死亡（秒）
@@ -78,12 +79,25 @@ public class NpcDeathManager : MonoBehaviour
 
     IEnumerator FadeOutCo(GameObject go)
     {
-        // 收集这个 NPC 物体（及其子物体）上所有 SpriteRenderer，一起淡出。
-        SpriteRenderer[] sprites = go.GetComponentsInChildren<SpriteRenderer>();
-
         // 停止它的移动/导航（死了就别再走了）。
         var agent = go.GetComponent<UnityEngine.AI.NavMeshAgent>();
         if (agent != null && agent.isOnNavMesh) { agent.isStopped = true; agent.ResetPath(); }
+
+        // 新外观：先倒下（被打死的已经在倒了；饿死 / 病死这种不是被打死的，腿一软自己倒下），躺一会儿再淡出
+        NpcRig rig = go.GetComponent<NpcRig>();
+        List<SpriteRenderer> dropped = null;
+        if (rig != null)
+        {
+            if (!rig.IsDead) rig.PlayDeath(new Vector2(Random.value < 0.5f ? -1f : 1f, 0f), 0.4f, rig.HitPoint(Vector2.zero), false);   // 轻轻地倒，不出血
+            float w = 0f;
+            while (w < corpseTime && go != null) { w += Time.deltaTime; yield return null; }
+            if (go == null) yield break;
+            dropped = rig.DroppedRenderers();                    // 掉在地上的武器也一起淡出
+        }
+
+        // 收集这个 NPC 物体（及其子物体）上所有 SpriteRenderer，一起淡出。
+        List<SpriteRenderer> sprites = new List<SpriteRenderer>(go.GetComponentsInChildren<SpriteRenderer>());
+        if (dropped != null) sprites.AddRange(dropped);
 
         float t = 0f;
         while (t < fadeDuration)

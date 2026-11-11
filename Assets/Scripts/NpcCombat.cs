@@ -150,8 +150,14 @@ public class NpcCombat : MonoBehaviour
 
     const float ReloadTime = 2.1f;   // 换弹匣要几秒（没有 NpcRig 外观时才用；有外观时按换弹动画的长度）
     const float SpeedReloadRange = 0.6f;   // 敌人比"射程 × 这个数"还近：来不及收旧弹匣，快速换弹
-    // 敌人打中了这个 NPC（Enemy 近战调）
-    public static void OnEnemyHit(NpcData n, float damage, Enemy by) => OnHit(n, damage, by, null);
+    // 敌人打中了这个 NPC（Enemy 近战调）。近战没有子弹，Ballistics 不会放着弹点效果，所以记下"这一下是近战"，让外观自己放
+    static bool _meleeHit;
+    public static void OnEnemyHit(NpcData n, float damage, Enemy by)
+    {
+        _meleeHit = true;
+        try { OnHit(n, damage, by, null); }
+        finally { _meleeHit = false; }
+    }
 
     // 这个 NPC 挨了一下：byEnemy = 敌人打的；byNpc = 自己人的流弹（Ballistics 调）
     public static void OnHit(NpcData n, float damage, Enemy byEnemy, NpcData byNpc, AbaOperative byAba = null)
@@ -189,6 +195,24 @@ public class NpcCombat : MonoBehaviour
             if (!wasInjured) Log(n, LF("combat_log_injured", n.npcName, by != null ? by.Name : (byNpc != null ? byNpc.npcName : (byAba != null ? AbaForce.L("aba_name") : "?")), NpcHealth.InjuryPart(n, LanguageGuard.IsJp)), true);
         }
         if (n.IsDead) EnemyDirector.OnNpcKilled(n, by, byAba != null ? AbaForce.L("aba_name") : null);
+        PlayRigHit(n, damage, byEnemy, byNpc, byAba);   // 外观：受击动画；这一下打死了就倒下
+    }
+
+    // 外观（NpcRig）：被往打来的方向推一下；打死了就朝那个方向倒下、武器脱手。伤害越大推得越狠
+    static void PlayRigHit(NpcData n, float damage, Enemy byEnemy, NpcData byNpc, AbaOperative byAba)
+    {
+        NpcMover m = NpcView.GetMover(n.id);
+        NpcRig rig = m != null ? m.GetComponent<NpcRig>() : null;
+        if (rig == null) return;                                                  // 没有新外观
+        Vector3 me = m.transform.position, from = me;
+        if (byEnemy != null) from = byEnemy.transform.position;                   // 谁打的：从他那边打过来
+        else if (byAba != null) from = byAba.transform.position;
+        else if (byNpc != null) { NpcMover s = NpcView.GetMover(byNpc.id); if (s != null) from = s.transform.position; }
+        Vector2 dir = new Vector2(me.x - from.x, me.y - from.y);                  // 打过来的方向（不知道是谁就当从正面）
+        float k = Mathf.Clamp(damage / 10f, 0.5f, 1.8f);                          // 轻重：10 点伤害 = 正常的一下
+        bool fx = _meleeHit;                                                      // 子弹打中时 Ballistics 已经放了着弹点效果；近战才让外观放
+        if (n.IsDead) rig.PlayDeath(dir, k, rig.HitPoint(dir), fx);
+        else rig.PlayHit(dir, k, rig.HitPoint(dir), fx);
     }
 
     // ============ 每帧 ============

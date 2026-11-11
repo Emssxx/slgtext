@@ -425,7 +425,11 @@ public class AbaOperative : MonoBehaviour
         _barUntil = Time.time + 4f;
         UpdateBar();
         if (Squad != null) Squad.OnMemberHit(this, byEnemy, byNpc);
+        _lastHitDir = dir;                                                  // 记下打过来的方向（倒地时朝这边倒）
+        _lastHitK = Mathf.Clamp(dmg / 10f, 0.5f, 1.8f);                      // 轻重：10 点伤害 = 正常的一下
+        _lastHitFx = IsMelee(byEnemy, byNpc);                               // 近战：没有子弹的着弹点效果，外观自己放
         if (Hp <= 0f) { Die(); return; }
+        if (Rig != null) Rig.PlayHit(dir, _lastHitK, Rig.HitPoint(dir), _lastHitFx);   // 外观：被打得一仰
         if (Random.value < 0.35f) Say("aba_call_hit");
     }
 
@@ -440,6 +444,18 @@ public class AbaOperative : MonoBehaviour
         if (Squad != null) Squad.OnKill(this);
     }
 
+    Vector2 _lastHitDir = Vector2.left;   // 最后一下打过来的方向
+    float _lastHitK = 1f;                 // 最后一下的轻重
+    bool _lastHitFx;                      // 最后一下要不要外观自己放着弹点效果（近战）
+
+    // 这一下是不是近战（近战的敌人 / 拿斧头锤子拳头的人）；子弹打中时 Ballistics 已经放了着弹点效果
+    static bool IsMelee(Enemy byEnemy, NpcData byNpc)
+    {
+        if (byEnemy != null) return byEnemy.Def != null && byEnemy.Def.attackRange < 1.5f;
+        if (byNpc != null) return !NpcCombat.WeaponOf(byNpc.id).ranged;
+        return false;
+    }
+
     void Die()
     {
         Hp = 0f;
@@ -448,7 +464,8 @@ public class AbaOperative : MonoBehaviour
         if (_agent != null) { if (_agent.isOnNavMesh) _agent.ResetPath(); _agent.enabled = false; }
         if (Rig != null) Rig.LockOn(null);
         if (_bar != null) _bar.gameObject.SetActive(false);
-        transform.rotation = Quaternion.Euler(0f, 0f, _flip != null && _flip.flipX ? -90f : 90f);   // 倒地
+        if (Rig != null) Rig.PlayDeath(_lastHitDir, _lastHitK, Rig.HitPoint(_lastHitDir), _lastHitFx);   // 外观：朝打过来的方向倒下、武器脱手
+        else transform.rotation = Quaternion.Euler(0f, 0f, _flip != null && _flip.flipX ? -90f : 90f);   // 没有外观时：整个人转 90 度躺下（以前的做法）
         if (Squad != null) Squad.OnMemberDown(this);
     }
 

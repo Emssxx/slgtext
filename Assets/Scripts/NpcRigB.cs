@@ -198,7 +198,7 @@ public class NpcRigB : MonoBehaviour
     public float rifleBoltHoldTime = 0f;                      // 在最后面停多久
     public float rifleBoltReturnTime = 0.05f;                 // 弹回原位用几秒
     public float rifleFlashTime = 0.05f;                      // 步枪枪火亮多久
-    public float rifleFlashSize = 1f;                         // 步枪枪火多大（倍数）
+    public float rifleFlashSize = 2f;                         // 步枪枪火多大（倍数；你在测试场景调成了 2）
     public Vector2 rifleShoulder = new Vector2(-0.083f, 0.51f);   // 步枪绕着转的点（枪托顶在肩上的位置，相对脚底中心；选中 NPC 时 Scene 里的青点）
 
     [Header("步枪弹匣（三种步枪换弹共用）")]
@@ -981,12 +981,12 @@ public class NpcRigB : MonoBehaviour
         PlayHit(dir, strength, HitPoint(dir));                              // 没给打中的点：当作打在胸口
     }
 
-    // 同上；point = 打中的位置（世界坐标，着弹点效果从这里出来）
-    public void PlayHit(Vector2 dir, float strength, Vector3 point)
+    // 同上；point = 打中的位置（世界坐标，着弹点效果从这里出来）；fx = 要不要放着弹点效果（子弹打中时 Ballistics 已经放过了，传 false）
+    public void PlayHit(Vector2 dir, float strength, Vector3 point, bool fx = true)
     {
         if (!_built || _dead) return;
         HitKick(PushLocal(dir, FacingLeft), Mathf.Max(0f, strength) * Random.Range(0.8f, 1.2f));   // 每一下轻重有点不一样
-        SpawnImpact(point, dir, strength, false);                           // 着弹点效果
+        if (fx) SpawnImpact(point, dir, strength, false);                   // 着弹点效果
     }
 
     // 外部调用：被打死。朝 dir（子弹飞的方向）倒下：前面中弹往后倒，背后中弹往前扑
@@ -996,11 +996,11 @@ public class NpcRigB : MonoBehaviour
         PlayDeath(dir, strength, HitPoint(dir));                            // 没给打中的点：当作打在胸口
     }
 
-    // 同上；point = 打中的位置（世界坐标）
-    public void PlayDeath(Vector2 dir, float strength, Vector3 point)
+    // 同上；point = 打中的位置（世界坐标）；fx = 要不要放着弹点效果（同 PlayHit）
+    public void PlayDeath(Vector2 dir, float strength, Vector3 point, bool fx = true)
     {
         if (!_built || _dead) return;
-        SpawnImpact(point, dir, strength, true);                            // 着弹点效果（致命的一下：大团血雾）
+        if (fx) SpawnImpact(point, dir, strength, true);                    // 着弹点效果（致命的一下：大团血雾）
         _deadLeft = FacingLeft;                                             // 倒下后不再翻身
         float push = PushLocal(dir, _deadLeft);                             // 被往哪边推（本地）
         float k = Mathf.Max(0f, strength) * Random.Range(0.85f, 1.15f);
@@ -1046,9 +1046,10 @@ public class NpcRigB : MonoBehaviour
         return new Vector2(front ? -s : s, Random.Range(-0.2f, 0.2f));
     }
 
-    // 中弹的位置（世界坐标）：胸口附近，靠子弹打来的那一面，带一点随机（游戏里由战斗系统直接给打中的点）
-    Vector3 HitPoint(Vector2 dir)
+    // 中弹的位置（世界坐标）：胸口附近，靠子弹打来的那一面，带一点随机（战斗系统没有准确的点时也用它）
+    public Vector3 HitPoint(Vector2 dir)
     {
+        if (_body == null) return transform.position;                                 // 还没拼好：就用人的位置
         Vector3 c = _body.TransformPoint(new Vector3(0f, impactHeight, 0f));          // 胸口
         float from = dir.x > 0f ? -1f : 1f;                                           // 子弹从哪边来（世界左右）
         return c + new Vector3(from * 0.06f + Random.Range(-0.03f, 0.03f), Random.Range(-0.06f, 0.06f), 0f);
@@ -1227,6 +1228,14 @@ public class NpcRigB : MonoBehaviour
             }
             yield return null;
         }
+    }
+
+    // 掉在地上的武器的图（尸体淡出时一起淡出用）
+    public List<SpriteRenderer> DroppedRenderers()
+    {
+        List<SpriteRenderer> list = new List<SpriteRenderer>();
+        foreach (GameObject g in _dropped) if (g != null) list.AddRange(g.GetComponentsInChildren<SpriteRenderer>());
+        return list;
     }
 
     // 人删掉时，地上的武器一起收走
