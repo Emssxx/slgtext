@@ -386,7 +386,7 @@ public class NpcCombat : MonoBehaviour
             else if (_hasDest && Time.time >= _flankUntil) { _mover.Stop(); _hasDest = false; }
             if (w.ranged)
             {
-                NpcRig aimT = GetComponent<NpcRig>();
+                CharacterRigBase aimT = GetComponent<CharacterRigBase>();   // 任何拼装角色都行
                 if (aimT != null) aimT.LockOn(_foe.Transform);                  // 边走边打也一直瞄着它
                 if (!_plan.mayFire || d > reach) return;
                 if (!_hasDest) _mover.FaceTowards(fp);
@@ -417,7 +417,7 @@ public class NpcCombat : MonoBehaviour
                 }
             }
             else if (_hasDest && Time.time >= _flankUntil) { _mover.Stop(); _hasDest = false; }   // 距离合适：站定（正在侧移就先走完）
-            NpcRig aim = GetComponent<NpcRig>();
+            CharacterRigBase aim = GetComponent<CharacterRigBase>();
             if (aim != null) aim.LockOn(_foe.Transform);                       // 外观：锁定这个敌人——枪口一直对着它，边走边打（往后退）也面朝它
             if (d > reach) return;                                             // 还在射程外：只走不打
             if (!_hasDest) _mover.FaceTowards(fp);
@@ -448,8 +448,8 @@ public class NpcCombat : MonoBehaviour
             {
                 bool close = d < reach * SpeedReloadRange;                    // 敌人离得近
                 bool tactical = !close && NpcInventory.StowEmptyMag(n);       // 不急：旧弹匣收回物品栏（空弹匣）；放不下就只能丢
-                NpcRig.ReloadKind kind = tactical ? NpcRig.ReloadKind.Tactical : NpcRig.ReloadKind.Speed;
-                NpcRig reloadRig = GetComponent<NpcRig>();
+                CharacterRigBase.ReloadKind kind = tactical ? CharacterRigBase.ReloadKind.Tactical : CharacterRigBase.ReloadKind.Speed;
+                CharacterRigBase reloadRig = GetComponent<CharacterRigBase>();
                 float time = reloadRig != null ? reloadRig.ReloadSeconds(kind) : ReloadTime;   // 换弹时间 = 这种换弹动画的长度 × 武器操作等级的倍数
                 _attackCd = time;
                 if (reloadRig != null) reloadRig.PlayReload(time, kind);       // 外观：播对应的换弹动画（快速换弹时旧弹匣掉到地上）

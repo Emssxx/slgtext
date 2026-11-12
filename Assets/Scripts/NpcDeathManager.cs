@@ -84,7 +84,7 @@ public class NpcDeathManager : MonoBehaviour
         if (agent != null && agent.isOnNavMesh) { agent.isStopped = true; agent.ResetPath(); }
 
         // 新外观：先倒下（被打死的已经在倒了；饿死 / 病死这种不是被打死的，腿一软自己倒下），躺一会儿再淡出
-        NpcRig rig = go.GetComponent<NpcRig>();
+        CharacterRigBase rig = go.GetComponent<CharacterRigBase>();   // 任何拼装角色（NpcRig / NpcRigB / 以后的）
         List<SpriteRenderer> dropped = null;
         if (rig != null)
         {
