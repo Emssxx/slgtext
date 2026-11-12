@@ -806,30 +806,7 @@ public class NpcRigB : CharacterRigBase
         StartCoroutine(FxLife(sr, ricochetTime, new Vector3(k, k, 1f), new Vector3(k, k, 1f), 1f));
     }
 
-    // 枪火：你画的两种（PistolFlash1 / 2）随机一种，放在开枪那一刻的枪口上，朝着那一刻的枪口方向；之后枪往上跳也不跟着动
-    public override void MuzzleFlash()
-    {
-        if (_muzzle == null) return;
-        if (_gun == null) return;
-        WeaponDef wd = _gun.def;                                            // 枪火是枪的属性：图 / 大小 / 时长
-        string[] fl = wd.flashSprites;
-        Sprite s = fl != null && fl.Length > 0 ? LoadFrom(wd.artFolder, fl[Random.Range(0, fl.Length)]) : null;
-        Vector3 at = _muzzle.position;                                      // 枪口
-        Vector3 dir = _muzzle.TransformVector(Vector3.right);               // 枪口朝哪（含朝左翻转）
-        dir.z = 0f;
-        bool left = _muzzle.lossyScale.x < 0f;                              // 角色朝左（整个角色左右翻过来）
-        float size = Mathf.Abs(_muzzle.lossyScale.y);                       // 角色本身的缩放
-        float ang = dir.sqrMagnitude > 0.000001f ? Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg : (left ? 180f : 0f);
-        if (s != null)
-        {
-            SpriteRenderer sr = FxSprite("MuzzleFlash", s, 55);             // 画在人上面、子弹下面
-            sr.transform.position = at;
-            sr.transform.rotation = Quaternion.Euler(0f, 0f, ang);
-            float k = Mathf.Max(0.05f, wd.flashSize) * size, fy = left ? -1f : 1f;   // 朝左：上下翻（配合转向 = 左右镜像）
-            StartCoroutine(FxLife(sr, wd.flashTime, new Vector3(k * 0.9f, k * 0.9f * fy, 1f), new Vector3(k * 1.05f, k * 1.05f * fy, 1f), 0.7f));
-        }
-        if (RenderMats.IsURP && muzzleLightIntensity > 0f) StartCoroutine(MuzzleLight(at));   // 火光照亮周围
-    }
+    // 枪火：交给这把枪的动画类（CharacterRigBase.MuzzleFlash → GunAnimator；默认 = 这把枪的枪火图随机一张）
 
     // 枪上的手电筒（枪的属性：颜色 / 亮度 / 照多远 / 光束宽度都在 WeaponDef）：拿着有灯的枪才亮；光从灯头出发，朝枪口方向照
     //   步枪：取出动画播完才打开（打开时闪一下）

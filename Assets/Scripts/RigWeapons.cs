@@ -80,12 +80,18 @@ public class GunRig
 // 持枪手的类型（特殊持枪手单独一类）：在端枪的位置上再加一点偏移 / 角度
 //   稳（Steady）：不加；颤抖（Trembling）：用平滑噪声小幅乱抖（紧张、武器等级低）。以后的受伤单手持枪等也加在这里。
 // ============================================================================
+// 持枪手类型（角色的属性，和枪无关）：稳 / 颤抖……以后可以加更多（比如单手、受伤的手）
+//   Offset：持枪时握把多挪多少；Shake：按指定幅度抖（颤抖换弹用）；Fumbles：换弹会不会手忙脚乱（颤抖换弹：掉弹匣、插歪）
 public abstract class GripStyle
 {
     public static readonly GripStyle Steady = new SteadyGrip();
 
     // time = 角色自己的时间；返回握把要多挪多少（单位），ang = 多转多少度
     public abstract Vector2 Offset(float time, out float ang);
+    // 按幅度 k 抖（seed 不同 = 各抖各的；稳的手不抖）
+    public virtual Vector2 Shake(float time, float seed, float k, out float ang) { ang = 0f; return Vector2.zero; }
+    // 换弹会不会手忙脚乱（战术 / 普通换弹变成颤抖换弹）
+    public virtual bool Fumbles => false;
 }
 
 public class SteadyGrip : GripStyle
@@ -93,21 +99,27 @@ public class SteadyGrip : GripStyle
     public override Vector2 Offset(float time, out float ang) { ang = 0f; return Vector2.zero; }
 }
 
+// 颤抖的手：平滑噪声让握把一直小幅乱抖；抖到 fumbleAt 以上换弹就手忙脚乱
 public class TremblingGrip : GripStyle
 {
-    public float amount;      // 抖多厉害（0~1）
-    public float freq = 7f;   // 抖的快慢
-    public float move = 0.01f;  // 最多挪多远（单位，乘 amount）
-    public float angle = 4f;    // 最多转多少度（乘 amount）
+    public float amount;        // 现在抖多厉害（0~1；角色每帧按紧张 / 武器等级设）
+    public float freq = 7f;     // 抖的快慢
+    public float move = 0.01f;  // 最多挪多远（单位，乘幅度）
+    public float angle = 4f;    // 最多转多少度（乘幅度）
     public float seed;
+    public float fumbleAt = 0.5f;   // 抖到这个程度换弹就手忙脚乱（>1 = 永远不会）
 
-    public override Vector2 Offset(float time, out float ang)
+    public override Vector2 Offset(float time, out float ang) { return Shake(time, seed, amount, out ang); }
+
+    public override Vector2 Shake(float time, float seed, float k, out float ang)
     {
         float ts = time * freq;
         float nx = Mathf.PerlinNoise(seed + 0.3f, ts) * 2f - 1f;
         float ny = Mathf.PerlinNoise(seed + 5.1f, ts * 1.13f) * 2f - 1f;
         float na = Mathf.PerlinNoise(seed + 9.7f, ts * 0.91f) * 2f - 1f;
-        ang = na * angle * amount;
-        return new Vector2(nx, ny) * (move * amount);
+        ang = na * angle * k;
+        return new Vector2(nx, ny) * (move * k);
     }
+
+    public override bool Fumbles => amount > 0f && amount >= fumbleAt;
 }

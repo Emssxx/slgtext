@@ -1200,6 +1200,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         _aimAng = _aimWant;                                                     // 开枪这一下枪口直接对准目标
         _rig.localScale = new Vector3(FacingLeft ? -1f : 1f, 1f, 1f);           // 可能刚翻身：对好朝向
         GunAimPose();                                                           // 马上摆好，子弹从对准后的枪口出来
+        GunAnimator.For(d).OnFire(this, _gun);                                  // 这把枪自己开枪时还要做的
     }
 
     // 每帧：持枪 + 后坐（手被顶回、枪口上扬、身体后仰、滑套 / 拉栓往后弹）+ 持枪手类型（稳 / 颤抖）
@@ -1228,6 +1229,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         _handPoint.localPosition = new Vector3(hp.x, hp.y, 0f);
         _handPoint.localRotation = Quaternion.Euler(0f, 0f, _aimAng + angle + tremA);
         _gun.Kick(s, PPU_FULL);
+        GunAnimator.For(d).Pose(this, _gun, dt);                                // 这把枪自己每帧还要动的
     }
 
     // 后坐曲线：t 秒时在哪；rise 秒内从 start 冲到 1，然后按 ret 的快慢回到 0
@@ -1247,7 +1249,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     }
 
     // 枪火（图片式，枪的属性）：这把枪的枪火图随机一张，放在开枪那一刻的枪口上，朝着那一刻的枪口方向
-    protected void GunFlash()
+    public void GunFlash()
     {
         if (_gun == null || _muzzle == null) return;
         WeaponDef d = _gun.def;
@@ -1321,7 +1323,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     public abstract bool TryGetMuzzle(out Vector3 pos);
     public abstract bool FireBullet(Vector3 target);
     public abstract bool FireBullet(Vector3 target, bool canRicochet);
-    public abstract void MuzzleFlash();
+    // MuzzleFlash：见 CharacterRigBase.GunAnim.cs（枪火由这把枪的动画类画）
     // 换弹 ReloadTotal / ReloadSeconds / PlayReload / ResolveReloadKind：见 CharacterRigBase.Reload.cs（枪决定怎么插，配件决定从哪拿）
 
     // 只有部分角色有的功能：父类给一个"什么都不做"的默认，有这个功能的角色自己 override

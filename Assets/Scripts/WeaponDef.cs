@@ -3,7 +3,10 @@ using UnityEngine;
 
 // ============================================================================
 // WeaponDef —— 一把枪的数据（枪自己的属性）。说明见 RigWeapons.cs。
-//   ScriptableObject：Project 窗口右键 → Create → SLG → 武器（枪械动画），文件名写武器 id，放进 Assets/Resources/Weapons/。
+//   【改数值】菜单 SLG → 武器 → 生成武器数值文件：在 Assets/Resources/Weapons/ 生成每把枪一个文件（aba_pistol / aba_rifle / suit_pistol），
+//     选中文件就能在 Inspector 里改；有文件就用文件，没有才用代码里的默认值。运行时改也马上生效，而且退出运行后还保留。
+//     改乱了：文件右上角 ⋮ → "恢复代码里的默认值"。
+//   【新枪】Project 窗口右键 → Create → SLG → 武器（枪械动画），文件名写武器 id，放进 Assets/Resources/Weapons/。
 //   （Unity 要求 ScriptableObject 的类名和文件名一样，所以单独一个文件）
 // ============================================================================
 [CreateAssetMenu(menuName = "SLG/武器（枪械动画）", fileName = "Weapon")]
@@ -51,6 +54,15 @@ public class WeaponDef : ScriptableObject
     public float lightGlowSize = 0.6f;                       // 灯头本身发光点多大
     public bool flickerOnDraw = false;                       // 刚打开时闪一下
 
+    [Header("专用动画类（空 = 通用；填类名，比如 LayeredFlashGun）")]
+    public string animator = "";                             // 这把枪的动画类（继承 CharacterRigBase.GunAnimator）
+
+    [Header("多层枪火（LayeredFlashGun 用：闪光 / 亮光 / 烟）")]
+    public float sparkTime = 0.05f;                          // 闪光（火花线）亮多久（秒）
+    public float glowTime = 0.06f;                           // 亮光亮多久（秒）
+    public bool smoke = false;                               // 开枪后冒烟
+    public float smokeTime = 0.6f;                           // 烟飘多久（秒）
+
     [Header("换弹（枪的属性：弹匣怎么拔、怎么对准、怎么插；从哪拿新弹匣由角色身上的配件决定）")]
     public ReloadMotion reloadMotion = ReloadMotion.Pistol;  // 换弹动作：手枪式 / 步枪式
     public string magPart = "";                              // 枪里的弹匣是哪个部件（它的轴心 = 弹匣底部）
@@ -70,6 +82,47 @@ public class WeaponDef : ScriptableObject
 
     // ============ 武器库 ============
     static readonly Dictionary<string, WeaponDef> _cache = new Dictionary<string, WeaponDef>();
+    public static readonly string[] BuiltInIds = { "aba_pistol", "aba_rifle", "suit_pistol" };   // 代码里有默认值的枪
+
+    // 恢复成代码里的默认值（只改这个文件，id / 文件名不变）
+    [ContextMenu("恢复代码里的默认值")]
+    void ResetToBuiltIn()
+    {
+        WeaponDef b = BuiltIn(id, false);
+        if (b == null) { Debug.LogWarning("[WeaponDef] 代码里没有这把枪的默认值：" + id); return; }
+        string keep = name;
+        JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(b), this);
+        name = keep;
+#if UNITY_EDITOR
+        UnityEditor.EditorUtility.SetDirty(this);
+#endif
+        if (Application.isPlaying) Destroy(b); else DestroyImmediate(b);
+    }
+
+#if UNITY_EDITOR
+    // 菜单：把代码里的默认武器生成成数值文件（已经有的不覆盖）
+    [UnityEditor.MenuItem("SLG/武器/生成武器数值文件")]
+    static void CreateWeaponAssets()
+    {
+        const string dir = "Assets/Resources/Weapons";
+        if (!UnityEditor.AssetDatabase.IsValidFolder("Assets/Resources")) UnityEditor.AssetDatabase.CreateFolder("Assets", "Resources");
+        if (!UnityEditor.AssetDatabase.IsValidFolder(dir)) UnityEditor.AssetDatabase.CreateFolder("Assets/Resources", "Weapons");
+        int made = 0;
+        foreach (string wid in BuiltInIds)
+        {
+            string path = dir + "/" + wid + ".asset";
+            if (UnityEditor.AssetDatabase.LoadAssetAtPath<WeaponDef>(path) != null) continue;   // 已经有了：不覆盖你改过的
+            WeaponDef d = BuiltIn(wid, false);
+            if (d == null) continue;
+            UnityEditor.AssetDatabase.CreateAsset(d, path);
+            made++;
+        }
+        UnityEditor.AssetDatabase.SaveAssets();
+        _cache.Clear();                                                    // 运行中生成的话，下次拿枪就读新文件
+        UnityEditor.EditorGUIUtility.PingObject(UnityEditor.AssetDatabase.LoadAssetAtPath<Object>(dir));
+        Debug.Log("[WeaponDef] 生成了 " + made + " 个武器数值文件（" + dir + "）");
+    }
+#endif
 
     // 按 id 拿一把枪：Resources/Weapons/<id> 有文件就用文件，没有就用代码里的默认值
     public static WeaponDef Get(string id)
@@ -154,7 +207,17 @@ public class WeaponDef : ScriptableObject
                 d.artFolder = "NpcArt";
                 d.grip = new Vector2(1697, 1172); d.muzzle = new Vector2(1914, 979);
                 d.restGrip = new Vector2(1697 - 1162, 1172 - 1987);
+                d.shoulder = new Vector2(0.175f, 0.421f);   // = npc1 的 Aim Shoulder（握把位置和原来一模一样）
                 d.hasLamp = false;
+                d.rpm = 300f;
+                d.recoilKick = new Vector2(80f, 100f); d.recoilHandX = new Vector2(-0.4f, -0.2f); d.recoilHandY = new Vector2(0.1f, 0.3f);
+                d.handRecoilRise = 0.03f; d.handRecoilReturn = new Vector2(0.18f, 0.24f); d.muzzleRise = new Vector2(0.03f, 0.15f); d.muzzleReturn = 0.09f;
+                d.recoilLean = 3f; d.actionShift = 0.012f;
+                d.kickBack = 0.025f; d.kickHold = 0f; d.kickReturn = 0.12f;
+                d.flashTime = 0.07f; d.flashSize = 2f;
+                d.animator = "LayeredFlashGun";             // 三层枪火 + 烟
+                d.sparkTime = 0.05f; d.glowTime = 0.06f; d.smoke = true; d.smokeTime = 0.6f;
+                d.bulletSprite = "";                        // 空 = 角色默认的子弹图
                 d.parts.Add(P("PistolMag", "Held/PistolMag", 1610, 1222, 25));
                 d.parts.Add(P("PistolFrame", "Held/PistolFrame", 1697, 1172, 26));
                 d.parts.Add(P("PistolSlide", "Held/PistolSlide", 1729.5f, 981.5f, 27, 150f));

@@ -223,7 +223,14 @@ public abstract partial class CharacterRigBase
     protected virtual void ReloadDonePose() { GunAimPose(); }                                            // 换完回到平时的样子
     protected virtual float ReloadTimeMul() => 1f;                                                       // 换弹时间倍数（武器等级）
 
-    static ReloadKind Simplify(ReloadKind k) => k == ReloadKind.Shaky ? ReloadKind.Normal : k;   // 颤抖换弹（第 ④ 批接持枪手类型）先按普通换弹
+    // 颤抖换弹只有手枪式有（步枪式按普通换弹）；持枪手抖得厉害时战术 / 普通换弹也会变成颤抖换弹
+    ReloadKind Simplify(ReloadKind k, GunRig g)
+    {
+        bool pistol = g != null && g.def.reloadMotion == ReloadMotion.Pistol;
+        if (pistol && k != ReloadKind.Speed && Grip.Fumbles) k = ReloadKind.Shaky;
+        if (k == ReloadKind.Shaky && !pistol) k = ReloadKind.Normal;
+        return k;
+    }
 
     // ======================= 外部调用 =======================
     // 某种换弹一共要多少"标准时间"
@@ -231,7 +238,7 @@ public abstract partial class CharacterRigBase
     {
         GunRig g = TimingGun();
         if (g == null) return 1f;
-        return GunReloadTotal(g, PickReloadStyle(g), Simplify(kind));
+        return GunReloadTotal(g, PickReloadStyle(g), Simplify(kind, g));
     }
 
     // 这个人换这种弹匣要几秒（标准时间 × 武器等级倍数；NpcCombat 用）
@@ -244,7 +251,7 @@ public abstract partial class CharacterRigBase
         if (g == null) return want;
         ReloadStyle s = PickReloadStyle(g);
         s.Prepare(this, g);
-        if (Simplify(want) != ReloadKind.Speed && !s.CanStow(this, g)) return ReloadKind.Speed;
+        if (Simplify(want, g) != ReloadKind.Speed && !s.CanStow(this, g)) return ReloadKind.Speed;
         return want;
     }
 
@@ -262,7 +269,7 @@ public abstract partial class CharacterRigBase
     {
         ReloadStyle s = PickReloadStyle(g);
         s.Prepare(this, g);
-        kind = Simplify(kind);
+        kind = Simplify(kind, g);
         if (kind != ReloadKind.Speed && !s.CanStow(this, g)) kind = ReloadKind.Speed;   // 旧弹匣没地方收：改成快速换弹
         _rlStowing = kind != ReloadKind.Speed;
         s.Begin(this, g, _rlStowing);
@@ -274,7 +281,7 @@ public abstract partial class CharacterRigBase
         if (_rlOldMag != null) _rlOldMag.sprite = ms;
         _reloadKind = kind;
         _qrDropped = false; _rlMagTaken = false; _rlOldStowed = false;
-        float total = GunReloadTotal(g, s, kind);
+        float total = kind == ReloadKind.Shaky ? BuildShakyPlan() : GunReloadTotal(g, s, kind);   // 颤抖换弹：先随机好掉几次、卡几次
         _reloadRate = fitSeconds > 0f ? total / fitSeconds : Mathf.Max(0.05f, reloadSpeed) / ReloadTimeMul();
         _reloadT = 0f;                                                      // 从头开始
         _recoilT = -1f;                                                     // 停掉后坐
@@ -317,19 +324,31 @@ public abstract partial class CharacterRigBase
     protected bool AnimateGunReload(float dt)
     {
         if (_reloadT < 0f || _rlGun == null) return false;
-        if (_rlGun.def.reloadMotion == ReloadMotion.Rifle)
+        GunAnimator.For(_rlGun.def).Reload(this, _rlGun, dt);               // 这把枪的动画类（默认 = 下面的通用换弹）
+        return true;
+    }
+
+    // 通用换弹：手枪式 / 步枪式（颤抖换弹只有手枪式）
+    public void DefaultGunReload(float dt)
+    {
+        if (_reloadT < 0f || _rlGun == null) return;
+        if (_reloadKind == ReloadKind.Shaky) ShakyReload(dt);
+        else if (_rlGun.def.reloadMotion == ReloadMotion.Rifle)
         {
             if (_reloadKind == ReloadKind.Tactical) RifleTacticalReload(dt);
             else if (_reloadKind == ReloadKind.Speed) RifleSpeedReload(dt);
             else RifleNormalReload(dt);
         }
         else PistolReload(dt);
-        return true;
     }
 
-    // 某把枪 + 某个配件 + 某种换弹一共多少"标准时间"
-    float GunReloadTotal(GunRig g, ReloadStyle s, ReloadKind kind)
+    // 某把枪 + 某个配件 + 某种换弹一共多少"标准时间"（交给这把枪的动画类）
+    float GunReloadTotal(GunRig g, ReloadStyle s, ReloadKind kind) { return GunAnimator.For(g.def).ReloadTotal(this, g, s, kind); }
+
+    // 通用换弹的时间（颤抖换弹按普通换弹算，掉弹匣 / 卡住多花的时间开始时才知道）
+    public float DefaultGunReloadTotal(GunRig g, ReloadStyle s, ReloadKind kind)
     {
+        if (kind == ReloadKind.Shaky) kind = ReloadKind.Normal;
         if (g.def.reloadMotion == ReloadMotion.Rifle)
         {
             if (kind == ReloadKind.Tactical) return RifleTacticalTotal();
@@ -447,6 +466,7 @@ public abstract partial class CharacterRigBase
         float aimNow = _aimAng * (1f - raise);                              // 瞄准角度：① 抬枪时转回正前方，⑩ 放下时转回去对准
         Vector2 gunPos = ReloadAimHand(aimNow, 1f - raise) + rlGunRaise * raise + new Vector2(0f, rlShake * (shakeDrop + shakeInsert));
         float gunAng = aimNow + rlGunTilt * raise + align + rlShakeAngle * (shakeDrop + shakeSlide);  // 抬枪时的旋转 + ⑥ 配合转 + 旋转抖
+        { Vector2 tr = Grip.Offset(_time, out float trA); gunPos += tr; gunAng += trA; }   // 持枪手类型：颤抖的手换弹时也抖
         _handPoint.localPosition = new Vector3(gunPos.x, gunPos.y, 0f);
         _handPoint.localRotation = Quaternion.Euler(0f, 0f, gunAng);
 
@@ -699,6 +719,7 @@ public abstract partial class CharacterRigBase
         Vector2 gunPos = ReloadAimHand(aimNow, 1f - back) + rtGunBack * back
                        + new Vector2(0f, rlShake * 0.5f * shIns + rtGripShakeY * shGrip);
         float gunAng = aimNow + up + rtInsertShake * shIns + rtZoomShake * shZoom + rtGripShake * shGrip;
+        { Vector2 tr = Grip.Offset(_time, out float trA); gunPos += tr; gunAng += trA; }   // 持枪手类型：颤抖的手换弹时也抖
         _handPoint.localPosition = new Vector3(gunPos.x, gunPos.y, 0f);
         _handPoint.localRotation = Quaternion.Euler(0f, 0f, gunAng);
         _handPoint.localScale = Vector3.one * (1f + rtZoom * ZoomPop(t - t7));   // ⑤ 突然放大一下（模拟往镜头方向抖）
@@ -826,6 +847,7 @@ public abstract partial class CharacterRigBase
         Vector2 gunPos = ReloadAimHand(aimNow, 1f - back) + rsGunBack * back
                        + new Vector2(0f, -rsFlickY * sink + rsInsertShakeY * shIns + rtGripShakeY * shLevel);
         float gunAng = aimNow + up + rsFlickAngle * stockDown + rtZoomShake * shZoom + rtGripShake * shLevel;
+        { Vector2 tr = Grip.Offset(_time, out float trA); gunPos += tr; gunAng += trA; }   // 持枪手类型：颤抖的手换弹时也抖
         _handPoint.localPosition = new Vector3(gunPos.x, gunPos.y, 0f);
         _handPoint.localRotation = Quaternion.Euler(0f, 0f, gunAng);
         _handPoint.localScale = Vector3.one * (1f + rtZoom * ZoomPop(t - t5));   // ④ 突然放大一下（模拟往镜头方向抖）
@@ -938,6 +960,7 @@ public abstract partial class CharacterRigBase
         Vector2 gunPos = ReloadAimHand(aimNow, 1f - back) + rnGunBack * back
                        + new Vector2(0f, rlShake * 0.5f * shIns + rtGripShakeY * shGrip);
         float gunAng = aimNow + up + rtInsertShake * shIns + rtZoomShake * shZoom + rtGripShake * shGrip;
+        { Vector2 tr = Grip.Offset(_time, out float trA); gunPos += tr; gunAng += trA; }   // 持枪手类型：颤抖的手换弹时也抖
         _handPoint.localPosition = new Vector3(gunPos.x, gunPos.y, 0f);
         _handPoint.localRotation = Quaternion.Euler(0f, 0f, gunAng);
         _handPoint.localScale = Vector3.one * (1f + rtZoom * ZoomPop(t - t7));   // 突然放大一下（模拟往镜头方向抖）
