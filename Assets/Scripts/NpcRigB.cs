@@ -660,6 +660,7 @@ public class NpcRigB : CharacterRigBase
                 _mountGunPic.gameObject.SetActive(_mountRifle.enabled);
             }
         }
+        SyncRifleMagPouches(d, g);                                          // 胸挂上的步枪弹匣换成这把枪的弹匣（配件跟着枪走）
         if (_held == "rifle") SetHeld("rifle");                             // 正拿着步枪：直接换成新的（不重播取出动画）
         else foreach (SpriteRenderer sr in _rifleParts) if (sr != null) sr.enabled = false;
     }
@@ -980,6 +981,42 @@ public class NpcRigB : CharacterRigBase
     void StopReload() { StopGunReload(); }
 
     // 胸挂 = 换弹配件：手枪 / 步枪各 4 个弹匣袋（按拿的顺序：从最右边开始）
+    // 胸挂上的 4 个步枪弹匣：跟着现在这把步枪换（弹匣是枪的东西：X95 的弹匣插在胸挂里也是 X95 的弹匣）。
+    //   战斗步枪用角色自己画的；其他枪用枪自己的弹匣部件，底部对准弹匣袋的底，斜得和画的一样（换弹时手里拿的、袋里插的是同一个弹匣）
+    Sprite[] _pouchArt; Vector3[] _pouchPos; Quaternion[] _pouchRot; Vector2[] _pouchBottom;   // 角色画的原样（换回战斗步枪时复原）
+    void SyncRifleMagPouches(WeaponDef d, GunRig g)
+    {
+        PouchGroup grp = null;
+        if (_chest != null) foreach (PouchGroup pg in _chest.groups) if (pg.hold == HoldType.Rifle) grp = pg;
+        if (grp == null || d == null) return;
+        if (_pouchArt == null)                                              // 第一次：记下角色画的原样
+        {
+            int n = grp.pouches.Count;
+            _pouchArt = new Sprite[n]; _pouchPos = new Vector3[n]; _pouchRot = new Quaternion[n]; _pouchBottom = new Vector2[n];
+            for (int k = 0; k < n; k++)
+            {
+                MagPouch p = grp.pouches[k];
+                _pouchArt[k] = p.mag.sprite; _pouchPos[k] = p.mag.transform.localPosition; _pouchRot[k] = p.mag.transform.localRotation; _pouchBottom[k] = p.bottom;
+            }
+        }
+        SpriteRenderer gunMag = g != null && !string.IsNullOrEmpty(d.magPart) ? g.Part(d.magPart) : null;
+        bool own = d.characterMountArt || gunMag == null || gunMag.sprite == null;   // 战斗步枪（或这把枪没有弹匣部件）：用角色画的
+        float magAxis = Mathf.Atan2(d.magDir.y, d.magDir.x) * Mathf.Rad2Deg;    // 这把枪的弹匣在图里斜多少（底 → 顶）
+        grp.turn = own ? R_POUCH_MAG_TURN : 0f;                             // 袋里的弹匣 = 手里的弹匣（同一张图，不用再补角度）
+        grp.axis = own ? R_MAG_AXIS : magAxis;                              // 沿弹匣往外拔的方向
+        for (int k = 0; k < grp.pouches.Count; k++)
+        {
+            MagPouch p = grp.pouches[k];
+            Transform t = p.mag.transform;
+            if (own) { p.mag.sprite = _pouchArt[k]; t.localPosition = _pouchPos[k]; t.localRotation = _pouchRot[k]; p.bottom = _pouchBottom[k]; continue; }
+            int i = System.Array.IndexOf(_mountRifleMags, p.mag);           // 第几个弹匣袋
+            p.mag.sprite = gunMag.sprite;                                   // 这把枪的弹匣（轴心 = 弹匣底部）
+            t.localPosition = CanvasToLocal(P_RIFLE_MAG_BOTTOM[Mathf.Max(0, i)] - P_MOUNT);   // 底部对准弹匣袋的底
+            t.localRotation = Quaternion.Euler(0f, 0f, R_MAG_AXIS - magAxis);   // 斜得和角色画的步枪弹匣一样
+            p.bottom = Vector2.zero;
+        }
+    }
+
     void BuildChestRig()
     {
         _chest = new ChestRigReload();                                      // npc2 身上一直有胸挂（gear = null：不用检查）
