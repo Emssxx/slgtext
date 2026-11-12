@@ -18,9 +18,11 @@ public abstract partial class CharacterRigBase
     public abstract class ReloadStyle
     {
         public string gear;     // 身上要有这个配件才能用（HasGear 检查；null = 不用检查）
+        public string label = "配件";   // 名字（测试窗口里显示）
+        public bool disabled;           // 测试：当作没穿这个配件（换弹改用下一个配件 / 屁股后面）
 
         // 这把枪能不能用这种方式换弹
-        public virtual bool Fits(CharacterRigBase rig, GunRig gun) => gear == null || rig.HasGear(gear);
+        public virtual bool Fits(CharacterRigBase rig, GunRig gun) => !disabled && (gear == null || rig.HasGear(gear));
         // 换弹前的准备（比如弹匣袋里没有满弹匣了：测试先补满）
         public virtual void Prepare(CharacterRigBase rig, GunRig gun) { }
         // 旧弹匣有没有地方收（没有 → 只能快速换弹，把旧弹匣丢地上）
@@ -47,6 +49,7 @@ public abstract partial class CharacterRigBase
     // 屁股后面（npc1：没有胸挂。手绕到身后拿新弹匣，空弹匣也塞回身后）
     public class HipPouchReload : ReloadStyle
     {
+        public HipPouchReload() { label = "屁股后面"; }
         public Vector2 point = new Vector2(-0.21f, 0.29f);    // 手在身后拿 / 塞弹匣的位置（根节点本地坐标）
         public float angle = 40f;                              // 手转多少度
         public float behindX = 0.245f;                         // 手的 x 小于它就算绕到身后了（身体右边缘线）
@@ -84,6 +87,7 @@ public abstract partial class CharacterRigBase
     // 胸挂（npc2）：新弹匣从满弹匣的袋子拔，旧弹匣插回空袋；没有空袋就只能快速换弹
     public class ChestRigReload : ReloadStyle
     {
+        public ChestRigReload() { label = "胸挂"; }
         public readonly List<PouchGroup> groups = new List<PouchGroup>();
         public Func<float> switchTime = () => 0.2f;           // 普通换弹：插回旧弹匣后，手移到满弹匣那个袋子用几秒
         public Action onChanged;                              // 弹匣袋变了（角色在 Inspector 里显示用）
@@ -205,6 +209,15 @@ public abstract partial class CharacterRigBase
     protected ReloadStyle _rlStyle;          // 这次用哪个配件
     protected bool _rlStowing;               // 这次旧弹匣要收回去（不是丢掉）
     protected bool _rlMagTaken, _rlOldStowed;    // 新弹匣已经从配件里拿走了 / 旧弹匣已经收回去了
+
+    public IReadOnlyList<ReloadStyle> ReloadGear => _reloadGear;   // 测试窗口：列出 / 开关这些配件
+    // 换弹状态（测试窗口显示）：正在用哪种换弹、哪个配件
+    public string ReloadStatus => _reloadT >= 0f && _rlGun != null
+        ? "换弹中：" + KindLabel(_reloadKind) + "（" + (_rlStyle != null ? _rlStyle.label : "?") + "，" + _rlGun.def.Label + "）"
+        : "没在换弹";
+    public static string KindLabel(ReloadKind k) => k == ReloadKind.Tactical ? "战术" : k == ReloadKind.Speed ? "快速" : k == ReloadKind.Normal ? "普通" : "颤抖";
+    // 现在拿的枪会用哪个配件换弹
+    public string ReloadGearFor => _gun != null ? PickReloadStyle(_gun).label : "-";
 
     // 登记一个配件提供的换弹方式（先登记的优先）
     protected void AddReloadGear(ReloadStyle s) { if (s != null && !_reloadGear.Contains(s)) _reloadGear.Add(s); }

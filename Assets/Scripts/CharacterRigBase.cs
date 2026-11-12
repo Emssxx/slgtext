@@ -995,9 +995,9 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     protected void SetMountItem(MountPoint m, string item)
     {
         if (m == null) return;
-        if (item != null && m.kind == MountKind.Weapon && m.art != null && item != m.item)
+        if (item != null && (m.kind == MountKind.Weapon || m.kind == MountKind.Rifle) && m.art != null && item != m.item)
         {
-            Sprite s = MountArt(m, item);                              // 武器挂载点：换成这件武器的图
+            Sprite s = MountArt(m, item);                              // 武器 / 步枪挂载点：换成这件武器的图
             if (s != null) m.art.sprite = s;
         }
         m.item = item;
@@ -1325,6 +1325,36 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     public abstract bool FireBullet(Vector3 target, bool canRicochet);
     // MuzzleFlash：见 CharacterRigBase.GunAnim.cs（枪火由这把枪的动画类画）
     // 换弹 ReloadTotal / ReloadSeconds / PlayReload / ResolveReloadKind：见 CharacterRigBase.Reload.cs（枪决定怎么插，配件决定从哪拿）
+
+    // ---------------- 测试窗口（AnimTestHub 的"武器测试"）用 ----------------
+    public struct TestOption { public string key, label; public TestOption(string k, string l) { key = k; label = l; } }
+    public virtual List<TestOption> TestHoldExtras() => new List<TestOption>();   // 除了枪还能拿什么（空手 / 斧头 / 匕首……）
+    public virtual bool CanTestEquip(WeaponDef d) => true;                         // 这个角色能不能拿这把枪
+    public virtual void TestEquip(string key) { }                                  // 拿起：枪 = WeaponDef id，其他 = TestHoldExtras 的 key
+    public virtual string TestGearInfo() => "";                                    // 配件状态（比如胸挂弹匣袋）
+    public virtual void TestRefillGear() { }                                       // 配件补满（比如胸挂弹匣）
+    public string HeldKey => _held;                                                // 现在手上拿着什么
+    public GunRig HeldGun => _gun;                                                 // 现在拿着的枪（null = 不是枪）
+
+    // 挂饰开关：挂上这个挂载点该挂的东西 / 取下；item 不为空 = 挂这件（武器挂载点挂别的枪）
+    public void TestSetMount(MountPoint m, bool on, string item = null)
+    {
+        if (m == null) return;
+        string it = item ?? ItemOf(m.kind);
+        if (it == null) it = m.kind == MountKind.Weapon ? "pistol" : m.id;
+        SetMountItem(m, on ? it : null);
+    }
+
+    // 这个挂载点能不能挂这把枪（武器挂载点 = 有枪套图的枪，步枪挂载点 = 有斜挂图的步枪）
+    public virtual bool CanMount(MountPoint m, WeaponDef d)
+    {
+        if (m == null || d == null) return false;
+        if (m.kind == MountKind.Rifle) return d.hold == HoldType.Rifle && !string.IsNullOrEmpty(d.slingArt);
+        if (m.kind == MountKind.Weapon) return !string.IsNullOrEmpty(d.holsterArt);
+        return false;
+    }
+    // 挂载点上挂的东西换成测试窗口里显示的物品 id（武器：WeaponDef id）
+    public virtual string MountItemFor(WeaponDef d) => d != null ? d.id : null;
 
     // 只有部分角色有的功能：父类给一个"什么都不做"的默认，有这个功能的角色自己 override
     public virtual bool HasGear(string key) => false;

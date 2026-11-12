@@ -202,6 +202,7 @@ public class NpcRig : CharacterRigBase
         [InspectorName("医疗包")] Medkit,
         [InspectorName("水杯")] Bottle,
         [InspectorName("战斗步枪")] Rifle,
+        [InspectorName("ABA-X95")] X95,
     }
 
     [Header("通用枪械（拿战斗步枪等）：角色这边的位置 + 持枪手微调（衣服的手：左手握把、右手辅助，握在枪的锚点上）")]
@@ -247,18 +248,62 @@ public class NpcRig : CharacterRigBase
         { "pistol", new Vector2(1697, 1172) },   // 双手持枪
     };
     // 拿的枪：物品 id → 武器数据 id（WeaponDef）。自己的手枪也是一把普通的枪（suit_pistol），和战斗步枪一样走通用枪械
-    static readonly Dictionary<string, string> GUN_DEFS = new Dictionary<string, string> { { "pistol", "suit_pistol" }, { "rifle", "aba_rifle" } };
+    static readonly Dictionary<string, string> GUN_DEFS = new Dictionary<string, string> { { "pistol", "suit_pistol" }, { "rifle", "aba_rifle" }, { "aba-x95", "aba-x95" } };
     readonly Dictionary<string, GunRig> _guns = new Dictionary<string, GunRig>();   // 拼好的通用枪（第一次拿时拼）
     public int testRifleBurst = 5;                    // 测试拿步枪开枪：一组连发几枪
-    readonly TremblingGrip _trembleGrip = new TremblingGrip();   // 持枪手类型：颤抖的手（按紧张 / 武器等级抖）
+    readonly TremblingGrip _trembleGrip = new TremblingGrip();
+    string _testKey;                                  // 测试窗口选的手上拿什么（null = 不用；"" = 空手）
+    readonly Dictionary<string, string> _testGuns = new Dictionary<string, string>();   // 测试窗口拿的其他枪（物品 id = 武器 id）   // 持枪手类型：颤抖的手（按紧张 / 武器等级抖）
 
     GunRig GunFor(string key)
     {
-        if (key == null || !GUN_DEFS.TryGetValue(key, out string id)) return null;
+        if (key == null) return null;
+        if (!GUN_DEFS.TryGetValue(key, out string id) && !_testGuns.TryGetValue(key, out id)) return null;
         if (_guns.TryGetValue(key, out GunRig g) && g != null) return g;
         g = BuildGun(WeaponDef.Get(id), _handPoint);
         if (g != null) _guns[key] = g;
         return g;
+    }
+
+    // 物品 id → 这把枪的数据（手枪 / 步枪 / 测试拿的枪 / 直接是武器 id；不是枪 = null）
+    WeaponDef GunDefOfItem(string item)
+    {
+        if (string.IsNullOrEmpty(item)) return null;
+        if (GUN_DEFS.TryGetValue(item, out string id) || _testGuns.TryGetValue(item, out id)) return WeaponDef.Get(id);
+        foreach (string b in WeaponDef.BuiltInIds) if (b == item) return WeaponDef.Get(item);
+        return Resources.Load<WeaponDef>("Weapons/" + item);
+    }
+
+    // 挂载点上用的物品 id：自己的手枪 / 战斗步枪用物品名，其他枪直接用武器 id（拿出来时会去对应的挂载点藏起来）
+    public override string MountItemFor(WeaponDef d)
+    {
+        if (d == null) return null;
+        foreach (KeyValuePair<string, string> kv in GUN_DEFS) if (kv.Value == d.id) return kv.Key;
+        _testGuns[d.id] = d.id;
+        return d.id;
+    }
+
+    // ---------------- 测试窗口 ----------------
+    public override List<TestOption> TestHoldExtras() => new List<TestOption>
+    {
+        new TestOption(null, "按游戏情况"), new TestOption("", "空手"), new TestOption("axe", "斧头"),
+        new TestOption("hammer", "锤子"), new TestOption("medkit", "医疗包"), new TestOption("bottle", "水杯"),
+    };
+
+    public override void TestEquip(string key)
+    {
+        if (key != null && key.Length > 0 && WeaponDef.Get(key) != null)   // 枪：自己的物品 id（手枪 / 步枪）或直接用武器 id
+        {
+            string item = null;
+            foreach (KeyValuePair<string, string> kv in GUN_DEFS) if (kv.Value == key) { item = kv.Key; break; }
+            if (item == null) { item = key; _testGuns[key] = key; }
+            key = item;
+        }
+        testHeld = TestHeld.None;
+        _testKey = key;
+        _heldTimer = 0f;
+        string want = PickHeld();
+        if (want != _held) ApplyHeld(want);
     }
 
     // 持枪手：防护服的两只手（左手握把、右手辅助）拆开握在任何枪的锚点上
@@ -773,6 +818,7 @@ public class NpcRig : CharacterRigBase
             case TestHeld.Medkit: return "medkit";
             case TestHeld.Bottle: return "bottle";
             case TestHeld.Rifle: return "rifle";
+            case TestHeld.X95: return "aba-x95";
             default: return null;
         }
     }
@@ -803,6 +849,11 @@ public class NpcRig : CharacterRigBase
     string PickHeld()
     {
         _heldLoop = false;                                        // 先当作不是在干活
+        if (_testKey != null)                                     // 测试窗口选的（"" = 空手）
+        {
+            _heldLoop = testLoop && (_testKey == "axe" || _testKey == "hammer");
+            return _testKey.Length > 0 ? _testKey : null;
+        }
         if (testHeld != TestHeld.None)                            // 测试开关打开：直接拿测试选的东西
         {
             _heldLoop = testLoop && (testHeld == TestHeld.Axe || testHeld == TestHeld.Hammer);  // 斧头 / 锤子要不要循环挥
@@ -1342,6 +1393,13 @@ public class NpcRig : CharacterRigBase
     // 武器挂载点（枪套）换成别的武器时用哪张图（以后加新武器在这里加一行）
     protected override Sprite MountArt(MountPoint m, string item)
     {
+        WeaponDef d = GunDefOfItem(item);                                   // 是枪：用这把枪自己的挂件图（枪套里 / 斜挂）
+        if (d != null)
+        {
+            string path = m.kind == MountKind.Rifle ? d.slingArt : d.holsterArt;
+            Sprite s = string.IsNullOrEmpty(path) ? null : Resources.Load<Sprite>(path);
+            if (s != null) return s;
+        }
         switch (item)
         {
             case "pistol": return Load("Gear/Pistol");

@@ -13,7 +13,11 @@ using UnityEngine.InputSystem;   // 滚轮缩放、右键拖动镜头（新输�
 // 【以后加新东西】把要测的物体放进场景，然后在本组件 Inspector 的 Entries 列表里加一行：
 //   类别、名字、物体、镜头大小 / 高度、操作说明。就这么多，不用改代码。
 //
-// 【它不改什么】只负责显示 / 隐藏列表里的物体和移动镜头，不改它们身上的任何参数。
+// 【武器测试窗口】选中角色时右边有"武器测试"窗口（面板上的按钮开 / 关，标题栏可以拖）：
+//   拿哪把枪（所有 WeaponDef，包括 Resources/Weapons 里的）/ 空手 / 其他东西；挂饰开关；换弹配件开关（关掉胸挂就从屁股后面拿）；
+//   开火（一枪 / 一组连发、循环）；四种换弹；npc1 的武器等级 / 紧张（手抖）。窗口里改的是测试开关，不改数值文件。
+//
+// 【它不改什么】只负责显示 / 隐藏列表里的物体和移动镜头，不改它们身上的任何参数（武器测试窗口除外：它就是用来按测试开关的）。
 //   隐藏的物体不运行（换弹之类正在播放的动作会停掉，切回来后重新触发就行）。
 // ============================================================================
 public class AnimTestHub : MonoBehaviour
@@ -84,7 +88,8 @@ public class AnimTestHub : MonoBehaviour
         Mouse mouse = Mouse.current;                       // 没有鼠标就是 null
         if (mouse == null) return;
         Vector2 pos = mouse.position.ReadValue();
-        if (PanelRect().Contains(GuiPoint(pos))) { _lastMouse = pos; return; }   // 鼠标在面板上：不动镜头
+        Vector2 gp = GuiPoint(pos);
+        if (PanelRect().Contains(gp) || (_weaponWin && _winRect.Contains(gp))) { _lastMouse = pos; return; }   // 鼠标在面板 / 窗口上：不动镜头
 
         float wheel = mouse.scroll.ReadValue().y;          // 滚轮：往前推 = 放大
         if (Mathf.Abs(wheel) > 0.01f)
@@ -141,6 +146,143 @@ public class AnimTestHub : MonoBehaviour
         GUILayout.Label("播放速度：" + Mathf.RoundToInt(timeScale * 100f) + "%");
         timeScale = GUILayout.HorizontalSlider(timeScale, 0.05f, 1f);       // 拖到左边 = 慢放
         GUILayout.Label("滚轮缩放，按住右键拖动镜头");
+        if (CurrentRig() != null && GUILayout.Button(_weaponWin ? "关掉武器测试窗口" : "打开武器测试窗口")) _weaponWin = !_weaponWin;
         GUILayout.EndArea();
+        if (_weaponWin && CurrentRig() != null) _winRect = GUILayout.Window(7301, _winRect, WeaponWindow, "武器测试");
+    }
+
+    // ============ 武器测试窗口 ============
+
+    bool _weaponWin = true;                                // 窗口开着没有
+    Rect _winRect = new Rect(246f, 8f, 270f, 520f);        // 窗口位置（缩放前；标题栏能拖）
+    Vector2 _winScroll;
+    List<WeaponDef> _weapons;                              // 所有枪（第一次打开时读）
+    static readonly CharacterRigBase.ReloadKind[] Kinds =
+        { CharacterRigBase.ReloadKind.Tactical, CharacterRigBase.ReloadKind.Speed, CharacterRigBase.ReloadKind.Normal, CharacterRigBase.ReloadKind.Shaky };
+
+    // 现在显示的这一项上的角色（不是角色 = null）
+    CharacterRigBase CurrentRig()
+    {
+        if (_current < 0 || _current >= entries.Count || entries[_current].target == null) return null;
+        return entries[_current].target.GetComponentInChildren<CharacterRigBase>();
+    }
+
+    void WeaponWindow(int id)
+    {
+        CharacterRigBase rig = CurrentRig();
+        if (rig == null) { GUILayout.Label("先在左边选一个角色"); GUI.DragWindow(); return; }
+        if (_weapons == null || GUILayout.Button("刷新武器列表（新建了武器文件后点）")) _weapons = WeaponDef.All();
+        _winScroll = GUILayout.BeginScrollView(_winScroll);
+
+        // ---- 拿什么 ----
+        GUILayout.Label("【拿什么】现在：" + HeldLabel(rig));
+        foreach (WeaponDef d in _weapons)
+        {
+            if (d == null || !rig.CanTestEquip(d)) continue;
+            bool on = rig.HeldGun != null && rig.HeldGun.def == d;
+            if (GUILayout.Button((on ? "▶ " : "　") + d.Label + (d.hold == HoldType.Rifle ? "（步枪）" : "（手枪）"))) rig.TestEquip(d.id);
+        }
+        GUILayout.BeginHorizontal();
+        int n = 0;
+        foreach (CharacterRigBase.TestOption o in rig.TestHoldExtras())
+        {
+            if (GUILayout.Button(o.label)) rig.TestEquip(o.key);
+            if (++n % 3 == 0) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); }
+        }
+        GUILayout.EndHorizontal();
+
+        // ---- 挂饰 / 换弹配件 ----
+        GUILayout.Space(6f);
+        GUILayout.Label("【挂饰】");
+        foreach (CharacterRigBase.MountPoint m in rig.Mounts)
+        {
+            bool on = m.item != null;
+            bool gunMount = m.kind == CharacterRigBase.MountKind.Weapon || m.kind == CharacterRigBase.MountKind.Rifle;
+            if (!gunMount)
+            {
+                bool want = GUILayout.Toggle(on, MountLabel(m));
+                if (want != on) rig.TestSetMount(m, want);
+                continue;
+            }
+            GUILayout.Label(MountLabel(m) + "：" + (on ? MountItemLabel(m.item) : "空"));   // 武器 / 步枪挂载点：选挂哪把枪
+            GUILayout.BeginHorizontal();
+            int k = 0;
+            if (GUILayout.Button("空")) rig.TestSetMount(m, false);
+            k++;
+            foreach (WeaponDef d in _weapons)
+            {
+                if (d == null || !rig.CanMount(m, d)) continue;
+                if (GUILayout.Button(d.Label)) rig.TestSetMount(m, true, rig.MountItemFor(d));
+                if (++k % 3 == 0) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); }
+            }
+            GUILayout.EndHorizontal();
+        }
+        if (rig.Mounts.Count == 0) GUILayout.Label("（这个角色没有挂载点）");
+        GUILayout.Label("【换弹配件】（关掉 = 当作没穿，换弹改从下一个配件 / 屁股后面拿）");
+        foreach (CharacterRigBase.ReloadStyle st in rig.ReloadGear) st.disabled = !GUILayout.Toggle(!st.disabled, st.label);
+        if (rig.ReloadGear.Count == 0) GUILayout.Label("（没有配件：从屁股后面拿）");
+        GUILayout.Label("现在这把枪换弹用：" + rig.ReloadGearFor);
+        string gear = rig.TestGearInfo();
+        if (!string.IsNullOrEmpty(gear)) { GUILayout.Label(gear); if (GUILayout.Button("配件补满（弹匣）")) rig.TestRefillGear(); }
+
+        // ---- 开火 ----
+        GUILayout.Space(6f);
+        GUILayout.Label("【开火】步枪 = 一组连发");
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("开火")) rig.testFire = true;
+        rig.testLoop = GUILayout.Toggle(rig.testLoop, "循环");
+        rig.testFaceLeft = GUILayout.Toggle(rig.testFaceLeft, "朝左");
+        GUILayout.EndHorizontal();
+
+        // ---- 换弹 ----
+        GUILayout.Space(6f);
+        GUILayout.Label("【换弹】");
+        GUILayout.BeginHorizontal();
+        foreach (CharacterRigBase.ReloadKind k in Kinds)
+            if (GUILayout.Button(CharacterRigBase.KindLabel(k))) rig.PlayReload(0f, k);
+        GUILayout.EndHorizontal();
+        GUILayout.Label(rig.ReloadStatus);
+
+        // ---- 持枪手（npc1） ----
+        if (rig is NpcRig n1)
+        {
+            GUILayout.Space(6f);
+            GUILayout.Label("【持枪手】武器等级 " + n1.weaponLevel + "（1 级手抖）  紧张 " + n1.nervous.ToString("0.00"));
+            n1.weaponLevel = Mathf.RoundToInt(GUILayout.HorizontalSlider(n1.weaponLevel, 1f, 5f));
+            n1.nervous = GUILayout.HorizontalSlider(n1.nervous, 0f, 1f);
+        }
+        GUILayout.EndScrollView();
+        GUI.DragWindow();
+    }
+
+    static string HeldLabel(CharacterRigBase rig)
+    {
+        if (rig.HeldGun != null) return rig.HeldGun.def.Label;
+        return string.IsNullOrEmpty(rig.HeldKey) ? "空手" : rig.HeldKey;
+    }
+
+    // 挂着的物品 id → 显示名（是枪就用枪的名字）
+    string MountItemLabel(string item)
+    {
+        if (_weapons != null)
+            foreach (WeaponDef d in _weapons) if (d != null && d.id == item) return d.Label;
+        if (item == "pistol") return "防护服手枪";
+        if (item == "rifle") return "战斗步枪";
+        return item;
+    }
+
+    static string MountLabel(CharacterRigBase.MountPoint m)
+    {
+        switch (m.kind)
+        {
+            case CharacterRigBase.MountKind.Hammer: return "锤子";
+            case CharacterRigBase.MountKind.Axe: return "斧头";
+            case CharacterRigBase.MountKind.Medkit: return "医疗包";
+            case CharacterRigBase.MountKind.Toolkit: return "工具包";
+            case CharacterRigBase.MountKind.Bottle: return "水杯";
+            case CharacterRigBase.MountKind.Weapon: return "武器挂载点";
+            case CharacterRigBase.MountKind.Rifle: return "步枪挂载点";
+            default: return m.id;
+        }
     }
 }
