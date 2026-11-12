@@ -435,6 +435,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     public enum HitFrom { [InspectorName("前面")] Front, [InspectorName("后面")] Back, [InspectorName("随机")] Random }
     protected bool _dead, _settled, _weaponDropped, _deadLeft;   // 死了 / 已经躺稳 / 武器已经脱手 / 死的时候朝左
     protected float _hitAng, _hitV, _shove, _shoveV;             // 受击：身体后仰角度和角速度 / 被推开的距离和速度（本地，正 = 往前）
+    protected float _deathSlideMul = 1f;                         // 倒下时往后滑的倍数（步枪打死 = 0：原地倒下）
     protected float _dieAng, _dieV, _dieSign = 1f, _deadT;       // 倒地：角度和角速度（本地，正 = 往后倒）/ 往哪边倒 / 死了多久
     protected float _reactAcc, _prevReactV, _groundY;            // 身体整体转动的角加速度（甩挂件用）/ 上一步的角速度 / 地面高度（世界）
     protected string _heldBeforeDeath;                           // 死之前手上拿着什么（站起来时拿回来）
@@ -500,12 +501,12 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     }
 
     // 吃一下冲击：后仰的弹簧、被推开的弹簧都给一个初速度（之后弹簧自己回正）
-    protected void HitKick(float push, float k)
+    protected void HitKick(float push, float k, bool knock = true)
     {
         float w = 2f * Mathf.PI * Mathf.Max(0.1f, hitFreq);                 // 弹簧的角频率
         _hitV += -push * hitLean * w * 1.6f * k;                            // 上身往推的方向仰（往前推 = 往前栽）
         float ws = w * 0.6f;
-        _shoveV += push * hitShove * ws * 2.718f * k;                       // 整个人往推的方向挪
+        if (knock) _shoveV += push * hitShove * ws * 2.718f * k;            // 整个人往推的方向挪（knock = false：不推开，只是上身一震）
         HeadWhip(push, k);                                                  // 头再多甩一下
     }
 
@@ -554,7 +555,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         _body.localPosition += new Vector3(0f, -sink, 0f);
         _body.localRotation = _body.localRotation * Quaternion.Euler(0f, 0f, _hitAng);               // 上身仰 / 栽（绕腰）
         float fall = _dead ? Mathf.Clamp01(Mathf.Abs(_dieAng) / Mathf.Max(1f, deathLieAngle)) : 0f;   // 倒了多少（0~1）
-        float slide = _dead ? -_dieSign * deathSlide * Smooth01(fall) : 0f;                          // 被冲击带着往倒的方向滑
+        float slide = _dead ? -_dieSign * deathSlide * _deathSlideMul * Smooth01(fall) : 0f;         // 被冲击带着往倒的方向滑
         float lift = _dead ? deathGroundLift * Mathf.Abs(Mathf.Sin(_dieAng * Mathf.Deg2Rad)) : 0f;   // 越躺平越要抬起来一点（身体有厚度）
         _rig.localPosition = new Vector3((_shove + slide) * s, FEET_Y + lift, 0f);                    // 本地的前后 → 世界的左右
         _rig.localRotation = Quaternion.Euler(0f, 0f, _dieAng * s);                                  // 整个人绕脚底倒下
@@ -740,10 +741,11 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     }
 
     // 同上；point = 打中的位置（世界坐标，着弹点效果从这里出来）；fx = 要不要放着弹点效果（子弹打中时 Ballistics 已经放过了，传 false）
-    public void PlayHit(Vector2 dir, float strength, Vector3 point, bool fx = true)
+    // knock = 要不要把人推开（步枪子弹传 false：只是上身一震，人不被推走）
+    public void PlayHit(Vector2 dir, float strength, Vector3 point, bool fx = true, bool knock = true)
     {
         if (!_built || _dead) return;
-        HitKick(PushLocal(dir, FacingLeft), Mathf.Max(0f, strength) * Random.Range(0.8f, 1.2f));   // 每一下轻重有点不一样
+        HitKick(PushLocal(dir, FacingLeft), Mathf.Max(0f, strength) * Random.Range(0.8f, 1.2f), knock);   // 每一下轻重有点不一样
         if (fx) SpawnImpact(point, dir, strength, false);                   // 着弹点效果
     }
 
@@ -755,14 +757,16 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     }
 
     // 同上；point = 打中的位置（世界坐标）；fx = 要不要放着弹点效果（同 PlayHit）
-    public void PlayDeath(Vector2 dir, float strength, Vector3 point, bool fx = true)
+    // knock = 倒下时要不要被冲击带着往后滑（步枪传 false：原地倒下）
+    public void PlayDeath(Vector2 dir, float strength, Vector3 point, bool fx = true, bool knock = true)
     {
         if (!_built || _dead) return;
         if (fx) SpawnImpact(point, dir, strength, true);                    // 着弹点效果（致命的一下：大团血雾）
         _deadLeft = FacingLeft;                                             // 倒下后不再翻身
         float push = PushLocal(dir, _deadLeft);                             // 被往哪边推（本地）
         float k = Mathf.Max(0f, strength) * Random.Range(0.85f, 1.15f);
-        HitKick(push, k);                                                   // 先吃一下冲击（身体一震、头一甩）
+        HitKick(push, k, knock);                                            // 先吃一下冲击（身体一震、头一甩）
+        _deathSlideMul = knock ? 1f : 0f;                                   // 步枪：不往后滑
         _dead = true; _settled = false; _weaponDropped = false; _deadT = 0f;
         _dieSign = -push;                                                   // 往推的方向倒（本地角度：正 = 往后倒）
         _dieAng = 0f;
@@ -1008,6 +1012,37 @@ public abstract partial class CharacterRigBase : MonoBehaviour
 
     // 武器挂载点换成别的武器时用哪张图（角色自己给；null = 保持原图）
     protected virtual Sprite MountArt(MountPoint m, string item) => null;
+
+    // 斜挂（npc2 胸挂 / npc1 背带）的枪：比拿在手上多斜多少度；角色画的那张斜挂步枪图里，枪的中心相对图的轴心（原图像素）
+    protected const float SLUNG_GUN_TURN = -57.6f - 5.6f;
+    protected static readonly Vector2 SLUNG_GUN_SHIFT = new Vector2(-32.5f, -64.5f);
+
+    // 用枪的部件拼一把整枪（挂在身上用；以后的新枪不用另外画挂件图）：不缩小，和拿在手上一样大，不要持枪手。
+    //   原点 = 枪的中心（WeaponDef.mountCenter；没填就用握把）。like = 照着它的排序层 / 前后顺序 / 材质（整把枪当一层）
+    protected Transform BuildGunPicture(WeaponDef d, Transform parent, SpriteRenderer like, string name)
+    {
+        GameObject root = new GameObject(name);
+        root.transform.SetParent(parent, false);
+        SortingGroup sg = root.AddComponent<SortingGroup>();                  // 整把枪当一层（部件之间按枪自己的前后顺序）
+        if (like != null) { sg.sortingLayerID = like.sortingLayerID; sg.sortingOrder = like.sortingOrder; }
+        Vector2 center = d.mountCenter != Vector2.zero ? d.mountCenter : d.grip;
+        foreach (WeaponPart p in d.parts)
+        {
+            if (p == null || p.hand || string.IsNullOrEmpty(p.path)) continue;   // 持枪手 / 没有图的锚点不要
+            Sprite s = LoadFrom(d.artFolder, p.path);
+            if (s == null) continue;
+            SpriteRenderer sr = new GameObject(p.name).AddComponent<SpriteRenderer>();
+            sr.transform.SetParent(root.transform, false);
+            sr.transform.localPosition = CanvasToLocal(p.pivot - center);      // 部件相对枪中心的位置（和拿在手上一样）
+            sr.sprite = s;
+            sr.sortingOrder = p.order;
+            if (like != null) sr.sharedMaterial = like.sharedMaterial;         // 和身上其他部件一样受光
+        }
+        return root.transform;
+    }
+
+    // 换弹时枪往后收到哪（挂载位置的中心，根节点本地坐标）；角色没有挂载位置就返回 false
+    protected virtual bool GunStowSpot(out Vector2 spot) { spot = Vector2.zero; return false; }
 
     // 从别的素材文件夹读图（比如 npc1 的步枪挂载点用 npc2 的步枪图）
     protected Sprite LoadFrom(string folder, string path)
@@ -1349,7 +1384,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     public virtual bool CanMount(MountPoint m, WeaponDef d)
     {
         if (m == null || d == null) return false;
-        if (m.kind == MountKind.Rifle) return d.hold == HoldType.Rifle && !string.IsNullOrEmpty(d.slingArt);
+        if (m.kind == MountKind.Rifle) return d.hold == HoldType.Rifle && (!d.characterMountArt || !string.IsNullOrEmpty(d.slingArt));   // 步枪：用部件拼，或者有斜挂图
         if (m.kind == MountKind.Weapon) return !string.IsNullOrEmpty(d.holsterArt);
         return false;
     }

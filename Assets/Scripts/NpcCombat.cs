@@ -211,8 +211,9 @@ public class NpcCombat : MonoBehaviour
         Vector2 dir = new Vector2(me.x - from.x, me.y - from.y);                  // 打过来的方向（不知道是谁就当从正面）
         float k = Mathf.Clamp(damage / 10f, 0.5f, 1.8f);                          // 轻重：10 点伤害 = 正常的一下
         bool fx = _meleeHit;                                                      // 子弹打中时 Ballistics 已经放了着弹点效果；近战才让外观放
-        if (n.IsDead) rig.PlayDeath(dir, k, rig.HitPoint(dir), fx);
-        else rig.PlayHit(dir, k, rig.HitPoint(dir), fx);
+        bool knock = !(byAba != null && byAba.Weapon != null && byAba.Weapon.id == "rifle");   // 步枪不击退：只是上身一震，人不被推走
+        if (n.IsDead) rig.PlayDeath(dir, k, rig.HitPoint(dir), fx, knock);
+        else rig.PlayHit(dir, k, rig.HitPoint(dir), fx, knock);
     }
 
     // ============ 每帧 ============

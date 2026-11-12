@@ -22,6 +22,7 @@ public enum ReloadMotion
 {
     [InspectorName("手枪式")] Pistol,
     [InspectorName("步枪式")] Rifle,
+    [InspectorName("无托步枪式")] Bullpup,   // 弹匣在握把后面（CharacterRigBase.Bullpup.cs）
 }
 
 [System.Serializable]

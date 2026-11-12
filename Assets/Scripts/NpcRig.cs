@@ -774,7 +774,7 @@ public class NpcRig : CharacterRigBase
         if (testReload) { testReload = false; PlayReload(0f, testReloadKind); }  // 勾了"测试换弹"：按选的种类换一次弹匣
         bool fire = testFire;                                     // 勾了一下
         bool gun = _held == "pistol" || _gun != null;             // 拿着枪（自己的手枪 / 捡来的枪）
-        if (_reloadT >= 0f) _testBurst = 0;                       // 换弹时不开枪
+        if (_reloadT >= 0f || _drawT >= 0f) _testBurst = 0;       // 换弹 / 正在取出步枪时不开枪
         if (gun && testLoop && _reloadT < 0f)                     // 枪循环：定时自动开枪（换弹时不开）
         {
             _testFireTimer -= dt;
@@ -788,7 +788,7 @@ public class NpcRig : CharacterRigBase
         if (!fire) return;
         testFire = false;                                         // 自动取消勾选
         if (!gun) { PlayAttack(); return; }                       // 斧头 / 锤子：挥一下
-        if (_reloadT >= 0f) return;
+        if (_reloadT >= 0f || _drawT >= 0f) return;
         if (_gun != null && _gun.def.hold == HoldType.Rifle)      // 步枪：连发（上一组没打完不重来）
         {
             if (_testBurst <= 0) { _testBurst = Mathf.Max(1, testRifleBurst); _testBurstTimer = 0f; }
@@ -911,7 +911,10 @@ public class NpcRig : CharacterRigBase
     // 换手：先把上一次藏起来的东西还原，再按新的拿法藏手、藏腰上的挂件
     void ApplyHeld(string key)
     {
+        string prev = _held;                                               // 之前拿的（换成另一把步枪才播取出动画）
+        StopGunDraw();                                                     // 正在取出：先停掉（枪托、单独动的手复原）
         _held = key;                                                       // 记下现在拿什么
+        if (_slungPic != null) _slungPic.gameObject.SetActive(true);      // 斜挂的（用部件拼的）步枪先放回去
         if (_handLSprite != null) _handLSprite.enabled = true;            // 两只手先都显示回来
         if (_handRSprite != null) _handRSprite.enabled = true;
         foreach (SpriteRenderer sr in _hiddenBelt) if (sr != null) sr.enabled = true;  // 腰上的挂件放回去
@@ -939,7 +942,9 @@ public class NpcRig : CharacterRigBase
             HideHand(_handLSprite); HideHand(_handRSprite);                // 双手持枪：两只手都换成枪上的持枪手
             MountPoint mp = MountForItem(key);                             // 挂载点上的那把藏起来（拿在手上了）
             if (mp != null && mp.art != null) HideRenderer(mp.art);
+            if (mp != null && mp.art != null && _slungPic != null && _slungPic.parent == mp.art.transform) _slungPic.gameObject.SetActive(false);   // 用部件拼的那把也藏起来
             if (!wasGun) { _aimAng = lowReadyAngle; _lowK = 1f; }          // 刚拿出来：先是枪口朝下
+            if (key != prev) StartGunDraw();                               // 步枪：从背带上取下来（枪械通用的取出动画；没挂着就直接拿着）
             return;
         }
 
@@ -1085,7 +1090,12 @@ public class NpcRig : CharacterRigBase
     {
         _actionLean = 0f; _actionShift = 0f;                                // 身体的额外晃动先清零
         if (_handPoint == null) return;                                     // 还没拼好
-        if (_gun != null) { if (!AnimateGunReload(dt)) GunRecoilPose(dt); return; }   // 通用枪械：换弹 / 持枪 + 后坐（CharacterRigBase）
+        if (_gun != null)                                                   // 通用枪械：取出 / 换弹 / 持枪 + 后坐（CharacterRigBase）
+        {
+            if (_drawT >= 0f) { AnimateGunDraw(dt); return; }               // 步枪取出动画
+            if (!AnimateGunReload(dt)) GunRecoilPose(dt);
+            return;
+        }
         if (_heldSprite == null || !_heldSprite.enabled)                    // 空手：手点跟着前手
         {
             _handPoint.localPosition = _handL.localPosition;
@@ -1143,6 +1153,7 @@ public class NpcRig : CharacterRigBase
         if (_handPoint == null || _dead) return;                            // 还没拼好 / 死了
         string want = PickHeld();                                           // 先确认手上拿的是枪
         if (want != _held) ApplyHeld(want);
+        if (_drawT >= 0f) return;                                           // 正在取出步枪：不换
         SyncHipPouch();                                                     // 屁股后面拿弹匣的位置（Inspector 调的）
         base.PlayReload(fitSeconds, kind);
     }
@@ -1394,6 +1405,16 @@ public class NpcRig : CharacterRigBase
     protected override Sprite MountArt(MountPoint m, string item)
     {
         WeaponDef d = GunDefOfItem(item);                                   // 是枪：用这把枪自己的挂件图（枪套里 / 斜挂）
+        if (m.kind == MountKind.Rifle && _slungPic != null) { Destroy(_slungPic.gameObject); _slungPic = null; }   // 上一把用部件拼的步枪拆掉
+        if (d != null && m.kind == MountKind.Rifle && d.hold == HoldType.Rifle && !d.characterMountArt && m.art != null)
+        {
+            // 步枪挂载点：用枪的部件直接拼一把整枪（不缩小，和拿在手上一样大），斜着挂（和 npc2 胸挂上的一样斜）
+            _slungPic = BuildGunPicture(d, m.art.transform, m.art, "SlungGun");
+            _slungPic.localPosition = CanvasToLocal(SLUNG_GUN_SHIFT);       // 枪的中心对上原来那张斜挂图里枪的中心
+            _slungPic.localRotation = Quaternion.Euler(0f, 0f, SLUNG_GUN_TURN);
+            m.art.sprite = null;                                            // 原来那张图不显示
+            return null;
+        }
         if (d != null)
         {
             string path = m.kind == MountKind.Rifle ? d.slingArt : d.holsterArt;
@@ -1406,6 +1427,47 @@ public class NpcRig : CharacterRigBase
             case "rifle": return LoadFrom("NpcArt2", "Rifle");
             default: return null;                                       // 没有专门的图：保持原来的
         }
+    }
+
+    Transform _slungPic;                                                    // 步枪挂载点上用部件拼的枪（战斗步枪以外的步枪）
+
+    // ---- 步枪取出动画（动画在 CharacterRigBase.Draw.cs）：枪斜挂在背带的步枪挂载点上 ----
+    protected override bool DrawMountPose(GunRig g, out Vector2 center, out float angle, out float scale)
+    {
+        center = Vector2.zero; angle = 0f; scale = 1f;
+        MountPoint mp = MountForItem(_held);
+        if (g == null || mp == null || mp.art == null || mp.attachment == null) return false;   // 身上没挂这把：直接拿着
+        Transform t = mp.art.transform;
+        Vector3 c = _rig.InverseTransformPoint(t.TransformPoint(CanvasToLocal(SLUNG_GUN_SHIFT)));   // 斜挂步枪的中心（随身体晃）
+        Vector3 d = _rig.InverseTransformVector(t.TransformVector(Vector3.right));
+        center = new Vector2(c.x, c.y);
+        angle = Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg + SLUNG_GUN_TURN;     // 和斜挂的一样斜
+        scale = g.def.characterMountArt ? MOUNT_ART_SCALE : 1f;             // 角色画的那张小一点；用部件拼的不缩小
+        return true;
+    }
+
+    protected override void ShowMountedGun(GunRig g, bool show)
+    {
+        MountPoint mp = MountForItem(_held);
+        if (mp == null || mp.art == null) return;
+        if (_slungPic != null && _slungPic.parent == mp.art.transform) _slungPic.gameObject.SetActive(show);   // 用部件拼的
+        else mp.art.enabled = show;                                         // 角色画的那张
+    }
+
+    protected override void DrawBodyHands(bool main, bool support)
+    {
+        if (_handLSprite != null) _handLSprite.enabled = main;            // 左手（持枪手）
+        if (_handRSprite != null) _handRSprite.enabled = support;         // 右手（辅助手）
+    }
+
+    // 换弹时枪往后收到步枪挂载点（背带上斜挂步枪的地方）
+    protected override bool GunStowSpot(out Vector2 spot)
+    {
+        spot = Vector2.zero;
+        if (!_gear.TryGetValue("rifle", out Transform t) || t == null) return false;
+        Vector3 p = _rig.InverseTransformPoint(t.TransformPoint(CanvasToLocal(SLUNG_GUN_SHIFT)));   // 斜挂步枪的中心（随身体晃）
+        spot = new Vector2(p.x, p.y);
+        return true;
     }
 
     void SetGear(string key, float angle, Vector3 offset)

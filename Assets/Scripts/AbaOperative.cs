@@ -38,6 +38,7 @@ public class AbaOperative : MonoBehaviour
 
     // —— 武器 ——
     public AbaWeapon Weapon { get; private set; }
+    AbaWeapon RifleStats => F.RifleFor(Rig != null ? Rig.rifleWeapon : F.rifleModel);   // 手上那把步枪的数值（外观换了枪，数值跟着换）
     public bool HasPistol => Weapon != null && Weapon.id == "pistol";
     readonly Dictionary<string, int> _inGun = new Dictionary<string, int>();          // 枪里还剩几发
     readonly Dictionary<string, List<int>> _spare = new Dictionary<string, List<int>>();   // 备用弹匣（每个还剩几发）
@@ -79,11 +80,12 @@ public class AbaOperative : MonoBehaviour
         MaxHp = F.maxHp;
         Hp = MaxHp;
         _medkits = F.medkits;
-        _inGun["rifle"] = F.Rifle.magSize;
+        AbaWeapon rifle = F.RifleFor(F.rifleModel);           // 这个队员拿的步枪（战斗步枪 / ABA-X95）
+        _inGun["rifle"] = rifle.magSize;
         _inGun["pistol"] = F.Pistol.magSize;
-        _spare["rifle"] = new List<int> { F.Rifle.magSize, F.Rifle.magSize, F.Rifle.magSize, F.Rifle.magSize };
+        _spare["rifle"] = new List<int> { rifle.magSize, rifle.magSize, rifle.magSize, rifle.magSize };
         _spare["pistol"] = new List<int> { F.Pistol.magSize, F.Pistol.magSize, F.Pistol.magSize, F.Pistol.magSize };
-        Weapon = F.Rifle;
+        Weapon = rifle;
 
         _flip = gameObject.AddComponent<SpriteRenderer>();   // 没有图，只用来存朝向和排序（NpcRigB 会把它变透明）
         _flip.sortingOrder = 1;                              // 和 NPC 同层
@@ -94,6 +96,7 @@ public class AbaOperative : MonoBehaviour
         Rig.testCycle = false;
         Rig.testSpeed = -1f;
         Rig.testHeld = NpcRigB.TestHeld.None;
+        Rig.rifleWeapon = F.rifleModel;                      // 胸挂上 / 手上是哪把步枪（外观跟数值一致）
 
         _scan = new GameObject("AimScan").transform;         // 没目标时枪口对着的点（扇区警戒）
         _scan.SetParent(transform, false);
@@ -305,7 +308,7 @@ public class AbaOperative : MonoBehaviour
     {
         foreach (string gun in new[] { "rifle", "pistol" })
         {
-            int size = gun == "rifle" ? F.Rifle.magSize : F.Pistol.magSize;
+            int size = gun == "rifle" ? RifleStats.magSize : F.Pistol.magSize;
             List<int> s = _spare[gun];
             s.RemoveAll(r => r <= 0);
             while (s.Count < 4) s.Add(size);
@@ -362,7 +365,7 @@ public class AbaOperative : MonoBehaviour
     void Equip(string gun)
     {
         if (Rig == null) return;
-        Weapon = gun == "pistol" ? F.Pistol : F.Rifle;
+        Weapon = gun == "pistol" ? F.Pistol : RifleStats;
         Rig.Hold(gun);
         _burstLeft = 0;
         _pistolSince = gun == "pistol" ? Time.time : -1f;

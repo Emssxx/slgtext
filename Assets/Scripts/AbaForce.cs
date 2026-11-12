@@ -74,6 +74,16 @@ public class AbaForce : MonoBehaviour
     public float rifleRange = 9f;
     [Range(0f, 1f)] public float rifleCrit = 0.12f;
 
+    [Header("ABA-X95 无托步枪（原型 QBZ-95：5.8mm，射速快、散布小、单发略重；步枪不击退）")]
+    [Tooltip("队员拿哪把步枪：aba_rifle = 战斗步枪，aba-x95 = ABA-X95（新生成的队员才换）")]
+    public string rifleModel = "aba_rifle";
+    public int x95Mag = 30;                  // QBZ-95 一个弹匣 30 发（战斗步枪 35）
+    public float x95Damage = 17f;            // 每发伤害（战斗步枪 15）
+    public float x95Spread = 1.1f;           // 散布（枪管长、枪口不怎么跳，比战斗步枪准）
+    public float x95RPM = 650f;              // 射速（和动画一样 650 发/分）
+    public float x95Range = 9.5f;
+    [Range(0f, 1f)] public float x95Crit = 0.12f;
+
     [Header("手枪（击退）")]
     public int pistolMag = 12;
     public float pistolDamage = 24f;
@@ -85,6 +95,10 @@ public class AbaForce : MonoBehaviour
     public bool debugKeys = true;            // F10 放一个小组
 
     public AbaWeapon Rifle { get; private set; }
+    public AbaWeapon X95 { get; private set; }
+
+    // 这把步枪（WeaponDef id）在游戏里的数值：aba-x95 用 X95 那组，其他都用战斗步枪那组
+    public AbaWeapon RifleFor(string weaponId) => weaponId == "aba-x95" && X95 != null ? X95 : Rifle;
     public AbaWeapon Pistol { get; private set; }
 
     static WorldState World => WorldManager.Instance != null ? WorldManager.Instance.world : null;
@@ -121,6 +135,18 @@ public class AbaForce : MonoBehaviour
             shotInterval = 60f / Mathf.Max(60f, rifleRPM), pause = 0.35f, range = rifleRange,
             knockback = 0f, critChance = rifleCrit, critMul = 1.8f,
             speedReload = 1.7f, tacticalReload = 2.4f, bulletSprite = "NpcArt2/Weapons/RifleBullet"
+        };
+        X95 = new AbaWeapon
+        {
+            id = "rifle", magSize = Mathf.Max(1, x95Mag), damage = x95Damage, spread = x95Spread,
+            movingMul = 1.25f,                          // 无托短小，边走边打稍微稳一点
+            recoilPerShot = 0.32f, recoilRecover = 9f,  // 枪口不怎么跳：每枪散布涨得少、压枪回得快
+            leadError = 0.06f, bulletSpeed = 170f,      // 5.8mm 子弹快一点
+            shotInterval = 60f / Mathf.Max(60f, x95RPM), pause = 0.3f, range = x95Range,
+            knockback = 0f,                             // 步枪不击退
+            critChance = x95Crit, critMul = 1.8f,
+            speedReload = 1.8f, tacticalReload = 2.6f,  // 无托：弹匣在握把后面，换得慢一点
+            bulletSprite = "WeaponArt/aba-x95/Bullet"
         };
         Pistol = new AbaWeapon
         {

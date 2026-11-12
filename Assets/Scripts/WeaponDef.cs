@@ -68,6 +68,7 @@ public class WeaponDef : ScriptableObject
     public Vector2 mountCenter;                              // 整枪图的中心（轴心）
 
     [Header("挂在身上的图（Resources 路径，空 = 没有）")]
+    public bool characterMountArt = false;                   // 胸挂 / 斜挂用角色自己画的那张（战斗步枪）；false = 用枪的部件直接拼（不缩小，和拿在手上一样大）
     public string holsterArt = "";                           // 插在枪套里（npc1 防护服的武器挂载点）
     public string slingArt = "";                             // 斜挂在身上（npc1 的步枪挂载点；和 npc2 胸挂上的步枪一样斜）
 
@@ -183,6 +184,7 @@ public class WeaponDef : ScriptableObject
         to.drawGrab = from.drawGrab; to.stockPart = from.stockPart; to.stockGrab = from.stockGrab;
         to.stockCollapse = from.stockCollapse; to.mountArt = from.mountArt; to.mountCenter = from.mountCenter;
         to.holsterArt = from.holsterArt; to.slingArt = from.slingArt;
+        to.characterMountArt = from.characterMountArt;
     }
 
     static WeaponPart P(string name, string path, float x, float y, int order, float kick = 0f, bool hand = false)
@@ -245,6 +247,7 @@ public class WeaponDef : ScriptableObject
                 d.flickerOnDraw = true;
                 d.drawGrab = new Vector2(2100f, 745f); d.stockPart = "RifleStock"; d.stockGrab = new Vector2(1000f, 1010f); d.stockCollapse = 120f;
                 d.mountArt = ""; d.mountCenter = new Vector2(1713f, 1014f);   // 胸挂上用 npc2 自己画的那把
+                d.characterMountArt = true;                 // 挂在身上用角色画的图（其他枪都用部件拼）
                 d.reloadMotion = ReloadMotion.Rifle; d.magPart = "RifleMag"; d.reloadHand = "RifleHandR";
                 d.magDir = new Vector2(-0.102f, 0.995f); d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;   // 弹匣底部相对手心中心
                 d.slingArt = "NpcArt2/Rifle";
@@ -290,18 +293,24 @@ public class WeaponDef : ScriptableObject
                 d.parts.Add(P("X95Charger", "Charger", 913f, 233f, 44, 238f));     // 拉栓：往后拉到"枪栓移动位置"十字（675）
                 d.parts.Add(P("X95HandL", "", 618f, 430.5f, 46, 0f, true));        // 持枪手锚点（握把；图用角色衣服的手）
                 d.parts.Add(P("X95HandR", "", 958.5f, 347f, 47, 0f, true));        // 辅助手锚点（护木；换弹时离开枪的那只）
-                d.rpm = 400f;
-                d.recoilKick = new Vector2(5.28f, 1.65f); d.recoilHandX = new Vector2(-0.06f, -0.035f); d.recoilHandY = new Vector2(0.005f, 0.02f);
-                d.handRecoilRise = 0.02f; d.handRecoilReturn = new Vector2(0.06f, 0.09f); d.muzzleRise = new Vector2(0.02f, 0.04f); d.muzzleReturn = 0.07f;
-                d.recoilLean = 1.5f; d.actionShift = 0.01f;
-                d.kickBack = 0.02f; d.kickHold = 0f; d.kickReturn = 0.05f;
-                d.flashTime = 0.05f; d.flashSize = 1f;
+                // 手感（原型 QBZ-95，和战斗步枪拉开差距）：无托 = 枪托顶在肩上、枪管和肩膀在一条线上，
+                //   后坐力直直往后顶（往后顶得更狠、身体晃得更多），但枪口几乎不往上跳；射速快、回正也快，连发是"突突突"的密集感
+                d.rpm = 650f;                                                      // 射速：650 发/分（战斗步枪 400）
+                d.recoilKick = new Vector2(2.8f, 4.4f);                            // 每枪枪口上扬（度）：和战斗步枪差不多（原来 1.6~3）
+                d.recoilHandX = new Vector2(-0.08f, -0.055f);                      // 每枪往后顶：比战斗步枪狠（直线后坐）
+                d.recoilHandY = new Vector2(0.005f, 0.018f);                       // 每枪往上抬：接近战斗步枪（原来 0.002~0.008）
+                d.handRecoilRise = 0.014f;                                         // 被顶回去用几秒：更短更脆
+                d.handRecoilReturn = new Vector2(0.045f, 0.065f);                  // 回正：更快（射速高，要赶在下一枪前回来）
+                d.muzzleRise = new Vector2(0.012f, 0.025f); d.muzzleReturn = 0.05f;   // 枪口上扬 / 回正都更快
+                d.recoilLean = 2.5f; d.actionShift = 0.016f;                       // 身体被顶得晃、挪（原来 2 / 0.014）
+                d.kickBack = 0.015f; d.kickHold = 0f; d.kickReturn = 0.04f;        // 拉栓：跟得上 650 发/分（一枪间隔 0.09 秒）
+                d.flashTime = 0.04f; d.flashSize = 1f;                             // 枪火更短（射速快，一闪一闪连起来）
                 d.flashSprites = new[] { "Flash1", "Flash2" };
                 d.bulletSprite = "Bullet";
                 d.drawGrab = new Vector2(1000f, 70f);       // 护木上边再往上一点（手倒过来抓，手指碰到枪身）
                 d.stockPart = "";                           // 无托：没有能拉开的枪托
-                d.mountArt = "Mount"; d.mountCenter = new Vector2(649.5f, 364.5f);   // 胸挂上的整枪图（枪身 + 弹匣 + 拉栓拼的）
-                d.reloadMotion = ReloadMotion.Rifle; d.magPart = "X95Mag"; d.reloadHand = "X95HandR";
+                d.mountCenter = new Vector2(649.5f, 364.5f);   // 挂在身上时枪的中心（挂件 = 用部件拼的整枪，不缩小）
+                d.reloadMotion = ReloadMotion.Bullpup; d.magPart = "X95Mag"; d.reloadHand = "X95HandR";   // 无托步枪：弹匣在握把后面
                 d.magDir = new Vector2(-0.183f, 0.983f);    // 弹匣底部十字 → 弹匣顶部十字
                 d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;   // 弹匣底部相对手心中心
                 d.slingArt = "WeaponArt/aba-x95/Sling";

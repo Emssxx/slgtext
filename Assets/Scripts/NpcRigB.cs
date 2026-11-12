@@ -111,22 +111,9 @@ public class NpcRigB : CharacterRigBase
     public Vector2 daggerLean = new Vector2(5f, -7f);         // 身体跟着晃：抬起时后仰 / 挥下时前倾（度）
     public float daggerShift = 0.012f;                        // 身体跟着前后挪多远（单位）
 
-    [Header("步枪取出动画（Test Held 换成步枪时播放）")]
+    [Header("胸挂上的步枪")]
     public string rifleWeapon = "aba_rifle";                  // 胸挂上那把步枪是哪把枪（WeaponDef id：aba_rifle = 战斗步枪，aba-x95……；运行中改了马上换）
-    public bool rifleDrawAnim = true;                         // 拿出步枪时播不播取出动画（不播 = 直接拿在手上）
-    public float rdReachTime = 0.3f;                          // ① 右手伸过去抓胸挂步枪的上边
-    // ① 右手抓枪的地方、③ 左手抓枪托的地方 / 枪托收起多少：枪的属性，在 WeaponDef 的"从胸挂上取出"一栏
-    public float rdGrabAngle = 180f;                          // ① 右手抓枪时相对枪转多少度：180 = 手倒过来，手指（那个小突起）朝下对准枪身（握护木时手指朝上对着枪）
-    public float rdLiftTime = 0.35f;                          // ② 右手抓着枪拿到身体中间
-    public Vector2 rdCenterGrip = new Vector2(1060f, 1150f);  // ② 拿到身体中间时握把在哪（角色 PSD 原图坐标）
-    public float rdCenterAngle = 15f;                         // ② 拿到身体中间时枪口朝上多少度
-    public float rdStockGrabTime = 0.2f;                      // ③ 左手伸到枪托后侧
-    public float rdStockPullTime = 0.15f;                     // ③ 往后拉开枪托
-    public float rdStockShake = 5f;                           // ③ 枪托拉开时枪震多少度
-    public float rdLeftHomeTime = 0.2f;                       // ④ 左手回到握把
-    public float rdRightHomeTime = 0.3f;                      // ⑤ 右手松开、回到护木（同时枪口往下一沉）
-    public float rdDropAngle = 30f;                           // ⑤ 右手松开时枪口往下沉多少度（重力）
-    public float rdSettleTime = 0.3f;                         // ⑥ 回到平时持枪的样子
+    // 取出动画的参数（rd…）在 CharacterRigBase.Draw.cs（枪械通用，npc1 也用）
 
 
     [Header("换弹 1：战术换弹（参数和第一种 NPC 一样；时间 = 秒，距离 = 单位，角度 = 度）")]
@@ -181,7 +168,9 @@ public class NpcRigB : CharacterRigBase
     static readonly Vector2 MOUNT_RIFLE_CENTER = new Vector2(683.5f, 1175.5f);   // 胸挂步枪的中心（角色 PSD）
     // 能开火的步枪的中心：枪的属性（WeaponDef.mountCenter）
     const float MOUNT_RIFLE_TURN = -57.6f - 5.6f;                     // 胸挂步枪比能开火的步枪多斜多少度
-    const float MOUNT_RIFLE_SCALE = 0.81f;                            // 胸挂步枪比能开火的步枪小多少（长度比）
+    const float MOUNT_RIFLE_SCALE = 0.81f;                            // 角色画的胸挂步枪比能开火的步枪小多少（长度比；用部件拼的不缩小）
+    static float MountScale(WeaponDef d) => d != null && d.characterMountArt ? MOUNT_RIFLE_SCALE : 1f;   // 胸挂上那把枪的大小
+    Transform _mountGunPic;                                           // 用部件拼的胸挂步枪（战斗步枪以外的枪）
     // 战术匕首（武器 PSD）：匕首 + 持刀手绕握刀的手转
     static readonly Vector2 P_DAGGER_GRIP = new Vector2(990, 1347);  // 握刀的手（持刀手中心）
     static readonly Vector2 P_DAGGER = new Vector2(1049, 1328);      // 匕首下半段（刀柄 + 发射器）
@@ -227,7 +216,6 @@ public class NpcRigB : CharacterRigBase
     Transform _daggerHeld, _daggerLightAt;             // 匕首节点 / 激光照明的位置
     UnityEngine.Rendering.Universal.Light2D _daggerLight;   // 激光照亮周围的光
     float _daggerT;                                    // 拿出匕首后过了多久（弹出 / 闪动用）
-    float _drawT = -1f;                                // 步枪取出动画进行了多久（-1 = 没在播）
     SpriteRenderer _drawHandL, _rifleHandL;            // 取出动画里单独动的左手 / 枪上的持枪左手
     Sprite _rifleHandRSprite;                          // 持枪右手的图（取出动画用）
     Transform _rifleStock;                             // 步枪枪托（取出时拉开；无托步枪 = null）
@@ -442,6 +430,8 @@ public class NpcRigB : CharacterRigBase
 
     protected override void AfterFrame(float dt, float speed)
     {
+        if (_mountGunPic != null && _mountRifle != null && _mountGunPic.gameObject.activeSelf != _mountRifle.enabled)
+            _mountGunPic.gameObject.SetActive(_mountRifle.enabled);   // 用部件拼的胸挂步枪：跟着"胸挂上那把枪"一起显示 / 藏起来
         UpdateGunLight();                                         // 手枪手电筒跟着枪口方向照
         currentState = _dead ? "死亡" : (_run > 0.5f ? "跑步" : (_move > 0.05f ? "走路" : "站立")) + "  " + speed.ToString("0.00");
     }
@@ -545,6 +535,16 @@ public class NpcRigB : CharacterRigBase
         foreach (GameObject g in _dropped) if (g != null) Destroy(g);
     }
 
+    // 换弹时枪往后收到胸挂上挂步枪的地方
+    protected override bool GunStowSpot(out Vector2 spot)
+    {
+        spot = Vector2.zero;
+        if (_mount == null) return false;
+        Vector3 p = _rig.InverseTransformPoint(_mount.TransformPoint(CanvasToLocal(MOUNT_RIFLE_CENTER - P_MOUNT)));   // 胸挂步枪的中心（随胸挂晃）
+        spot = new Vector2(p.x, p.y);
+        return true;
+    }
+
     // 死的时候：停掉开枪 / 换弹 / 挥动 / 瞄准
     protected override void StopForDeath()
     {
@@ -642,24 +642,22 @@ public class NpcRigB : CharacterRigBase
         _rifleHandR = g.Part(d.reloadHand);                                 // 辅助手（护木）
         _rifleHandL = null;                                                 // 持枪手（握把）：另一只手部件
         foreach (WeaponPart p in d.parts) if (p != null && p.hand && p.name != d.reloadHand) { _rifleHandL = g.Part(p.name); break; }
-        // 胸挂上的图：枪给了整枪图就用它（缩小、斜着挂在胸挂的步枪位置），没给就用角色自己画的
+        // 胸挂上的图：战斗步枪用角色自己画的；其他枪用枪的部件直接拼一把整枪（不缩小，和拿在手上一样大），斜着挂在胸挂的步枪位置
+        if (_mountGunPic != null) { Destroy(_mountGunPic.gameObject); _mountGunPic = null; }   // 上一把枪拼的图拆掉
         if (_mountRifle != null)
         {
             Transform mt = _mountRifle.transform;
-            Sprite art = string.IsNullOrEmpty(d.mountArt) ? null : LoadFrom(d.artFolder, d.mountArt);
-            if (art != null)
-            {
-                _mountRifle.sprite = art;
-                mt.localPosition = CanvasToLocal(MOUNT_RIFLE_CENTER - P_MOUNT);
-                mt.localRotation = Quaternion.Euler(0f, 0f, MOUNT_RIFLE_TURN);
-                mt.localScale = Vector3.one * MOUNT_RIFLE_SCALE;
-            }
+            mt.localPosition = CanvasToLocal(P_RIFLE - P_MOUNT);
+            mt.localRotation = Quaternion.identity;
+            mt.localScale = Vector3.one;
+            if (d.characterMountArt) _mountRifle.sprite = Load("Rifle");
             else
             {
-                _mountRifle.sprite = Load("Rifle");
-                mt.localPosition = CanvasToLocal(P_RIFLE - P_MOUNT);
-                mt.localRotation = Quaternion.identity;
-                mt.localScale = Vector3.one;
+                _mountRifle.sprite = null;                                  // 角色画的那把不显示（只留着管"显示 / 藏起来"）
+                _mountGunPic = BuildGunPicture(d, mt.parent, _mountRifle, "MountGun");
+                _mountGunPic.localPosition = CanvasToLocal(MOUNT_RIFLE_CENTER - P_MOUNT);   // 枪的中心对上胸挂步枪的中心
+                _mountGunPic.localRotation = Quaternion.Euler(0f, 0f, MOUNT_RIFLE_TURN);
+                _mountGunPic.gameObject.SetActive(_mountRifle.enabled);
             }
         }
         if (_held == "rifle") SetHeld("rifle");                             // 正拿着步枪：直接换成新的（不重播取出动画）
@@ -702,18 +700,10 @@ public class NpcRigB : CharacterRigBase
         if (_rifleGun != null) _rifleGun.Kick(0f, PPU_FULL);
         _handPoint.localScale = Vector3.one;
         if (IsGun && prev != "pistol" && prev != "rifle") { _aimAng = lowReadyAngle; _lowK = 1f; }   // 刚拿出枪：先是枪口朝下（没接敌）
-        _drawT = -1f;                                                       // 停掉取出动画
-        if (_drawHandL != null) _drawHandL.enabled = false;
+        StopGunDraw();                                                      // 停掉取出动画（枪托、单独动的手复原）
         if (_rifleStock != null) _rifleStock.localPosition = _rifleStockBase;
-        _rifleLightOn = r && !rifleDrawAnim;                                // 步枪手电：不播取出动画就直接开
-        if (r && rifleDrawAnim && prev != "rifle")                          // 拿出步枪：播取出动画（从胸挂上取下来）
-        {
-            _drawT = 0f;
-            if (_mountRifle != null) _mountRifle.enabled = true;            // 动画里抓住的那一刻才换
-            foreach (SpriteRenderer sr in _rifleParts) if (sr != null) sr.enabled = false;
-            if (_bodyHandL != null) _bodyHandL.enabled = true;
-            if (_rifleStock != null) _rifleStock.localPosition = _rifleStockBase + new Vector3(_rifleGun.def.stockCollapse / PPU_FULL, 0f, 0f);   // 枪托先收起来
-        }
+        _rifleLightOn = r;                                                  // 步枪手电：直接拿在手上就开
+        if (r && prev != "rifle" && StartGunDraw()) _rifleLightOn = false;  // 拿出步枪：播取出动画（枪械通用，CharacterRigBase.Draw.cs），播完再开手电
     }
 
     // 测试开关：Test Held 换手；Test Loop 每 1.4 秒自动开一次；勾 Test Fire 开一次（手枪 = 一枪，步枪 = 连发 Rifle Burst 枪）
@@ -782,7 +772,7 @@ public class NpcRigB : CharacterRigBase
         _actionLean = 0f; _actionShift = 0f;                                // 身体的额外晃动先清零
         if (_held == null) return;
         if (_held == "dagger") { AnimateDagger(dt); return; }               // 匕首：弹出 / 激光 / 挥动
-        if (_drawT >= 0f) { AnimateRifleDraw(dt); return; }                 // 步枪取出动画
+        if (_drawT >= 0f) { AnimateGunDraw(dt); return; }                   // 步枪取出动画（枪械通用）
         if (AnimateGunReload(dt)) return;                                   // 正在换弹：换弹动画接管（枪决定怎么插，胸挂决定从哪拿）
         GunRecoilPose(dt);                                                  // 持枪 + 后坐 + 滑套 / 拉栓（CharacterRigBase.GunRecoilPose，按这把枪的属性）
     }
@@ -1087,142 +1077,29 @@ public class NpcRigB : CharacterRigBase
     }
 
     // ============================================================================
-    // 步枪取出动画：
-    //   ① 右手换成持枪右手，伸过去抓住胸挂步枪的上边（手朝着枪）→ 抓住的一瞬间，胸挂上的装饰步枪换成能开火的步枪
-    //   ② 右手抓着枪拿到身体中间 → ③ 左手换成持枪左手，抓住枪托后侧，往后一拉把枪托拉开（震一下）
-    //   ④ 左手回到握把 → ⑤ 右手松开，枪口因为重力往下一沉，右手回到护木 → ⑥ 整体回到平时持枪的样子 → 打开步枪手电
+    // 步枪取出动画：动画本身在 CharacterRigBase.Draw.cs（枪械通用）。这里只告诉它：枪挂在胸挂哪、怎么显示 / 藏、平时的手
     // ============================================================================
-
-    // 各段的时间点（秒）
-    //   没有能拉开的枪托（无托步枪）：跳过 ③，左手直接回握把
-    void RifleDrawTimes(out float tGrab, out float tCenter, out float tStock, out float tPulled, out float tLeftHome, out float tRightHome, out float tEnd)
+    protected override bool DrawMountPose(GunRig g, out Vector2 center, out float angle, out float scale)
     {
-        bool stock = _rifleStock != null;
-        tGrab = rdReachTime;
-        tCenter = tGrab + rdLiftTime;
-        tStock = tCenter + (stock ? rdStockGrabTime : 0f);
-        tPulled = tStock + (stock ? rdStockPullTime : 0f);
-        tLeftHome = tPulled + rdLeftHomeTime;
-        tRightHome = tLeftHome + rdRightHomeTime;
-        tEnd = tRightHome + rdSettleTime;
-    }
-
-    void AnimateRifleDraw(float dt)
-    {
-        _drawT += dt;
-        float t = _drawT;
-        RifleDrawTimes(out float tGrab, out float tCenter, out float tStock, out float tPulled, out float tLeftHome, out float tRightHome, out float tEnd);
-        if (t >= tEnd) { FinishRifleDraw(); return; }                      // 播完了：平时持枪的样子 + 开手电
-
-        // ---- 1. 胸挂上那把枪现在在哪（随胸挂晃动）：换成能开火的步枪时，从这个位置、角度、大小开始 ----
-        WeaponDef wd = _rifleGun.def;                                      // 这把步枪的数据（抓哪、枪托、整枪图中心）
-        Vector3 mc = _rig.InverseTransformPoint(_mount.TransformPoint(CanvasToLocal(MOUNT_RIFLE_CENTER - P_MOUNT)));   // 胸挂步枪的中心
+        center = Vector2.zero; angle = 0f; scale = 1f;
+        if (_mount == null || g == null) return false;
+        Vector3 mc = _rig.InverseTransformPoint(_mount.TransformPoint(CanvasToLocal(MOUNT_RIFLE_CENTER - P_MOUNT)));   // 胸挂步枪的中心（随胸挂晃）
         Vector3 md = _rig.InverseTransformVector(_mount.TransformVector(Vector3.right));
-        float swapAng = Mathf.Atan2(md.y, md.x) * Mathf.Rad2Deg + MOUNT_RIFLE_TURN;   // 换上去的步枪要转多少才和胸挂上的一样斜
-        Vector2 swapPos = new Vector2(mc.x, mc.y) + Rot((Vector2)CanvasToLocal(wd.grip - wd.mountCenter) * MOUNT_RIFLE_SCALE, swapAng);   // 握把在哪
-        Vector2 centerPos = CanvasToLocal(rdCenterGrip - P_ROOT);          // 拿到身体中间时握把在哪
-        Vector2 normalPos = GunAimHand(_aimAng, Vector2.zero); float normalAng = _aimAng;   // 平时持枪（没接敌 = 枪口朝下）
-
-        // ---- 2. 枪的位置 / 角度 / 大小 ----
-        Vector2 gunPos; float gunAng, scale = 1f;
-        float shStock = Shake(t - tPulled, 0.3f);                          // ③ 枪托拉开：震一下
-        if (t < tCenter)                                                   // ② 从胸挂拿到身体中间（顺便从胸挂上的大小变回正常大小）
-        {
-            float e = Ease(Seg(t, tGrab, rdLiftTime));
-            gunPos = Vector2.Lerp(swapPos, centerPos, e); gunAng = Mathf.LerpAngle(swapAng, rdCenterAngle, e);
-            scale = Mathf.Lerp(MOUNT_RIFLE_SCALE, 1f, e);
-        }
-        else if (t < tLeftHome) { gunPos = centerPos; gunAng = rdCenterAngle + rdStockShake * shStock; }   // ③④ 在身体中间拉枪托
-        else if (t < tRightHome)                                           // ⑤ 右手松开：枪口往下一沉（重力），弹两下停住
-        {
-            float tau = t - tLeftHome;
-            float k = 1f - Mathf.Exp(-tau * 10f) * Mathf.Cos(tau * 18f);
-            gunPos = centerPos; gunAng = rdCenterAngle - rdDropAngle * k;
-        }
-        else                                                               // ⑥ 回到平时持枪的样子
-        {
-            float e = Ease(Seg(t, tRightHome, rdSettleTime));
-            gunPos = Vector2.Lerp(centerPos, normalPos, e); gunAng = Mathf.LerpAngle(rdCenterAngle - rdDropAngle, normalAng, e);
-        }
-        _handPoint.localPosition = new Vector3(gunPos.x, gunPos.y, 0f);
-        _handPoint.localRotation = Quaternion.Euler(0f, 0f, gunAng);
-        _handPoint.localScale = Vector3.one * scale;
-        System.Func<Vector2, Vector2> G = p => gunPos + Rot(p * scale, gunAng);   // 枪的本地坐标 → 根节点坐标
-
-        // ---- 3. 枪托：一开始是收起来的（往前推了 Rd Stock Collapse），③ 被左手往后拉开（拉过头一点再弹回）----
-        float stockU = Seg(t, tStock, rdStockPullTime);
-        float c1 = 1.70158f, su = stockU - 1f;
-        float pulled = stockU <= 0f ? 0f : (stockU >= 1f ? 1f : 1f + (c1 + 1f) * su * su * su + c1 * su * su);
-        float stockOff = _rifleStock != null ? wd.stockCollapse * (1f - pulled) : 0f;   // 枪托往前推了多少（原图像素）
-        if (_rifleStock != null) _rifleStock.localPosition = _rifleStockBase + new Vector3(stockOff / PPU_FULL, 0f, 0f);
-
-        // ---- 4. 右手：伸过去抓胸挂步枪上边 → 抓着枪 → 松开回护木 ----
-        Vector2 grabLocal = CanvasToLocal(wd.drawGrab - wd.grip);          // 右手抓枪的地方（枪上边）
-        Vector2 restLocal = _rifleHandR != null ? (Vector2)_rifleHandR.transform.localPosition : Vector2.zero;   // 右手平时握的护木（辅助手锚点）
-        Vector2 handStart = _rig.InverseTransformPoint(_handR.position);   // 右手从身体旁边的手的位置出发
-        Vector2 swapGrab = new Vector2(mc.x, mc.y) + Rot(((Vector2)CanvasToLocal(wd.drawGrab - wd.mountCenter)) * MOUNT_RIFLE_SCALE, swapAng);   // 胸挂步枪上边
-        Vector2 hp; float ha;
-        if (t < tGrab)                                                     // ① 伸过去（手转到朝着枪）
-        {
-            float e = Ease(Seg(t, 0f, rdReachTime));
-            hp = Vector2.Lerp(handStart, swapGrab, e) + new Vector2(0f, 0.04f * Mathf.Sin(Mathf.PI * e));
-            ha = Mathf.LerpAngle(0f, swapAng + rdGrabAngle, e);
-        }
-        else if (t < tLeftHome) { hp = G(grabLocal); ha = gunAng + rdGrabAngle; }   // ②③④ 抓着枪上边
-        else                                                               // ⑤ 松开，回到护木
-        {
-            float e = Ease(Seg(t, tLeftHome, rdRightHomeTime));
-            hp = Vector2.Lerp(G(grabLocal), G(restLocal), e); ha = Mathf.LerpAngle(gunAng + rdGrabAngle, gunAng, e);
-        }
-        bool rightHome = t >= tRightHome;
-        _rlHandSprite.sprite = _rifleHandRSprite;                          // 持枪右手的图
-        _rlHandSprite.sortingOrder = 48;
-        _rlHandSprite.enabled = !rightHome;
-        _rlHand.localPosition = new Vector3(hp.x, hp.y, 0f);
-        _rlHand.localRotation = Quaternion.Euler(0f, 0f, ha);
-        _rlHand.localScale = Vector3.one;
-
-        // ---- 5. 左手：抓枪托后侧 → 跟着枪托往后拉 → 回到握把 ----
-        Vector2 stockLocal = (Vector2)CanvasToLocal(wd.stockGrab - wd.grip) + new Vector2(stockOff / PPU_FULL, 0f);   // 枪托后侧（跟着枪托动）
-        Vector2 leftStart = _rig.InverseTransformPoint(_handL.position);   // 左手从身体旁边的手的位置出发
-        bool leftOut = t >= tCenter && t < tLeftHome;                      // 左手单独动的这段
-        Vector2 lp = Vector2.zero; float la = gunAng;
-        if (_rifleStock == null) { float e = Ease(Seg(t, tCenter, tLeftHome - tCenter)); lp = Vector2.Lerp(leftStart, G(Vector2.zero), e); la = Mathf.LerpAngle(0f, gunAng, e); }   // 无托：左手直接伸到握把
-        else if (t < tStock) { float e = Ease(Seg(t, tCenter, rdStockGrabTime)); lp = Vector2.Lerp(leftStart, G(stockLocal), e); la = Mathf.LerpAngle(0f, gunAng, e); }   // ③ 伸到枪托后侧
-        else if (t < tPulled) lp = G(stockLocal);                          // ③ 往后拉
-        else { float e = Ease(Seg(t, tPulled, rdLeftHomeTime)); lp = Vector2.Lerp(G(stockLocal), G(Vector2.zero), e); }   // ④ 回到握把
-        if (_drawHandL != null)
-        {
-            _drawHandL.enabled = leftOut;
-            _drawHandL.transform.localPosition = new Vector3(lp.x, lp.y, 0f);
-            _drawHandL.transform.localRotation = Quaternion.Euler(0f, 0f, la);
-        }
-
-        // ---- 6. 显示 / 藏：抓住的一瞬间胸挂步枪换成能开火的；两只持枪手回到枪上以后用枪上的那两只 ----
-        bool grabbed = t >= tGrab;
-        if (_mountRifle != null) _mountRifle.enabled = !grabbed;
-        foreach (SpriteRenderer sr in _rifleParts) if (sr != null) sr.enabled = grabbed;
-        if (_rifleHandL != null) _rifleHandL.enabled = t >= tLeftHome;    // 左手回到握把后用枪上的
-        if (_rifleHandR != null) _rifleHandR.enabled = rightHome;          // 右手回到护木后用枪上的
-        if (_bodyHandR != null) _bodyHandR.enabled = false;               // 平时的右手一开始就换成持枪右手
-        if (_bodyHandL != null) _bodyHandL.enabled = t < tCenter;          // 平时的左手到 ③ 才换成持枪左手
+        center = new Vector2(mc.x, mc.y);
+        angle = Mathf.Atan2(md.y, md.x) * Mathf.Rad2Deg + MOUNT_RIFLE_TURN;   // 和胸挂上的一样斜
+        scale = MountScale(g.def);
+        return true;
     }
 
-    // 取出动画结束 / 被打断：摆成平时持枪的样子，打开步枪手电
-    void FinishRifleDraw()
+    protected override void ShowMountedGun(GunRig g, bool show) { if (_mountRifle != null) _mountRifle.enabled = show; }   // 用部件拼的那把在 AfterFrame 里跟着它
+
+    protected override void DrawBodyHands(bool main, bool support)
     {
-        _drawT = -1f;
-        if (_mountRifle != null) _mountRifle.enabled = _held != "rifle";
-        bool r = _held == "rifle";
-        foreach (SpriteRenderer sr in _rifleParts) if (sr != null) sr.enabled = r;
-        if (_bodyHandL != null) _bodyHandL.enabled = _held == null;
-        if (_bodyHandR != null) _bodyHandR.enabled = _held == null;
-        if (_drawHandL != null) _drawHandL.enabled = false;
-        if (_rlHandSprite != null) _rlHandSprite.enabled = false;
-        if (_rifleStock != null) _rifleStock.localPosition = _rifleStockBase;
-        if (_handPoint != null) _handPoint.localScale = Vector3.one;
-        if (r) { _rifleLightOn = true; _lightOnT = 0f; }                   // 打开步枪手电（下面闪一下再亮）
+        if (_bodyHandL != null) _bodyHandL.enabled = main;                 // 前手（持枪手那边）
+        if (_bodyHandR != null) _bodyHandR.enabled = support;              // 后手（辅助手那边）
     }
+
+    protected override void OnGunDrawFinished() { if (_held == "rifle") { _rifleLightOn = true; _lightOnT = 0f; } }   // 打开步枪手电（闪一下再亮）
 
     // 测试用的选项（Inspector 里显示中文）
     public enum TestHeld

@@ -308,29 +308,28 @@ public abstract partial class CharacterRigBase
         if (_rlHandSprite != null) _rlHandSprite.enabled = false;           // 换弹手、两个弹匣藏起来
         if (_rlNewMag != null) _rlNewMag.enabled = false;
         if (_rlOldMag != null) _rlOldMag.enabled = false;
+        if (_rlHand2Sprite != null) _rlHand2Sprite.enabled = false;         // 第二只换弹手（无托快速换弹的左手）
         GunRig g = _rlGun;
         _rlGun = null;
         if (g == null) return;
-        bool shown = GunShown(g);                                           // 枪还拿在手上：枪上的手、弹匣显示回来
-        SpriteRenderer hand = g.Part(g.def.reloadHand), mag = g.Part(g.def.magPart);
-        if (hand != null) hand.enabled = shown;
+        bool shown = GunShown(g);                                           // 枪还拿在手上：枪上的两只手、弹匣显示回来
+        foreach (WeaponPart p in g.def.parts)
+            if (p != null && p.hand) { SpriteRenderer h = g.Part(p.name); if (h != null) h.enabled = shown; }
+        SpriteRenderer mag = g.Part(g.def.magPart);
         if (mag != null) mag.enabled = shown;
         g.Kick(0f, PPU_FULL);                                               // 滑套 / 拉栓组复位
     }
 
-    // 枪现在显示着没有（看换弹时不会藏起来的那只持枪手 / 其他部件）
+    // 枪现在显示着没有（看枪身：换弹时手和弹匣会藏起来，枪身不会）
     static bool GunShown(GunRig g)
     {
-        SpriteRenderer any = null;
         foreach (WeaponPart p in g.def.parts)
         {
-            if (p == null || p.name == g.def.reloadHand || p.name == g.def.magPart) continue;
+            if (p == null || p.hand || p.name == g.def.magPart) continue;
             SpriteRenderer sr = g.Part(p.name);
-            if (sr == null) continue;
-            if (p.hand) return sr.enabled;
-            if (any == null) any = sr;
+            if (sr != null) return sr.enabled;
         }
-        return any != null && any.enabled;
+        return false;
     }
 
     // 每帧：正在换弹就播换弹动画（返回 false = 没在换弹）
@@ -341,11 +340,12 @@ public abstract partial class CharacterRigBase
         return true;
     }
 
-    // 通用换弹：手枪式 / 步枪式（颤抖换弹只有手枪式）
+    // 通用换弹：手枪式 / 步枪式 / 无托步枪式（颤抖换弹只有手枪式）
     public void DefaultGunReload(float dt)
     {
         if (_reloadT < 0f || _rlGun == null) return;
         if (_reloadKind == ReloadKind.Shaky) ShakyReload(dt);
+        else if (_rlGun.def.reloadMotion == ReloadMotion.Bullpup) BullpupReload(dt);   // 无托步枪：单独一套（CharacterRigBase.Bullpup.cs）
         else if (_rlGun.def.reloadMotion == ReloadMotion.Rifle)
         {
             if (_reloadKind == ReloadKind.Tactical) RifleTacticalReload(dt);
@@ -362,6 +362,7 @@ public abstract partial class CharacterRigBase
     public float DefaultGunReloadTotal(GunRig g, ReloadStyle s, ReloadKind kind)
     {
         if (kind == ReloadKind.Shaky) kind = ReloadKind.Normal;
+        if (g.def.reloadMotion == ReloadMotion.Bullpup) return BullpupReloadTotal(s, kind);
         if (g.def.reloadMotion == ReloadMotion.Rifle)
         {
             if (kind == ReloadKind.Tactical) return RifleTacticalTotal();
