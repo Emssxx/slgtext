@@ -172,6 +172,7 @@ public class LocalizationManager : MonoBehaviour
             { "aba_call_man_down",      ("队员倒下！", "隊員ダウン！") },
             { "aba_call_heal",          ("包扎一下。", "止血する。") },
             { "aba_call_hit",           ("中弹！", "被弾！") },
+            { "aba_call_grenade",       ("手雷！", "グレネード！") },
             { "aba_call_extract",       ("任务完成，撤离。", "任務完了、撤収する。") },
             { "combat_log_injured", ("{0} 被{1}打伤了（{2}）", "{0}は{1}にやられて怪我をした（{2}）") },
             { "combat_act_fight",   ("正在和{0}战斗", "{0}と戦っている") },

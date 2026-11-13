@@ -28,6 +28,7 @@ public class WeaponDef : ScriptableObject
 
     [Header("开火手感")]
     public float rpm = 400f;                                 // 连发射速（发 / 分钟）
+    public bool fullAuto = false;                            // 连发（全自动）：手枪默认一枪一枪打；勾上 = 按住一直打（步枪本来就连发）
     public Vector2 recoilKick;                               // 每枪枪口上扬多少度（随机，两个数之间）
     public Vector2 recoilHandX;                              // 每枪枪往后顶多远（沿枪的方向，随机）
     public Vector2 recoilHandY;                              // 每枪枪往上抬多高（随机）
@@ -97,6 +98,14 @@ public class WeaponDef : ScriptableObject
     public float magReady = 0.085f;                          // 对准时弹匣还差多远插到底（单位）
     public Vector2 magRock;                                  // AK 式：弹匣挂载旋转点（武器 PSD 坐标；弹匣绕这个点摇进 / 摇出）
 
+    [Header("拉栓枪（每开一枪手动拉一次栓；动作在 CharacterRigBase.Bolt.cs）")]
+    public bool boltAction = false;                          // 是拉栓枪（一枪一枪打，不连发）
+    public string boltPart = "";                             // 枪栓（往后拉的那根）
+    public string boltHandle = "";                           // 拉栓（拉机柄；轴心 = 根部，抬起时绕它转）
+    public float boltTravel = 0f;                            // 往后拉多远（原图像素）
+    public float boltLift = -55f;                            // 拉栓往上抬多少度
+    public Vector2 boltGrab;                                 // 手抓拉栓的哪里（拉机柄球头，武器 PSD 坐标）
+
     [Header("战斗数值（武器的属性：谁拿都一样；人的武器操作等级 / 紧张 / 体力由用的人再修正）")]
     public WeaponKind kind = WeaponKind.Gun;                 // 枪 / 近战（近战只用伤害、射程、间隔、胆量）
     public int magSize = 12;                                 // 一个弹匣几发
@@ -123,9 +132,11 @@ public class WeaponDef : ScriptableObject
     public float scopeFar = 8f;                              // 这个距离以外用最高倍
     public float scopeGain = 0.25f;                          // 每多 1 倍，散布除以 (1 + 这个)
     public float laserAim = 1f;                              // 镭射指示：边走边打散布再乘这个（< 1 = 更准；1 = 没效果）
+    public float armorPierce = 0f;                           // 破甲：无视护甲的比例（0 = 护甲照常减伤，1 = 护甲完全没用；打 ABA 护甲 / 幸存者防护服）
 
     public float ShotInterval => 60f / Mathf.Max(30f, rpm);
     public bool IsGun => kind == WeaponKind.Gun;
+    public bool IsAuto => (hold == HoldType.Rifle && !boltAction) || fullAuto;   // 能不能连发（步枪 / 勾了连发的手枪；拉栓枪不能）
 
     // 这个距离上瞄准镜几倍
     public float ScopeAt(float dist) => scopeMax <= 1f ? 1f : Mathf.Lerp(1f, scopeMax, Mathf.InverseLerp(scopeNear, scopeFar, dist));
@@ -149,7 +160,7 @@ public class WeaponDef : ScriptableObject
 
     // ============ 武器库 ============
     static readonly Dictionary<string, WeaponDef> _cache = new Dictionary<string, WeaponDef>();
-    public static readonly string[] BuiltInIds = { "aba_pistol", "aba_rifle", "suit_pistol", "aba-x95", "aba-ar15", "akm", "axe", "hammer" };   // 代码里有默认值的武器（枪 + 近战）
+    public static readonly string[] BuiltInIds = { "aba_pistol", "aba_rifle", "suit_pistol", "aba-x95", "aba-ar15", "akm", "aba-p225", "aba-17", "aba-m2", "axe", "hammer" };   // 代码里有默认值的武器（枪 + 近战）
 
     public string Label => string.IsNullOrEmpty(displayName) ? id : displayName;
 
@@ -485,6 +496,131 @@ public class WeaponDef : ScriptableObject
                 d.magSize = 30; d.damage = 20f; d.spread = 1.8f; d.movingMul = 1.45f; d.recoilPerShot = 0.8f; d.recoilRecover = 6f;
                 d.leadError = 0.08f; d.bulletSpeed = 137f; d.burstPause = 0.4f; d.range = 9f; d.knockback = 0f;
                 d.critChance = 0.12f; d.critMul = 2f; d.speedReloadTime = 1.9f; d.tacticalReloadTime = 2.8f;
+                return d;
+            case "aba-p225":     // ABA-P225 手枪（图：Resources/WeaponArt/aba-p225；坐标 = aba-p225.PSD 里的十字线；原型 SIG P225）
+                d.displayName = "ABA-P225";
+                d.hold = HoldType.Pistol;
+                d.artFolder = "WeaponArt/aba-p225";
+                d.grip = new Vector2(384.5f, 377f);           // 持枪手（左手）十字 = 手心中心
+                d.muzzle = new Vector2(714f, 218f);           // 枪口十字
+                d.lamp = new Vector2(717f, 272f);             // 手电十字
+                d.restGrip = new Vector2(577.3f, -965.8f);    // 平时端枪时手心相对脚底中心（和战术手枪的持枪手一样）
+                d.shoulder = new Vector2(0.175f, 0.466f);
+                d.mountCenter = new Vector2(478.5f, 312.5f);   // 整枪图的中心（插在枪套 / 胸挂上时用部件拼，不缩小）
+                d.parts.Add(P("P225Mag", "Mag", 391f, 497.5f, 40));                // 弹匣（轴心 = 弹匣底部十字）
+                d.parts.Add(P("P225Frame", "Frame", 515.5f, 349.5f, 41));          // 枪身（握把 + 下机匣）
+                d.parts.Add(P("P225Barrel", "Barrel", 605.5f, 225f, 42));          // 枪管（滑套往后走时露出来）
+                d.parts.Add(P("P225Slide", "Slide", 535.5f, 222f, 43, 109f));      // 滑套：往后走到"枪栓移动位置"十字（滑套尾 363 → 254）
+                d.parts.Add(P("P225HandL", "", 384.5f, 377f, 44, 0f, true));       // 持枪手锚点（左手；图用角色衣服的手）
+                d.parts.Add(P("P225HandR", "", 434.5f, 438f, 45, 0f, true));       // 辅助手锚点（右手；换弹时离开枪的那只）
+                // 手感（P225：钢制套筒座、单排弹匣、枪身窄，后坐柔和、回正快；9mm 枪口上跳比战术手枪小一点）
+                d.rpm = 300f;
+                d.recoilKick = new Vector2(38f, 46f);                              // 每枪枪口上扬（度）：比战术手枪（50）小
+                d.recoilHandX = new Vector2(-0.045f, -0.085f); d.recoilHandY = new Vector2(0.07f, 0.14f);
+                d.handRecoilRise = 0.03f; d.handRecoilReturn = new Vector2(0.08f, 0.2f);
+                d.muzzleRise = new Vector2(0.08f, 0.13f); d.muzzleReturn = 0.085f;
+                d.recoilLean = 2.5f; d.actionShift = 0.011f;
+                d.kickBack = 0.03f; d.kickHold = 0.025f; d.kickReturn = 0.13f;     // 滑套
+                d.flashTime = 0.06f; d.flashSize = 1f;
+                d.flashSprites = new[] { "Flash1" };
+                d.bulletSprite = "Bullet";
+                d.reloadMotion = ReloadMotion.Pistol; d.magPart = "P225Mag"; d.reloadHand = "P225HandR";
+                d.magDir = new Vector2(0.238f, 0.971f);     // 弹匣底部十字 → 弹匣顶部十字
+                d.magInHand = new Vector2(0.0032f, 0.0204f); d.magReady = 0.085f;  // 弹匣底部相对手心中心
+                // 战斗数值（参考真实 SIG P225：9×19mm、单排 8 发弹匣；扳机好、精度高 → 散布小；9mm 动能不大 → 单发比战术手枪轻、击退小；
+                //   弹匣小换得勤，单排弹匣细、插得快 → 换弹快一点）
+                d.magSize = 8; d.damage = 21f; d.spread = 1.6f; d.movingMul = 1.25f; d.recoilPerShot = 0.75f; d.recoilRecover = 8f;
+                d.leadError = 0.08f; d.bulletSpeed = 120f; d.burstPause = 0.3f; d.range = 6f; d.knockback = 2.5f;
+                d.critChance = 0.1f; d.critMul = 1.6f; d.speedReloadTime = 1.1f; d.tacticalReloadTime = 1.6f;
+                return d;
+            case "aba-17":       // ABA-17 手枪（图：Resources/WeaponArt/aba-17；坐标 = aba-g17.PSD 里的十字线；原型格洛克 G17，加了 G18 式的连发）
+                d.displayName = "ABA-17";
+                d.hold = HoldType.Pistol;
+                d.artFolder = "WeaponArt/aba-17";
+                d.grip = new Vector2(271f, 393f);             // 持枪手（左手）十字 = 手心中心
+                d.muzzle = new Vector2(654f, 243.5f);         // 枪口十字
+                d.lamp = new Vector2(699.5f, 348.5f);         // 手电十字（枪管下面的战术灯）
+                d.hasLaser = true; d.laser = new Vector2(621f, 391.5f);   // 红外十字（战术灯上的镭射）：沿枪管方向射出去
+                d.laserColor = new Color(1f, 0.1f, 0.12f, 0.55f); d.laserWidth = 0.004f; d.laserDotSize = 0.2f;   // 和 AR15 一样：细、偏暗
+                d.restGrip = new Vector2(577.3f, -965.8f);    // 平时端枪时手心相对脚底中心（和战术手枪的持枪手一样）
+                d.shoulder = new Vector2(0.175f, 0.466f);
+                d.mountCenter = new Vector2(404f, 340f);      // 整枪图的中心（插在枪套 / 胸挂上时用部件拼，不缩小）
+                d.parts.Add(P("G17Mag", "Mag", 250.5f, 554.5f, 40));               // 弹匣（轴心 = 弹匣最低十字）
+                d.parts.Add(P("G17Frame", "Frame", 435f, 391.5f, 41));             // 握把 / 下机匣（含战术灯）
+                d.parts.Add(P("G17Barrel", "Barrel", 468f, 248.5f, 42));           // 枪管（滑套往后走时露出来）
+                d.parts.Add(P("G17Slide", "Slide", 437f, 240f, 43, 115f));         // 滑套：往后走到"滑套最远位置"十字（滑套尾 225 → 110）
+                d.parts.Add(P("G17HandL", "", 271f, 393f, 44, 0f, true));          // 持枪手锚点（左手；图用角色衣服的手）
+                d.parts.Add(P("G17HandR", "", 311f, 463f, 45, 0f, true));          // 辅助手锚点（右手；换弹时离开枪的那只）
+                // 手感（G17 + 连发：聚合物套筒座轻，9mm 单发后坐不大，但连发 1100 发/分时枪口一路往上爬；单枪动画比 P225 小，好让连发叠得起来）
+                d.fullAuto = true;                                                 // 连发（G18 式全自动）
+                d.rpm = 1100f;                                                     // 射速：1100 发/分（真实 G18 约 1100~1200）
+                d.recoilKick = new Vector2(14f, 22f);                              // 每枪枪口上扬（度）：单枪小、但连发叠起来很猛
+                d.recoilHandX = new Vector2(-0.03f, -0.055f); d.recoilHandY = new Vector2(0.03f, 0.06f);
+                d.handRecoilRise = 0.02f; d.handRecoilReturn = new Vector2(0.05f, 0.09f);   // 回正快（一枪间隔只有 0.055 秒）
+                d.muzzleRise = new Vector2(0.025f, 0.045f); d.muzzleReturn = 0.06f;
+                d.recoilLean = 2f; d.actionShift = 0.01f;
+                d.kickBack = 0.015f; d.kickHold = 0f; d.kickReturn = 0.035f;       // 滑套：跟得上 1100 发/分
+                d.flashTime = 0.045f; d.flashSize = 1f;
+                d.flashSprites = new[] { "Flash1", "Flash2" };
+                d.bulletSprite = "Bullet";
+                d.reloadMotion = ReloadMotion.Pistol; d.magPart = "G17Mag"; d.reloadHand = "G17HandR";
+                d.magDir = new Vector2(0.272f, 0.962f);     // 弹匣最低十字 → 弹匣最高点十字
+                d.magInHand = new Vector2(0.0032f, 0.0204f); d.magReady = 0.085f;  // 弹匣底部相对手心中心
+                // 战斗数值（参考真实格洛克 G17 / G18：9×19mm、双排 17 发弹匣；枪管比 P225 长一点 → 子弹稍快；单发伤害和 P225 一样；
+                //   全自动射速约 1100 发/分，连发时枪口上跳很难压 → 每枪散布加得多；单发精度好但比 P225 差一点；双排弹匣粗一点，换弹比 P225 稍慢）
+                d.magSize = 17; d.damage = 21f; d.spread = 1.8f; d.movingMul = 1.3f; d.recoilPerShot = 1f; d.recoilRecover = 8f;
+                d.leadError = 0.08f; d.bulletSpeed = 125f; d.burstPause = 0.35f; d.range = 6f; d.knockback = 2.5f;
+                d.critChance = 0.1f; d.critMul = 1.6f; d.speedReloadTime = 1.15f; d.tacticalReloadTime = 1.7f;
+                d.laserAim = 0.85f;                         // 红外镭射：边走边打更准
+                return d;
+            case "aba-m2":       // ABA-M2 拉栓狙击枪（图：Resources/WeaponArt/aba-m2；坐标 = aba-m2.PSD 里的十字线；原型 M24 / M2010 一类 .308 栓动狙）
+                d.displayName = "ABA-M2";
+                d.hold = HoldType.Rifle;
+                d.artFolder = "WeaponArt/aba-m2";
+                d.grip = new Vector2(559.5f, 344.5f);         // 持枪手（左手，握把）十字
+                d.muzzle = new Vector2(2073f, 202.5f);        // 枪口十字（消音器前端）
+                d.hasLamp = false;                            // 没有手电
+                d.hasLaser = true; d.laser = new Vector2(1485.5f, 307f);   // 红外线十字（护木下面）
+                d.laserColor = new Color(1f, 0.1f, 0.12f, 0.55f); d.laserWidth = 0.004f; d.laserDotSize = 0.2f;
+                // 端枪：枪托十字（76, 331）顶在肩膀上 → 握把相对脚底中心的位置
+                d.shoulder = new Vector2(-0.083f, 0.51f);
+                d.restGrip = new Vector2(-0.083f * 1936.55f + (559.5f - 76f), -0.51f * 1936.55f + (344.5f - 331f));
+                d.parts.Add(P("M2Mag", "Mag", 864.5f, 452f, 40));                  // 弹匣（轴心 = 弹匣最低点十字）
+                d.parts.Add(P("M2Bolt", "Bolt", 829.5f, 189f, 41));                // 枪栓（在枪身下面，拉栓时往后走）
+                d.parts.Add(P("M2Body", "Body", 1064f, 235f, 42));                 // 枪身
+                d.parts.Add(P("M2Handle", "Handle", 735f, 183f, 43));              // 拉栓（拉机柄，在枪身上面；轴心 = 根部）
+                d.parts.Add(P("M2HandL", "", 559.5f, 344.5f, 44, 0f, true));       // 持枪手锚点（左手，握把；拉栓时离开）
+                d.parts.Add(P("M2HandR", "", 1133f, 334f, 45, 0f, true));          // 辅助手锚点（右手，护木；换弹时离开）
+                d.boltAction = true; d.boltPart = "M2Bolt"; d.boltHandle = "M2Handle";
+                d.boltTravel = 674f - 515.5f;                                      // 枪栓尾 674 → "枪栓最远位置"十字 515.5
+                d.boltLift = -55f; d.boltGrab = new Vector2(712f, 282f);           // 拉机柄球头
+                // 手感（.308 栓动狙：一枪很重，枪口跳得高、身体被顶一下；之后要拉栓，射速慢）
+                d.rpm = 40f;                                                       // 动画里两枪最快间隔 1.5 秒（拉栓）
+                d.recoilKick = new Vector2(12f, 15f);                              // 每枪枪口上扬（度）：很大（原来 8~10）
+                d.recoilHandX = new Vector2(-0.16f, -0.13f);                       // 往后顶：很重（原来 -0.11~-0.085）
+                d.recoilHandY = new Vector2(0.03f, 0.05f);                         // （原来 0.02~0.035）
+                d.handRecoilRise = 0.025f;
+                d.handRecoilReturn = new Vector2(0.18f, 0.24f);                    // 回正慢（一枪一枪打，不赶）
+                d.muzzleRise = new Vector2(0.05f, 0.07f); d.muzzleReturn = 0.18f;
+                d.recoilLean = 4.8f; d.actionShift = 0.036f;                       // 身体被顶得往后一仰（原来 3.4 / 0.024）
+                d.kickBack = 0f; d.kickHold = 0f; d.kickReturn = 0.05f;            // 没有自动往后弹的部件（枪栓靠手拉）
+                d.flashTime = 0.05f; d.flashSize = 1.2f;                           // 有消音器：枪火小
+                d.flashSprites = new[] { "Flash1", "Flash2" };
+                d.bulletSprite = "Bullet";
+                d.drawGrab = new Vector2(1150f, 215f);      // 护木上边（手倒过来抓）
+                d.stockPart = "";                           // 枪托不能拉
+                d.mountCenter = new Vector2(903f, 240f);    // 挂在身上时枪的中心（挂件 = 用部件拼的整枪，不缩小）
+                d.reloadMotion = ReloadMotion.Bolt; d.magPart = "M2Mag"; d.reloadHand = "M2HandR";   // 拉栓式换弹（左手开栓 / 关栓、拉栓；CharacterRigBase.BoltReload.cs）
+                d.magDir = new Vector2(-0.012f, 1f);        // 弹匣最低点 → 弹匣最高点
+                d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;
+                // 战斗数值（.308 栓动狙：一枪就能打倒没穿护甲的人；破甲 0.8 = 护甲 / 防护服只挡得住两成；
+                //   很准、子弹快、射程远、高倍镜；边走边打很差；5 发弹匣；步枪不击退）
+                d.magSize = 5; d.damage = 75f; d.spread = 0.35f; d.movingMul = 2.2f; d.recoilPerShot = 1.5f; d.recoilRecover = 5f;
+                d.leadError = 0.03f; d.bulletSpeed = 260f; d.burstPause = 1.6f; d.range = 16f; d.knockback = 0f;
+                d.critChance = 0.35f; d.critMul = 2.2f; d.speedReloadTime = 3.8f; d.tacticalReloadTime = 4.5f;   // 狙击枪重，换得慢（含开栓 / 拉栓）
+                d.scopeMax = 10f; d.scopeNear = 3f; d.scopeFar = 14f; d.scopeGain = 0.35f;   // 3~10 倍狙击镜：远处散布再小很多
+                d.laserAim = 0.85f;
+                d.armorPierce = 0.8f;
                 return d;
             case "axe":          // 斧头（近战：只有数值）
                 d.displayName = "斧头"; d.kind = WeaponKind.Melee;

@@ -97,7 +97,7 @@ public class NpcInventory : MonoBehaviour
         switch (id)
         {
             case "pistol": case "axe": case "hammer": case "toolkit": case "ai_terminal": return 1;
-            case "medkit": case "bottle": return 2;
+            case "medkit": case "bottle": case "grenade": return 2;   // 手雷：两颗（挂在工具挂环上）
             case "magazine": return 3;
             case EmptyMag: return 3;                        // 空弹匣也最多带 3 个
             default: return 3;

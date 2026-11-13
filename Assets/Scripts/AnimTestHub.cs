@@ -198,6 +198,16 @@ public class AnimTestHub : MonoBehaviour
         {
             bool on = m.item != null;
             bool gunMount = m.kind == CharacterRigBase.MountKind.Weapon || m.kind == CharacterRigBase.MountKind.Rifle;
+            string[] choices = rig.MountChoices(m);                        // 工具挂环：能选挂锤子 / 斧头 / 手雷
+            if (!gunMount && choices != null)
+            {
+                GUILayout.Label(MountLabel(m) + "挂环：" + (on ? ToolLabel(m.item) : "空"));
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("空")) rig.TestSetMount(m, false);
+                foreach (string c in choices) if (GUILayout.Button(ToolLabel(c))) rig.TestSetMount(m, true, c);
+                GUILayout.EndHorizontal();
+                continue;
+            }
             if (!gunMount)
             {
                 bool want = GUILayout.Toggle(on, MountLabel(m));
@@ -234,6 +244,14 @@ public class AnimTestHub : MonoBehaviour
         rig.testFaceLeft = GUILayout.Toggle(rig.testFaceLeft, "朝左");
         GUILayout.EndHorizontal();
 
+        // ---- 手雷 ----
+        if (rig.CanTestThrow)
+        {
+            GUILayout.Space(6f);
+            GUILayout.Label("【手雷】往测试目标扔（没有就往正前方 3 单位）");
+            if (GUILayout.Button("扔手雷")) rig.TestThrow();
+        }
+
         // ---- 换弹 ----
         GUILayout.Space(6f);
         GUILayout.Label("【换弹】");
@@ -269,6 +287,18 @@ public class AnimTestHub : MonoBehaviour
         if (item == "pistol") return "防护服手枪";
         if (item == "rifle") return "战斗步枪";
         return item;
+    }
+
+    // 工具挂环上的东西 → 显示名
+    static string ToolLabel(string item)
+    {
+        switch (item)
+        {
+            case "hammer": return "锤子";
+            case "axe": return "斧头";
+            case "grenade": return "手雷";
+            default: return item;
+        }
     }
 
     static string MountLabel(CharacterRigBase.MountPoint m)

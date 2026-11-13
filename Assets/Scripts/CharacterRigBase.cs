@@ -816,6 +816,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         AfterLocomotion(dt, speed);                               // 角色自己：表情、换手……
         if (!_dead) UpdateTest(dt);                               // 测试开关
         AnimateHeld(dt);                                          // 手上的动作（挥动 / 后坐 / 换弹）
+        if (_boltT >= 0f && (_dead || _gun == null || _reloadT >= 0f || _drawT >= 0f)) StopBolt();   // 拉栓途中换枪 / 换弹 / 取出 / 倒下：停掉
         ApplyPose();                                              // 通用骨架：身体 / 脚 / 手
         ApplyAttachments();                                       // 角色自己：挂件、头、软管……
         ApplyReact();                                             // 叠上受击 / 倒地
@@ -923,6 +924,10 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         [InspectorName("步枪")] Rifle,
     }
 
+    // 工具类挂载点（锤子 / 斧头挂环）：自己那件不在时，能挂这些工具类挂件（手雷）
+    public static bool IsToolMount(MountKind k) => k == MountKind.Hammer || k == MountKind.Axe;
+    public static readonly string[] ToolItems = { "hammer", "axe", "grenade" };   // 工具类挂载点能挂的东西
+
     // 能挂在"武器"挂载点上的东西（按优先顺序；已经有专用挂载点的武器不挂这里）
     public static readonly string[] WeaponItems = { "pistol", "rifle" };
 
@@ -978,6 +983,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     // 按物品栏把挂件挂上 / 取下：固定类型的挂载点看自己那件；武器挂载点挂一件没有专用位置的武器
     protected void LoadMounts(System.Func<string, bool> has)
     {
+        bool grenadeHung = false;                                          // 手雷已经挂到一个工具挂环上了
         foreach (MountPoint m in _mounts)
         {
             string want = null;
@@ -990,6 +996,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
             {
                 string it = ItemOf(m.kind);
                 if (it != null && has(it)) want = it;
+                else if (IsToolMount(m.kind) && !grenadeHung && has("grenade")) { want = "grenade"; grenadeHung = true; }   // 工具挂环空着：挂手雷
             }
             SetMountItem(m, want);
         }
@@ -999,7 +1006,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     protected void SetMountItem(MountPoint m, string item)
     {
         if (m == null) return;
-        if (item != null && (m.kind == MountKind.Weapon || m.kind == MountKind.Rifle) && m.art != null && item != m.item)
+        if (item != null && (m.kind == MountKind.Weapon || m.kind == MountKind.Rifle || IsToolMount(m.kind)) && m.art != null && item != m.item)
         {
             Sprite s = MountArt(m, item);                              // 武器 / 步枪挂载点：换成这件武器的图
             if (s != null) m.art.sprite = s;
@@ -1243,6 +1250,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         _rig.localScale = new Vector3(FacingLeft ? -1f : 1f, 1f, 1f);           // 可能刚翻身：对好朝向
         GunAimPose();                                                           // 马上摆好，子弹从对准后的枪口出来
         GunAnimator.For(d).OnFire(this, _gun);                                  // 这把枪自己开枪时还要做的
+        if (d.boltAction) StartBolt();                                          // 拉栓枪：开完这一枪拉一次栓（CharacterRigBase.Bolt.cs）
     }
 
     // 每帧：持枪 + 后坐（手被顶回、枪口上扬、身体后仰、滑套 / 拉栓往后弹）+ 持枪手类型（稳 / 颤抖）
@@ -1459,18 +1467,22 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         SetMountItem(m, on ? it : null);
     }
 
-    // 这个挂载点能不能挂这把枪（武器挂载点 = 有枪套图的枪，步枪挂载点 = 有斜挂图的步枪）
+    // 这个挂载点能不能挂这把枪（武器挂载点 = 有枪套图或能用部件拼的手枪，步枪挂载点 = 用部件拼或有斜挂图的步枪）
     public virtual bool CanMount(MountPoint m, WeaponDef d)
     {
         if (m == null || d == null) return false;
         if (m.kind == MountKind.Rifle) return d.hold == HoldType.Rifle && (!d.characterMountArt || !string.IsNullOrEmpty(d.slingArt));   // 步枪：用部件拼，或者有斜挂图
-        if (m.kind == MountKind.Weapon) return !string.IsNullOrEmpty(d.holsterArt);
+        if (m.kind == MountKind.Weapon) return !string.IsNullOrEmpty(d.holsterArt) || (d.hold == HoldType.Pistol && d.mountCenter != Vector2.zero);   // 手枪：有枪套图，或者能用部件拼
         return false;
     }
+    // 这个挂载点在测试窗口里能选挂哪几样（null = 只能开 / 关；工具挂环 = 锤子 / 斧头 / 手雷）
+    public virtual string[] MountChoices(MountPoint m) => null;
     // 挂载点上挂的东西换成测试窗口里显示的物品 id（武器：WeaponDef id）
     public virtual string MountItemFor(WeaponDef d) => d != null ? d.id : null;
 
     // 只有部分角色有的功能：父类给一个"什么都不做"的默认，有这个功能的角色自己 override
     public virtual bool HasGear(string key) => false;
+    public virtual bool CanTestThrow => false;                                     // 这个角色能不能扔手雷（测试窗口显示按钮）
+    public virtual void TestThrow() { }                                            // 测试：扔一颗手雷
     public virtual void Hold(string key) { }
 }

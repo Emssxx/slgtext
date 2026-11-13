@@ -43,7 +43,7 @@ public class AbaOperative : MonoBehaviour
     readonly Dictionary<string, int> _inGun = new Dictionary<string, int>();          // 枪里还剩几发
     readonly Dictionary<string, List<int>> _spare = new Dictionary<string, List<int>>();   // 备用弹匣（每个还剩几发）
     public bool Reloading => Time.time < _reloadUntil;
-    public bool Busy => Reloading || (Rig != null && Rig.IsDrawing) || Time.time < _healUntil;
+    public bool Busy => Reloading || (Rig != null && (Rig.IsDrawing || Rig.IsThrowing || Rig.IsBolting)) || Time.time < _healUntil;   // 换弹 / 取枪 / 扔手雷 / 包扎时不开枪
 
     const float FeetY = -0.453125f;
     NavMeshAgent _agent;
@@ -56,6 +56,8 @@ public class AbaOperative : MonoBehaviour
     bool _reloadSpeed;
     Vector3 _sidestep;
     float _pistolSince = -1f;
+    float _grenadeCd;                    // 离下一颗手雷还要等几秒
+    static float _squadGrenadeAt = -99f; // 小组里上一颗手雷什么时候扔的（不一起扔）
 
     static WorldState World => WorldManager.Instance != null ? WorldManager.Instance.world : null;
     static AbaForce F => AbaForce.Ensure();
@@ -97,6 +99,7 @@ public class AbaOperative : MonoBehaviour
         Rig.testSpeed = -1f;
         Rig.testHeld = NpcRigB.TestHeld.None;
         Rig.rifleWeapon = F.rifleModel;                      // 胸挂上 / 手上是哪把步枪（外观跟数值一致）
+        Rig.pistolWeapon = F.pistolModel;                    // 胸挂上 / 手上是哪把手枪（外观跟数值一致）
 
         _scan = new GameObject("AimScan").transform;         // 没目标时枪口对着的点（扇区警戒）
         _scan.SetParent(transform, false);
@@ -233,12 +236,14 @@ public class AbaOperative : MonoBehaviour
     void UpdateFire(float dt)
     {
         _shotCd -= dt;
+        _grenadeCd -= dt;
         if (target == null || !target.Alive) { _burstLeft = 0; return; }
         if (target != _lastTarget) { _lastTarget = target; _acquireAt = Time.time + 0.12f; _burstLeft = 0; }   // 换目标：枪口转过去要一点时间
         if (Busy || Rig == null || Rig.Held != Weapon.id) return;
         if (_inGun[Weapon.id] <= 0) { OnEmpty(); return; }
         Vector3 tp = target.Position;
         float dist = Vector2.Distance(tp, transform.position);
+        if (TryGrenade(tp, dist)) return;                                 // 先看值不值得扔一颗手雷
         if (dist > Weapon.range * 1.3f) return;                           // 太远：不浪费子弹，等小组往前压
         if (_shotCd > 0f || Time.time < _acquireAt) return;
         Vector3 from = Rig.TryGetMuzzle(out Vector3 m) ? m : transform.position;
@@ -250,12 +255,41 @@ public class AbaOperative : MonoBehaviour
         _shotCd = _burstLeft > 0 ? Weapon.shotInterval : Weapon.pause * Mathf.Lerp(0.6f, 1.3f, Mathf.InverseLerp(2f, 8f, dist));
     }
 
+    // ============ 手雷 ============
+    // 值得扔就扔（返回 true = 开始扔了）：距离合适、腰上还有、冷却好了、小组刚才没人扔；
+    //   而且：目标躲在掩体后面打不到 / 目标身边扎堆 / 是大家伙；落点附近没有自己人、也离自己够远
+    bool TryGrenade(Vector3 tp, float dist)
+    {
+        if (Rig == null || !Rig.CanThrow || _grenadeCd > 0f || Time.time - _squadGrenadeAt < F.grenadeSquadGap) return false;
+        if (dist < F.grenadeRange.x || dist > F.grenadeRange.y) return false;
+        float r = F.grenade.radius;
+        if (dist < r + 0.5f) return false;                                // 太近：会炸到自己
+        Vector3 aim = tp + target.Velocity * Mathf.Min(0.6f, dist / Mathf.Max(0.5f, F.grenade.speed)) * 0.5f;   // 往它要走过去的地方扔一点
+        bool covered = !Ballistics.LineClear(transform.position, tp);     // 躲在墙 / 石头后面：子弹打不到，手雷能扔过去
+        int crowd = 0;
+        foreach (Enemy e in Enemy.All) if (e != null && e.Alive && Vector2.Distance(e.transform.position, aim) < r) crowd++;
+        bool worth = covered || crowd >= Mathf.Max(2, F.grenadeCluster) || target.IsStrong;
+        if (!worth) return false;
+        foreach (AbaOperative o in All)                                   // 落点附近有自己人：不扔
+            if (o != null && o != this && o.Alive && Vector2.Distance(o.transform.position, aim) < r * 1.2f) return false;
+        int layer = _flip != null ? _flip.sortingLayerID : 0;
+        bool ok = Rig.PlayThrow(aim, at => Grenade.Throw(at, transform.position, aim, F.grenade, this, layer));   // 出手那一刻才真正扔出去
+        if (!ok) return false;
+        _grenadeCd = F.grenadeCooldown;
+        _squadGrenadeAt = Time.time;
+        _burstLeft = 0;
+        Say("aba_call_grenade");
+        return true;
+    }
+
     // 一组打几发
     int BurstFor(float dist)
     {
         bool strong = target.IsStrong;
         bool rushing = target.Melee && dist < 3f;                         // 近战的东西扑过来了
-        if (HasPistol) return dist < 1.5f ? 3 : 2;                         // 双击；贴脸三发
+        if (Weapon.def != null && Weapon.def.boltAction) return 1;        // 拉栓枪：一枪一枪打
+        bool auto = Weapon.def != null && Weapon.def.fullAuto;            // 能连发的手枪（ABA-17）：和步枪一样打一串
+        if (HasPistol && !auto) return dist < 1.5f ? 3 : 2;               // 双击；贴脸三发
         int n = rushing || dist < 2.5f ? 6 : dist < 6f ? 3 : 2;
         return strong ? n + 2 : n;
     }

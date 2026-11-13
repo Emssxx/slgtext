@@ -122,6 +122,7 @@ public class Ballistics : MonoBehaviour
         public Enemy byEnemy;
         public AbaOperative byAba;   // ABA 清除小组开的枪：穿过 ABA 队员（不打自己人）
         public float knock;          // 击退（ABA 手枪）
+        public float pierce;         // 破甲：无视护甲的比例（枪的属性）
         public int bounces;
     }
 
@@ -228,6 +229,7 @@ public class Ballistics : MonoBehaviour
         if (rig != null) rig.MuzzleFlash();
         Bullet bullet = b.Spawn(from, dir, speed, damage, aimDist, n, null, rig != null ? rig.ricochetChance : 0.3f);
         bullet.knock = gun != null ? gun.knockback : b.npcPistolKnockback;    // 击退：枪的属性（手枪有，步枪没有）
+        bullet.pierce = gun != null ? gun.armorPierce : 0f;                   // 破甲：枪的属性
         b.DrawSpread(from, aim, dir, sigma, aimDist);
     }
 
@@ -272,6 +274,7 @@ public class Ballistics : MonoBehaviour
         Bullet bullet = b.Spawn(from, dir, w.bulletSpeed, dmg, Mathf.Max(aimDist, 0.5f), null, null, op != null && op.Rig != null ? op.Rig.ricochetChance : 0.3f);
         bullet.byAba = op;
         bullet.knock = w.knockback;
+        bullet.pierce = w.def != null ? w.def.armorPierce : 0f;               // 破甲：枪的属性
         // 瞄准射击打偏了也飞得远：落地距离拉到 2.5~4 倍瞄准距离
         bullet.groundDist = Mathf.Clamp(Mathf.Max(aimDist, 0.5f) * UnityEngine.Random.Range(2.5f, 4f), 0.5f, b.maxRange);
         if (!string.IsNullOrEmpty(w.bulletSprite) && bullet.t != null)
@@ -416,7 +419,7 @@ public class Ballistics : MonoBehaviour
             Vector2 p = Vector2.Lerp(a, c, best);
             Raise(p, b, -b.dir, ImpactMaterial.Flesh, hitAba.gameObject, Vector2Int.zero);
             ImpactFx(p, b.dir, -b.dir, ImpactMaterial.Flesh);
-            hitAba.TakeHit(b.damage, b.dir, b.byEnemy, b.byNpc);
+            hitAba.TakeHit(AbaPierce(b.damage, b.pierce), b.dir, b.byEnemy, b.byNpc);   // 破甲：ABA 护甲挡得少
             if (b.knock > 0f && hitAba.Alive) Knockback.Push(hitAba.gameObject, b.dir * b.knock);   // NPC 的手枪也能把 ABA 队员推一下
             return false;
         }
@@ -430,7 +433,7 @@ public class Ballistics : MonoBehaviour
             ImpactFx(p, b.dir, -b.dir, m);
             if (b.byAba != null) { HitByAba(b, hitEnemy, hitNpc, who); return false; }
             if (hitEnemy != null) hitEnemy.TakeDamage(b.damage, b.byNpc);
-            else NpcCombat.OnHit(hitNpc, b.damage, b.byEnemy, b.byNpc);
+            else NpcCombat.OnHit(hitNpc, SuitPierce(b.damage, b.pierce), b.byEnemy, b.byNpc);   // 破甲：防护服挡得少
             if (b.knock > 0f) KnockNpcShot(b, hitEnemy, hitNpc, who);          // NPC 手枪：击退 + 打断攻击
             return false;
         }
@@ -453,6 +456,20 @@ public class Ballistics : MonoBehaviour
         b.t.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(b.dir.y, b.dir.x) * Mathf.Rad2Deg);
     }
 
+    // 破甲：护甲本来减伤 armor（扣 1 - armor），破甲 p 让它只剩 armor × (1 - p)。挨打的一方照常乘护甲，这里先把伤害放大补回来
+    static float AbaPierce(float dmg, float pierce)
+    {
+        if (pierce <= 0f) return dmg;
+        float a = AbaForce.Instance != null ? AbaForce.Instance.armor : 0.4f;   // ABA 护甲（TakeHit 里乘 1 - armor）
+        return dmg * (1f - a * (1f - Mathf.Clamp01(pierce))) / Mathf.Max(0.05f, 1f - a);
+    }
+    static float SuitPierce(float dmg, float pierce)
+    {
+        if (pierce <= 0f) return dmg;
+        float s = EnemyDirector.Instance != null ? EnemyDirector.Instance.suitArmor : 0.85f;   // 防护服（OnHit 里乘这个）
+        return dmg * Mathf.Lerp(s, 1f, Mathf.Clamp01(pierce)) / Mathf.Max(0.05f, s);
+    }
+
     // ABA 的子弹打中人 / 敌人：扣血 + 击退（手枪，体型越大推得越少）+ 打断攻击；打死了告诉开枪的人
     void HitByAba(Bullet b, Enemy hitEnemy, NpcData hitNpc, GameObject who)
     {
@@ -470,7 +487,7 @@ public class Ballistics : MonoBehaviour
             return;
         }
         if (hitNpc == null) return;
-        NpcCombat.OnHit(hitNpc, b.damage, null, null, op);
+        NpcCombat.OnHit(hitNpc, SuitPierce(b.damage, b.pierce), null, null, op);   // 破甲：防护服挡得少
         if (b.knock > 0f && !hitNpc.IsDead && who != null) Knockback.Push(who, b.dir * b.knock);
         if (hitNpc.IsDead && op != null) op.OnKill(null, hitNpc);
     }

@@ -30,7 +30,8 @@ public enum ReloadMotion
     [InspectorName("手枪式")] Pistol,
     [InspectorName("步枪式")] Rifle,
     [InspectorName("无托步枪式")] Bullpup,   // 弹匣在握把后面（CharacterRigBase.Bullpup.cs）
-    [InspectorName("AK式")] AK,             // AK 系列：弹匣绕"弹匣挂载旋转点"摇进 / 摇出，左手拉栓（CharacterRigBase.AK.cs）
+    [InspectorName("AK式")] AK,
+    [InspectorName("拉栓式")] Bolt,         // 拉栓枪：左手开栓 / 关栓，换完弹匣拉一次栓（CharacterRigBase.BoltReload.cs）             // AK 系列：弹匣绕"弹匣挂载旋转点"摇进 / 摇出，左手拉栓（CharacterRigBase.AK.cs）
 }
 
 [System.Serializable]

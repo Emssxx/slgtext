@@ -49,7 +49,7 @@ using UnityEngine.Rendering;     // SortingGroup：几十个部件当成一个�
 //   Test Keyboard 打勾 = 按住 D / A 往右 / 往左走，再按住 Shift 跑，松开就停（键盘优先，松开 2 秒后回到自动循环）；
 //   Test Speed（≥0）= 固定速度原地踏步（改数值时会按 Test Accel 平滑加减速）。
 // ============================================================================
-public class NpcRigB : CharacterRigBase
+public partial class NpcRigB : CharacterRigBase   // 扔手雷在 NpcRigB.Throw.cs
 {
     // 和 NpcRig 默认值不同的共用参数（放在 CharacterRigBase 里）：这里改成本角色自己的默认值。
     // （只影响新加的组件；场景里已经存好的数值不受影响，Inspector 照样可以改）
@@ -111,6 +111,9 @@ public class NpcRigB : CharacterRigBase
     public Vector2 daggerLean = new Vector2(5f, -7f);         // 身体跟着晃：抬起时后仰 / 挥下时前倾（度）
     public float daggerShift = 0.012f;                        // 身体跟着前后挪多远（单位）
 
+    [Header("胸挂上的手枪")]
+    public string pistolWeapon = "aba_pistol";                // 胸挂上那把手枪是哪把枪（WeaponDef id：aba_pistol = ABA 战术手枪，aba-p225……；运行中改了马上换）
+
     [Header("胸挂上的步枪")]
     public string rifleWeapon = "aba_rifle";                  // 胸挂上那把步枪是哪把枪（WeaponDef id：aba_rifle = 战斗步枪，aba-x95……；运行中改了马上换）
     // 取出动画的参数（rd…）在 CharacterRigBase.Draw.cs（枪械通用，npc1 也用）
@@ -171,6 +174,11 @@ public class NpcRigB : CharacterRigBase
     const float MOUNT_RIFLE_SCALE = 0.81f;                            // 角色画的胸挂步枪比能开火的步枪小多少（长度比；用部件拼的不缩小）
     static float MountScale(WeaponDef d) => d != null && d.characterMountArt ? MOUNT_RIFLE_SCALE : 1f;   // 胸挂上那把枪的大小
     Transform _mountGunPic;                                           // 用部件拼的胸挂步枪（战斗步枪以外的枪）
+    // 胸挂上的手枪 ↔ 能开火的手枪：角色画的胸挂手枪 = 拿在手上的战术手枪左右翻过来、再转 31°（图对出来的）
+    const string PISTOL_OWN_ART = "aba_pistol";                       // 角色画了胸挂图 / 弹匣袋里弹匣的那把手枪（其他手枪用部件拼）
+    static readonly Vector2 MOUNT_PISTOL_CENTER = new Vector2(1266f, 1172f);   // 胸挂手枪的中心（角色 PSD）
+    const float MOUNT_PISTOL_TURN = 31f;                              // 胸挂手枪比拿在手上的多转多少度（左右翻过来之后）
+    Transform _mountPistolPic;                                        // 用部件拼的胸挂手枪（战术手枪以外的枪）
     // 战术匕首（武器 PSD）：匕首 + 持刀手绕握刀的手转
     static readonly Vector2 P_DAGGER_GRIP = new Vector2(990, 1347);  // 握刀的手（持刀手中心）
     static readonly Vector2 P_DAGGER = new Vector2(1049, 1328);      // 匕首下半段（刀柄 + 发射器）
@@ -235,7 +243,7 @@ public class NpcRigB : CharacterRigBase
     ChestRigReload _chest;                             // 胸挂（换弹配件）：新弹匣从满弹匣的袋子拔，旧弹匣插回空袋（CharacterRigBase.Reload.cs）
 
     // 朝向：测试强制 > 瞄准 > 键盘 > 旧图翻转（游戏里）> 往哪边走
-    protected override bool FacingLeft => testFaceLeft || (_aimUntil > _time ? _aimLeft : (_keyHold > 0f ? _keyLeft : (_oldSprite != null ? _oldSprite.flipX : _agentLeft)));
+    protected override bool FacingLeft => testFaceLeft || (ThrowFacing(out bool tl) ? tl : _aimUntil > _time ? _aimLeft : (_keyHold > 0f ? _keyLeft : (_oldSprite != null ? _oldSprite.flipX : _agentLeft)));
 
     // ============================================================================
     // 拼角色
@@ -311,13 +319,7 @@ public class NpcRigB : CharacterRigBase
         _gripBase = CanvasToLocal(P_GRIP - P_ROOT);                                   // 握把原位
         _handPoint.localPosition = new Vector3(_gripBase.x, _gripBase.y, 0f);
         // 手枪 / 步枪：按武器数据（WeaponDef，RigWeapons.cs）拼出来，挂在手点下面（CharacterRigBase.BuildGun）
-        _pistolGun = BuildGun(WeaponDef.Get("aba_pistol"), _handPoint);
-        _gunHeld = _pistolGun.root;
-        _pistolParts.AddRange(_pistolGun.parts);
-        _gunMag = _pistolGun.Part("PistolMag"); _gunHandR = _pistolGun.Part("PistolHandR");
-        _slide = _pistolGun.Part("PistolSlide").transform; _slideBase = _slide.localPosition;
-        _pistolMuzzle = _pistolGun.muzzle;
-        _gunLamp = _pistolGun.lamp; _gunLampGlow = _pistolGun.lampGlow;
+        UsePistol(pistolWeapon);                                                      // 手枪：按 Pistol Weapon 拼（胸挂上的图也跟着换）
         // 换弹用：右手 + 新弹匣 + 旧弹匣，挂在角色根节点上（位置每帧按枪算）
         _rlHand = new GameObject("ReloadHand").transform;
         _rlHand.SetParent(_rig, false);
@@ -334,6 +336,7 @@ public class NpcRigB : CharacterRigBase
         _rlOldMag.sortingOrder = 38;
         _rlHandSprite.enabled = _rlNewMag.enabled = _rlOldMag.enabled = false;
         BuildChestRig();                                                              // 胸挂 = 换弹配件（8 个弹匣袋一开始都是满的）
+        SyncPistolMagPouches(_pistolGun != null ? _pistolGun.def : null, _pistolGun);   // 胸挂上的手枪弹匣换成这把手枪的弹匣（拼手枪时胸挂还没建好）
         _muzzle = _pistolMuzzle;
         if (RenderMats.IsURP)                                                         // URP 2D：枪上手电筒真正照亮前面的光（颜色 / 亮度跟着拿着的那把枪）
         {
@@ -432,6 +435,9 @@ public class NpcRigB : CharacterRigBase
     {
         if (_mountGunPic != null && _mountRifle != null && _mountGunPic.gameObject.activeSelf != _mountRifle.enabled)
             _mountGunPic.gameObject.SetActive(_mountRifle.enabled);   // 用部件拼的胸挂步枪：跟着"胸挂上那把枪"一起显示 / 藏起来
+        if (_mountPistolPic != null && _mountPistol != null && _mountPistolPic.gameObject.activeSelf != _mountPistol.enabled)
+            _mountPistolPic.gameObject.SetActive(_mountPistol.enabled);   // 用部件拼的胸挂手枪：一样跟着显示 / 藏起来
+        AnimateThrow(dt);                                         // 扔手雷的那只手（NpcRigB.Throw.cs）
         UpdateGunLight();                                         // 手枪手电筒跟着枪口方向照
         GunLaserUpdate();                                         // 枪上的镭射瞄准线（枪的属性）
         currentState = _dead ? "死亡" : (_run > 0.5f ? "跑步" : (_move > 0.05f ? "走路" : "站立")) + "  " + speed.ToString("0.00");
@@ -549,6 +555,7 @@ public class NpcRigB : CharacterRigBase
     // 死的时候：停掉开枪 / 换弹 / 挥动 / 瞄准
     protected override void StopForDeath()
     {
+        StopThrow();                                                        // 正在扔的手雷不扔了
         StopReload();
         _recoilT = -1f; _burstLeft = 0; _swingT = -1f;
         _lockTarget = null; _aimUntil = 0f;
@@ -595,6 +602,7 @@ public class NpcRigB : CharacterRigBase
     // 现在拿的是不是步枪；当前这把枪的握把 / 枪口（原图坐标）和"肩膀"
     bool IsRifle => _gun != null && _gun.def.hold == HoldType.Rifle;
     bool IsGun => _gun != null;                                      // 拿的是枪（匕首不算）
+    bool IsAutoGun => _gun != null && _gun.def.IsAuto;               // 拿的枪能连发（步枪 / 勾了连发的手枪）
     // 肩膀（角色的属性）：手枪绕 aimShoulder、步枪绕 rifleShoulder 转（Inspector 里调）
     protected override Vector2 ShoulderFor(WeaponDef d) => d.hold == HoldType.Rifle ? rifleShoulder : aimShoulder;
 
@@ -603,9 +611,11 @@ public class NpcRigB : CharacterRigBase
 
     // ---------------- 测试窗口 ----------------
     public override List<TestOption> TestHoldExtras() => new List<TestOption> { new TestOption("", "空手"), new TestOption("dagger", "战术匕首") };
-    public override bool CanTestEquip(WeaponDef d) => d != null && (d.hold == HoldType.Rifle || d.id == "aba_pistol");   // 手枪位只有战术手枪；步枪位能换任何步枪
-    public override string TestGearInfo() => _chest == null ? "" : "胸挂手枪弹匣：" + rigMags + "\n胸挂步枪弹匣：" + rigRifleMags;
-    public override void TestRefillGear() { if (_chest != null) _chest.RefillAll(); }
+    public override bool CanTestEquip(WeaponDef d) => d != null && d.IsGun;   // 手枪位能换任何手枪，步枪位能换任何步枪
+    public override string TestGearInfo() => (_chest == null ? "" : "胸挂手枪弹匣：" + rigMags + "\n胸挂步枪弹匣：" + rigRifleMags + "\n") + "腰上手雷：" + GrenadesLeft;
+    public override void TestRefillGear() { if (_chest != null) _chest.RefillAll(); RefillGrenades(); }   // 弹匣 + 手雷都补满
+    public override bool CanTestThrow => true;                              // 能扔手雷（测试窗口显示按钮）
+    public override void TestThrow() { testThrow = true; }
 
     public override void TestEquip(string key)
     {
@@ -616,7 +626,51 @@ public class NpcRigB : CharacterRigBase
             if (rifleWeapon != d.id) { rifleWeapon = d.id; UseRifle(d.id); }
             if (_held == "rifle") { SetHeld(null); _lastTest = TestHeld.None; }   // 再点一次：重播取出动画
         }
+        if (want == TestHeld.Pistol && pistolWeapon != d.id) { pistolWeapon = d.id; UsePistol(d.id); }   // 换手枪
         testHeld = want;                                                    // 下一帧 UpdateTest 换手
+    }
+
+    // 换手枪：按 WeaponDef id 拼一把新的挂在手点下面，胸挂上的图、胸挂上的手枪弹匣都跟着换（和换步枪一样）
+    void UsePistol(string id)
+    {
+        WeaponDef d = WeaponDef.Get(id);
+        if (d == null || d.hold != HoldType.Pistol)                         // 没有这把 / 不是手枪：退回战术手枪
+        {
+            Debug.LogWarning("[NpcRigB] Pistol Weapon 不是一把手枪：" + id + "（用 aba_pistol）");
+            d = WeaponDef.Get("aba_pistol");
+            pistolWeapon = d != null ? d.id : id;
+        }
+        if (d == null) return;
+        if (_reloadT >= 0f) StopReload();
+        if (_pistolGun != null && _pistolGun.root != null) Destroy(_pistolGun.root.gameObject);   // 旧的那把拆掉
+        GunRig g = BuildGun(d, _handPoint);
+        _pistolGun = g;
+        _gunHeld = g.root;
+        _pistolParts.Clear(); _pistolParts.AddRange(g.parts);
+        _gunMag = g.Part(d.magPart); _gunHandR = g.Part(d.reloadHand);     // 枪里的弹匣 / 辅助手
+        _slide = null;                                                      // 滑套 = 开枪时往后走的部件（kick > 0）
+        foreach (WeaponPart p in d.parts) if (p != null && p.kick > 0f && g.Part(p.name) != null) { _slide = g.Part(p.name).transform; break; }
+        _slideBase = _slide != null ? _slide.localPosition : Vector3.zero;
+        _pistolMuzzle = g.muzzle;
+        _gunLamp = g.lamp; _gunLampGlow = g.lampGlow;
+        // 胸挂上的图：战术手枪用角色自己画的；其他手枪用枪的部件直接拼一把整枪（不缩小，和拿在手上一样大），翻过来斜着插在胸挂的手枪位置
+        if (_mountPistolPic != null) { Destroy(_mountPistolPic.gameObject); _mountPistolPic = null; }   // 上一把拼的图拆掉
+        if (_mountPistol != null)
+        {
+            if (d.id == PISTOL_OWN_ART) _mountPistol.sprite = Load("Pistol");
+            else
+            {
+                _mountPistol.sprite = null;                                 // 角色画的那把不显示（只留着管"显示 / 藏起来"）
+                _mountPistolPic = BuildGunPicture(d, _mountPistol.transform.parent, _mountPistol, "MountPistolGun");
+                _mountPistolPic.localPosition = CanvasToLocal(MOUNT_PISTOL_CENTER - P_MOUNT);   // 枪的中心对上胸挂手枪的中心
+                _mountPistolPic.localRotation = Quaternion.Euler(0f, 0f, MOUNT_PISTOL_TURN);
+                _mountPistolPic.localScale = new Vector3(-1f, 1f, 1f);      // 左右翻过来（枪口朝后）
+                _mountPistolPic.gameObject.SetActive(_mountPistol.enabled);
+            }
+        }
+        SyncPistolMagPouches(d, g);                                         // 胸挂上的手枪弹匣换成这把枪的弹匣（配件跟着枪走）
+        if (_held == "pistol") SetHeld("pistol");                           // 正拿着手枪：直接换成新的
+        else foreach (SpriteRenderer sr in _pistolParts) if (sr != null) sr.enabled = false;
     }
 
     // 换步枪：按 WeaponDef id 拼一把新的挂在手点下面，胸挂上的图、取出动画用的部件都跟着换
@@ -669,6 +723,7 @@ public class NpcRigB : CharacterRigBase
     // 换手：key = "pistol" 拿出手枪 / "rifle" 拿出步枪（两只手换成持枪手、胸挂上那把藏起来）；null = 空手
     void SetHeld(string key)
     {
+        StopThrow();                                                        // 换手：正在扔的那颗不扔了
         string prev = _held;
         _held = key;                                                        // 记下现在拿什么
         _gun = key == "pistol" ? _pistolGun : key == "rifle" ? _rifleGun : null;   // 现在拿着的枪（CharacterRigBase 按它瞄准 / 后坐）
@@ -712,6 +767,7 @@ public class NpcRigB : CharacterRigBase
     protected override void UpdateTest(float dt)
     {
         if (_rifleGun != null && rifleWeapon != _rifleGun.def.id) UseRifle(rifleWeapon);   // Inspector 里换了步枪
+        if (_pistolGun != null && pistolWeapon != _pistolGun.def.id) UsePistol(pistolWeapon);   // Inspector 里换了手枪
         if (testHeld != _lastTest)                                          // 选项变了：马上换手
         {
             _lastTest = testHeld;
@@ -730,13 +786,13 @@ public class NpcRigB : CharacterRigBase
         if (fire && _held == "dagger") PlayAttack();                        // 匕首：挥一下
         else if (fire && IsGun)
         {
-            if (IsRifle && _burstLeft <= 0) { _burstLeft = rifleBurst > 1 ? rifleBurst : 1; _burstTimer = 0f; }   // 步枪：连发（上一组没打完不重来）
-            else TestShot();                                                // 手枪：一枪
+            if (IsAutoGun && _burstLeft <= 0) { _burstLeft = rifleBurst > 1 ? rifleBurst : 1; _burstTimer = 0f; }   // 步枪 / 能连发的手枪：连发（上一组没打完不重来）
+            else if (!IsAutoGun) TestShot();                                // 手枪（不能连发的）：一枪
         }
-        if (_burstLeft > 0 && IsRifle)                                      // 步枪连发：每隔 Rifle Shot Interval 一枪
+        if (_burstLeft > 0 && IsAutoGun)                                    // 连发：按这把枪的射速一枪接一枪
         {
             _burstTimer -= dt;
-            if (_burstTimer <= 0f) { TestShot(); _burstLeft--; _burstTimer += _rifleGun.def.ShotInterval; }   // 射速 → 两枪间隔（秒）
+            if (_burstTimer <= 0f) { TestShot(); _burstLeft--; _burstTimer += _gun.def.ShotInterval; }   // 射速 → 两枪间隔（秒）
         }
     }
 
@@ -749,7 +805,11 @@ public class NpcRigB : CharacterRigBase
     }
 
     // 瞄准：通用骨架按现在拿着的枪算（CharacterRigBase.GunUpdateAim）
-    protected override void UpdateAim(float dt) { GunUpdateAim(dt); }
+    protected override void UpdateAim(float dt)
+    {
+        if (_throwT >= 0f) { ThrowAim(dt); return; }                        // 扔手雷：朝扔的方向，枪单手放低
+        GunUpdateAim(dt);
+    }
 
 
 
@@ -772,11 +832,13 @@ public class NpcRigB : CharacterRigBase
     protected override void AnimateHeld(float dt)
     {
         _actionLean = 0f; _actionShift = 0f;                                // 身体的额外晃动先清零
+        ThrowLean();                                                        // 扔手雷：身体往后仰 / 往前压
         if (_held == null) return;
         if (_held == "dagger") { AnimateDagger(dt); return; }               // 匕首：弹出 / 激光 / 挥动
         if (_drawT >= 0f) { AnimateGunDraw(dt); return; }                   // 步枪取出动画（枪械通用）
         if (AnimateGunReload(dt)) return;                                   // 正在换弹：换弹动画接管（枪决定怎么插，胸挂决定从哪拿）
         GunRecoilPose(dt);                                                  // 持枪 + 后坐 + 滑套 / 拉栓（CharacterRigBase.GunRecoilPose，按这把枪的属性）
+        AnimateBolt(dt);                                                    // 拉栓枪：开完枪手动拉栓（CharacterRigBase.Bolt.cs）
     }
 
 
@@ -1004,7 +1066,8 @@ public class NpcRigB : CharacterRigBase
         bool own = d.characterMountArt || gunMag == null || gunMag.sprite == null;   // 战斗步枪（或这把枪没有弹匣部件）：用角色画的
         float magAxis = Mathf.Atan2(d.magDir.y, d.magDir.x) * Mathf.Rad2Deg;    // 这把枪的弹匣在图里斜多少（底 → 顶）
         grp.turn = own ? R_POUCH_MAG_TURN : 0f;                             // 袋里的弹匣 = 手里的弹匣（同一张图，不用再补角度）
-        grp.axis = own ? R_MAG_AXIS : magAxis;                              // 沿弹匣往外拔的方向
+        grp.axis = own ? R_MAG_AXIS : magAxis + 180f;                       // 沿弹匣往外拔的方向（倒插：往弹匣底那头拔）
+        float len = own ? 0f : MagLength(gunMag.sprite, d.magDir);         // 弹匣从底到顶多长
         for (int k = 0; k < grp.pouches.Count; k++)
         {
             MagPouch p = grp.pouches[k];
@@ -1012,10 +1075,62 @@ public class NpcRigB : CharacterRigBase
             if (own) { p.mag.sprite = _pouchArt[k]; t.localPosition = _pouchPos[k]; t.localRotation = _pouchRot[k]; p.bottom = _pouchBottom[k]; continue; }
             int i = System.Array.IndexOf(_mountRifleMags, p.mag);           // 第几个弹匣袋
             p.mag.sprite = gunMag.sprite;                                   // 这把枪的弹匣（轴心 = 弹匣底部）
-            t.localPosition = CanvasToLocal(P_RIFLE_MAG_BOTTOM[Mathf.Max(0, i)] - P_MOUNT);   // 底部对准弹匣袋的底
-            t.localRotation = Quaternion.Euler(0f, 0f, R_MAG_AXIS - magAxis);   // 斜得和角色画的步枪弹匣一样
-            p.bottom = Vector2.zero;
+            // 倒插（弹匣顶朝下、底朝上）：弹匣顶对准弹匣袋的底，弹匣底在袋口那头
+            t.localPosition = (Vector3)CanvasToLocal(P_RIFLE_MAG_BOTTOM[Mathf.Max(0, i)] - P_MOUNT) + (Vector3)(Rot(Vector2.right, R_MAG_AXIS) * len);
+            t.localRotation = Quaternion.Euler(0f, 0f, R_MAG_AXIS + 180f - magAxis);   // 斜得和角色画的步枪弹匣一样，但上下倒过来
+            p.bottom = Vector2.zero;                                        // 手抓弹匣底（轴心）
         }
+    }
+
+    // 胸挂上的 4 个手枪弹匣：跟着现在这把手枪换（做法和步枪弹匣一样）。战术手枪用角色自己画的；
+    //   其他手枪用枪自己的弹匣部件，底部对准弹匣袋的底，斜得和画的弹匣一样
+    Sprite[] _pPouchArt; Vector3[] _pPouchPos; Quaternion[] _pPouchRot; Vector2[] _pPouchBottom;   // 角色画的原样（换回战术手枪时复原）
+    void SyncPistolMagPouches(WeaponDef d, GunRig g)
+    {
+        PouchGroup grp = null;
+        if (_chest != null) foreach (PouchGroup pg in _chest.groups) if (pg.hold == HoldType.Pistol) grp = pg;
+        if (grp == null || d == null) return;
+        if (_pPouchArt == null)                                             // 第一次：记下角色画的原样
+        {
+            int n = grp.pouches.Count;
+            _pPouchArt = new Sprite[n]; _pPouchPos = new Vector3[n]; _pPouchRot = new Quaternion[n]; _pPouchBottom = new Vector2[n];
+            for (int k = 0; k < n; k++)
+            {
+                MagPouch p = grp.pouches[k];
+                _pPouchArt[k] = p.mag.sprite; _pPouchPos[k] = p.mag.transform.localPosition; _pPouchRot[k] = p.mag.transform.localRotation; _pPouchBottom[k] = p.bottom;
+            }
+        }
+        SpriteRenderer gunMag = g != null && !string.IsNullOrEmpty(d.magPart) ? g.Part(d.magPart) : null;
+        bool own = d.id == PISTOL_OWN_ART || gunMag == null || gunMag.sprite == null;   // 战术手枪（或这把枪没有弹匣部件）：用角色画的
+        float magAxis = Mathf.Atan2(d.magDir.y, d.magDir.x) * Mathf.Rad2Deg;    // 这把枪的弹匣在图里斜多少（底 → 顶）
+        grp.turn = own ? POUCH_MAG_TURN : 0f;                               // 袋里的弹匣 = 手里的弹匣（同一张图，不用再补角度）
+        grp.axis = own ? MAG_AXIS : magAxis + 180f;                         // 沿弹匣往外拔的方向（倒插：往弹匣底那头拔）
+        float len = own ? 0f : MagLength(gunMag.sprite, d.magDir);         // 弹匣从底到顶多长
+        for (int k = 0; k < grp.pouches.Count; k++)
+        {
+            MagPouch p = grp.pouches[k];
+            Transform t = p.mag.transform;
+            if (own) { p.mag.sprite = _pPouchArt[k]; t.localPosition = _pPouchPos[k]; t.localRotation = _pPouchRot[k]; p.bottom = _pPouchBottom[k]; continue; }
+            int i = System.Array.IndexOf(_mountMags, p.mag);                // 第几个弹匣袋
+            p.mag.sprite = gunMag.sprite;                                   // 这把枪的弹匣（轴心 = 弹匣底部）
+            // 倒插（弹匣顶朝下、底朝上）：弹匣顶对准弹匣袋的底，弹匣底在袋口那头
+            float pouchAxis = MAG_AXIS + POUCH_MAG_TURN;                    // 胸挂手枪弹匣斜的方向（袋底 → 袋口）
+            t.localPosition = (Vector3)CanvasToLocal(P_PISTOL_MAG_BOTTOM[Mathf.Max(0, i)] - P_MOUNT) + (Vector3)(Rot(Vector2.right, pouchAxis) * len);
+            t.localRotation = Quaternion.Euler(0f, 0f, pouchAxis + 180f - magAxis);   // 上下倒过来
+            p.bottom = Vector2.zero;                                        // 手抓弹匣底（轴心）
+        }
+    }
+
+    // 弹匣从底（轴心）到顶多长（单位）：图的四个角沿弹匣方向最远到哪
+    static float MagLength(Sprite s, Vector2 magDir)
+    {
+        if (s == null) return 0f;
+        Vector2 up = magDir.sqrMagnitude > 0.0001f ? magDir.normalized : Vector2.up;
+        Bounds b = s.bounds;                                                // 相对轴心（弹匣底）
+        float best = 0f;
+        foreach (Vector2 c in new[] { new Vector2(b.min.x, b.min.y), new Vector2(b.min.x, b.max.y), new Vector2(b.max.x, b.min.y), new Vector2(b.max.x, b.max.y) })
+            best = Mathf.Max(best, Vector2.Dot(c, up));
+        return best;
     }
 
     void BuildChestRig()

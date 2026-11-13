@@ -231,6 +231,9 @@ public class NpcRig : CharacterRigBase
     static readonly Vector2 P_RING_H = new Vector2(1431, 1337), P_HAMMER = new Vector2(1431, 1398);  // 锤子挂环顶部 / 锤子顶部
     static readonly Vector2 P_RING_A = new Vector2(1239, 1343), P_AXE = new Vector2(1239, 1404);     // 斧头挂环 / 斧头
     static readonly Vector2 P_HOLSTER = new Vector2(1510, 1140);  // 枪套顶部（手枪插在里面，跟着枪套动）
+    // 枪套里用部件拼的手枪：角色画的枪套手枪 = 拿在手上的防护服手枪左右翻过来、再转 66°（图对出来的）
+    static readonly Vector2 HOLSTER_GUN_SHIFT = new Vector2(4.3f, 21.6f);   // 枪的中心相对枪套顶部（原图像素）
+    const float HOLSTER_GUN_TURN = 66f;                           // 翻过来之后再转多少度（枪口朝下插进枪套）
     static readonly Vector2 P_MEDKIT = new Vector2(650, 1338), P_ZIPPER = new Vector2(704, 1439);    // 医疗包顶部 / 拉链顶部
     static readonly Vector2 P_TOOLKIT = new Vector2(876, 1392);
     static readonly Vector2 P_BOTTLE = new Vector2(485, 1082);    // 水瓶瓶口（挂在背包侧面）
@@ -343,7 +346,20 @@ public class NpcRig : CharacterRigBase
     readonly List<HoseMesh> _hoses = new List<HoseMesh>();
 
     // 只读：身上有没有挂某个挂件（hammer / axe / holster(手枪) / medkit / toolkit / bottle）——挂件只在物品栏里有那件东西时才显示。
-    public override bool HasGear(string key) => key != null && _gear.TryGetValue(key, out Transform g) && g != null && g.gameObject.activeInHierarchy;
+    public override bool HasGear(string key)
+    {
+        if (key == null) return false;
+        if (key == "hammer" || key == "axe")                               // 锤子 / 斧头：挂在哪个工具挂环上都算（挂环上换成手雷了就不算）
+        {
+            MountPoint m = MountHolding(key);
+            return m != null && m.attachment != null && m.attachment.gameObject.activeInHierarchy;
+        }
+        return _gear.TryGetValue(key, out Transform g) && g != null && g.gameObject.activeInHierarchy;
+    }
+    // 现在挂着这件东西的挂载点（按挂着的物品找；没有 = null）
+    MountPoint MountHolding(string item) { foreach (MountPoint m in _mounts) if (m.item == item) return m; return null; }
+    // 工具挂环在测试窗口里能选：锤子 / 斧头 / 手雷
+    public override string[] MountChoices(MountPoint m) => m != null && IsToolMount(m.kind) ? ToolItems : null;
 
     // 挂件的根节点 ↔ 物品栏里的物品（锤子 / 斧头连着挂环一起藏，手枪连着枪套，拉链跟着医疗包）
     int _invRev = -1;              // 上次按物品栏刷新挂件时的版本号
@@ -509,17 +525,19 @@ public class NpcRig : CharacterRigBase
         {
             Transform ring = Part("HammerRing", _body, "Gear/HammerRing", P_RING_H, P_BODY, 12).transform;   // 挂环（衣服属性）
             AddGear("ringH", ring);
-            Transform hammer = Part("Hammer", ring, "Gear/Hammer", P_HAMMER, P_RING_H, 11).transform;
+            SpriteRenderer hammerSr = Part("Hammer", ring, "Gear/Hammer", P_HAMMER, P_RING_H, 11);
+            Transform hammer = hammerSr.transform;
             AddGear("hammer", hammer);
-            AddMount("hammer", MountKind.Hammer, ring, hammer);                       // 挂载点：锤子
+            AddMount("hammer", MountKind.Hammer, ring, hammer, hammerSr);             // 挂载点：锤子（工具类：也能挂斧头 / 手雷）
         }
         if (gear.Contains("Axe"))
         {
             Transform ring = Part("AxeRing", _body, "Gear/AxeRing", P_RING_A, P_BODY, 14).transform;         // 挂环（衣服属性）
             AddGear("ringA", ring);
-            Transform axe = Part("Axe", ring, "Gear/Axe", P_AXE, P_RING_A, 13).transform;
+            SpriteRenderer axeSr = Part("Axe", ring, "Gear/Axe", P_AXE, P_RING_A, 13);
+            Transform axe = axeSr.transform;
             AddGear("axe", axe);
-            AddMount("axe", MountKind.Axe, ring, axe);                                // 挂载点：斧子
+            AddMount("axe", MountKind.Axe, ring, axe, axeSr);                         // 挂载点：斧子（工具类：也能挂锤子 / 手雷）
         }
         if (gear.Contains("Pistol"))
         {
@@ -792,11 +810,11 @@ public class NpcRig : CharacterRigBase
         testFire = false;                                         // 自动取消勾选
         if (!gun) { PlayAttack(); return; }                       // 斧头 / 锤子：挥一下
         if (_reloadT >= 0f || _drawT >= 0f) return;
-        if (_gun != null && _gun.def.hold == HoldType.Rifle)      // 步枪：连发（上一组没打完不重来）
+        if (_gun != null && _gun.def.IsAuto)                      // 步枪 / 能连发的手枪：连发（上一组没打完不重来）
         {
             if (_testBurst <= 0) { _testBurst = Mathf.Max(1, testRifleBurst); _testBurstTimer = 0f; }
         }
-        else TestShot();                                          // 手枪：一枪
+        else TestShot();                                          // 手枪（不能连发的）：一枪
     }
 
     int _testBurst;                                               // 测试连发还剩几枪
@@ -970,8 +988,11 @@ public class NpcRig : CharacterRigBase
         HideHand(_handLSprite);                                             // 换前面那只手
 
         // 腰上的那件藏起来（挂环 / 枪套留着）
-        if (key == "hammer") HideGear("hammer");
-        else if (key == "axe") HideGear("axe");
+        if (key == "hammer" || key == "axe")                               // 锤子 / 斧头：藏起挂着它的那个工具挂环上的（可能挂在另一个挂环上）
+        {
+            MountPoint tm = MountHolding(key);
+            if (tm != null && tm.art != null) HideRenderer(tm.art);
+        }
         else if (key == "medkit") { HideGear("medkit"); HideGear("zipper"); }
         else if (key == "bottle") HideGear("bottle");
     }
@@ -1097,7 +1118,7 @@ public class NpcRig : CharacterRigBase
         if (_gun != null)                                                   // 通用枪械：取出 / 换弹 / 持枪 + 后坐（CharacterRigBase）
         {
             if (_drawT >= 0f) { AnimateGunDraw(dt); return; }               // 步枪取出动画
-            if (!AnimateGunReload(dt)) GunRecoilPose(dt);
+            if (!AnimateGunReload(dt)) { GunRecoilPose(dt); AnimateBolt(dt); }   // 持枪 + 后坐；拉栓枪再拉栓
             return;
         }
         if (_heldSprite == null || !_heldSprite.enabled)                    // 空手：手点跟着前手
@@ -1408,8 +1429,29 @@ public class NpcRig : CharacterRigBase
     // 武器挂载点（枪套）换成别的武器时用哪张图（以后加新武器在这里加一行）
     protected override Sprite MountArt(MountPoint m, string item)
     {
+        if (IsToolMount(m.kind))                                            // 工具挂环：锤子 / 斧头 / 手雷（都是从挂环往下挂，轴心在顶上）
+        {
+            switch (item)
+            {
+                case "hammer": return Load("Gear/Hammer");
+                case "axe": return Load("Gear/Axe");
+                case "grenade": return LoadFrom("NpcArt2", "Grenade1");     // 手雷：用 npc2 的图（拉环挂在钩子上）
+                default: return null;
+            }
+        }
         WeaponDef d = GunDefOfItem(item);                                   // 是枪：用这把枪自己的挂件图（枪套里 / 斜挂）
         if (m.kind == MountKind.Rifle && _slungPic != null) { Destroy(_slungPic.gameObject); _slungPic = null; }   // 上一把用部件拼的步枪拆掉
+        if (m.kind == MountKind.Weapon && _holsterPic != null) { Destroy(_holsterPic.gameObject); _holsterPic = null; }   // 上一把用部件拼的手枪拆掉
+        if (d != null && m.kind == MountKind.Weapon && d.hold == HoldType.Pistol && string.IsNullOrEmpty(d.holsterArt) && m.art != null)
+        {
+            // 武器挂载点（枪套）：没有枪套图的手枪用部件直接拼一把整枪（不缩小），翻过来、枪口朝下插进枪套（枪套画在它前面）
+            _holsterPic = BuildGunPicture(d, m.art.transform, m.art, "HolsterGun");
+            _holsterPic.localPosition = CanvasToLocal(HOLSTER_GUN_SHIFT);   // 枪的中心对上原来那张枪套手枪图里枪的中心
+            _holsterPic.localRotation = Quaternion.Euler(0f, 0f, HOLSTER_GUN_TURN);
+            _holsterPic.localScale = new Vector3(-1f, 1f, 1f);              // 左右翻过来
+            m.art.sprite = null;                                            // 原来那张图不显示
+            return null;
+        }
         if (d != null && m.kind == MountKind.Rifle && d.hold == HoldType.Rifle && !d.characterMountArt && m.art != null)
         {
             // 步枪挂载点：用枪的部件直接拼一把整枪（不缩小，和拿在手上一样大），斜着挂（和 npc2 胸挂上的一样斜）
@@ -1434,6 +1476,7 @@ public class NpcRig : CharacterRigBase
     }
 
     Transform _slungPic;                                                    // 步枪挂载点上用部件拼的枪（战斗步枪以外的步枪）
+    Transform _holsterPic;                                                  // 枪套里用部件拼的手枪（没有枪套图的手枪）
 
     // 把这把步枪挂到背带的步枪挂载点上（已经挂着就不动；没有步枪挂载点就算了 = 直接拿在手上）
     void PutOnSling(string key)

@@ -82,11 +82,19 @@ public class AbaForce : MonoBehaviour
     public float medkitHeal = 45f;
 
     [Header("武器")]
-    [Tooltip("队员拿哪把步枪（WeaponDef id）：aba_rifle = 战斗步枪，aba-x95 = ABA-X95，aba-ar15 = ABA-AR15，akm = AKM（新生成的队员才换）")]
+    [Tooltip("队员拿哪把步枪（WeaponDef id）：aba_rifle = 战斗步枪，aba-x95 = ABA-X95，aba-ar15 = ABA-AR15，akm = AKM，aba-m2 = ABA-M2 狙击枪（新生成的队员才换）")]
     public string rifleModel = "aba_rifle";
-    [Tooltip("队员的手枪（WeaponDef id）")]
+    [Tooltip("队员的手枪（WeaponDef id）：aba_pistol = ABA 战术手枪，aba-p225 = ABA-P225，aba-17 = ABA-17（连发）")]
     public string pistolModel = "aba_pistol";
     // 每把枪的数值（弹匣、伤害、散布、射速、射程、要害、瞄准镜 / 镭射……）在枪的数据里：WeaponDef 的"战斗数值"一栏
+
+    [Header("手雷（腰上两颗；扔的动作在 NpcRigB.Throw.cs，飞 / 炸在 Grenade.cs）")]
+    [Tooltip("什么时候扔：目标躲在墙 / 石头后面打不到、目标身边扎堆（≥ 下面的个数）、或者是大家伙")]
+    public Vector2 grenadeRange = new Vector2(2.5f, 6.5f);   // 能扔的距离（太近会炸到自己，太远扔不到）
+    public float grenadeCooldown = 8f;                       // 同一个人扔完一颗至少等几秒
+    public float grenadeSquadGap = 2.5f;                     // 整个小组两颗手雷之间至少隔几秒（不一起扔）
+    public int grenadeCluster = 2;                           // 目标身边（爆炸半径里）有几个敌人就值得扔
+    public Grenade.Spec grenade = new Grenade.Spec();        // 手雷的伤害 / 半径 / 引信 / 飞多快 / 爆炸大小和光
 
     [Header("测试")]
     public bool debugKeys = true;            // F10 放一个小组

@@ -312,6 +312,7 @@ public abstract partial class CharacterRigBase
         GunRig g = _rlGun;
         _rlGun = null;
         if (g == null) return;
+        if (g.def.boltAction) PlaceBolt(g, 0f, 0f);                         // 拉栓枪：换弹被打断时枪栓 / 拉栓复位
         bool shown = GunShown(g);                                           // 枪还拿在手上：枪上的两只手、弹匣显示回来
         foreach (WeaponPart p in g.def.parts)
             if (p != null && p.hand) { SpriteRenderer h = g.Part(p.name); if (h != null) h.enabled = shown; }
@@ -336,7 +337,10 @@ public abstract partial class CharacterRigBase
     protected bool AnimateGunReload(float dt)
     {
         if (_reloadT < 0f || _rlGun == null) return false;
-        GunAnimator.For(_rlGun.def).Reload(this, _rlGun, dt);               // 这把枪的动画类（默认 = 下面的通用换弹）
+        GunRig g = _rlGun; ReloadKind kind = _reloadKind;
+        if (_boltT >= 0f) StopBolt();                                       // 换弹时不拉栓
+        GunAnimator.For(g.def).Reload(this, g, dt);                         // 这把枪的动画类（默认 = 下面的通用换弹）
+        if (_reloadT < 0f && g == _gun && g.def.boltAction && g.def.reloadMotion != ReloadMotion.Bolt && kind == ReloadKind.Speed) StartBolt();   // 拉栓枪（没有专门的拉栓式换弹时）：打空了换好弹匣再拉一次栓
         return true;
     }
 
@@ -347,6 +351,7 @@ public abstract partial class CharacterRigBase
         if (_reloadKind == ReloadKind.Shaky) ShakyReload(dt);
         else if (_rlGun.def.reloadMotion == ReloadMotion.Bullpup) BullpupReload(dt);   // 无托步枪：单独一套（CharacterRigBase.Bullpup.cs）
         else if (_rlGun.def.reloadMotion == ReloadMotion.AK) AkReload(dt);             // AK 系列：单独一套（CharacterRigBase.AK.cs）
+        else if (_rlGun.def.reloadMotion == ReloadMotion.Bolt) BoltReload(dt);         // 拉栓枪：单独一套（CharacterRigBase.BoltReload.cs）
         else if (_rlGun.def.reloadMotion == ReloadMotion.Rifle)
         {
             if (_reloadKind == ReloadKind.Tactical) RifleTacticalReload(dt);
@@ -365,6 +370,7 @@ public abstract partial class CharacterRigBase
         if (kind == ReloadKind.Shaky) kind = ReloadKind.Normal;
         if (g.def.reloadMotion == ReloadMotion.Bullpup) return BullpupReloadTotal(s, kind);
         if (g.def.reloadMotion == ReloadMotion.AK) return AkReloadTotal(s, kind);      // AK 系列
+        if (g.def.reloadMotion == ReloadMotion.Bolt) return BoltReloadTotal(s, kind);  // 拉栓枪
         if (g.def.reloadMotion == ReloadMotion.Rifle)
         {
             if (kind == ReloadKind.Tactical) return RifleTacticalTotal();

@@ -122,6 +122,10 @@ public class ItemDatabase : MonoBehaviour
                 0f, 0f, 0f, 0f,
                 "螺丝刀、扳手、电工胶带……修修补补用的工具包。",
                 "ドライバー、レンチ、絶縁テープ……修理に使う工具一式。"),
+            ItemData.Make("grenade", "手雷", "手榴弾", ItemCategory.Gear,          // 工具类挂件：挂在锤子 / 斧头挂环上（挂环空着时）
+                0f, 0f, 0f, 0f,
+                "拉开拉环、扔出去，过一会儿就炸。小心别炸到自己人。",
+                "ピンを抜いて投げると、少し後に爆発する。味方を巻き込まないように。"),
             ItemData.Make("ai_terminal", "小型AI终端机", "小型AI端末", ItemCategory.Gear,      // ABA 清除小组认它：带着的人不会被清除（AbaForce）
                 0f, 0f, 0f, 0f,
                 "ABA 配发的小型 AI 终端机。清除小组不会对带着它的人开枪。",
