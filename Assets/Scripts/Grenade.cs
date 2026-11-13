@@ -32,7 +32,8 @@ public class Grenade : MonoBehaviour
     static Sprite _grenadeSprite, _boomSprite;
 
     Spec _s;
-    AbaOperative _by;                              // 谁扔的（打死了算他的）
+    AbaOperative _by;                              // 谁扔的（ABA 队员；打死了算他的）
+    NpcData _byNpc;                                // 谁扔的（幸存者）
     SpriteRenderer _sr;
     Vector2 _from, _to;                            // 地面上从哪飞到哪（人站的那一层）
     float _h0;                                     // 出手时离"人站的那一层"多高
@@ -43,13 +44,14 @@ public class Grenade : MonoBehaviour
     int _layer;
 
     // 扔出去：handPos = 出手时手雷在哪（世界）；standPos = 扔的人站的位置；target = 落点；layer = 排序层
-    public static Grenade Throw(Vector3 handPos, Vector3 standPos, Vector3 target, Spec spec, AbaOperative by, int layer)
+    public static Grenade Throw(Vector3 handPos, Vector3 standPos, Vector3 target, Spec spec, AbaOperative by, int layer, NpcData byNpc = null)
     {
         if (_grenadeSprite == null) _grenadeSprite = Resources.Load<Sprite>("NpcArt2/Grenade1");
         GameObject go = new GameObject("Grenade");
         Grenade g = go.AddComponent<Grenade>();
         g._s = spec ?? new Spec();
         g._by = by;
+        g._byNpc = byNpc;
         g._layer = layer;
         g._sr = go.AddComponent<SpriteRenderer>();
         g._sr.sprite = _grenadeSprite;
@@ -113,7 +115,7 @@ public class Grenade : MonoBehaviour
             if (e == null || !e.Alive) continue;
             if (!Hit(c, e.transform.position, r, out float k, out Vector2 dir)) continue;
             float dmg = _s.damage * k;
-            if (_by != null) e.TakeHitFromAba(dmg, _by); else e.TakeDamage(dmg, null);
+            if (_by != null) e.TakeHitFromAba(dmg, _by); else e.TakeDamage(dmg, _byNpc);   // 算扔的人的
             if (e.Alive)
             {
                 float mass = Mathf.Max(0.6f, e.Def.scale * e.Def.scale);           // 体型越大推得越少
@@ -130,7 +132,7 @@ public class Grenade : MonoBehaviour
                 if (n == null || n.IsDead) continue;
                 NpcMover m = NpcView.GetMover(n.id);
                 if (m == null || !Hit(c, m.transform.position, r, out float k, out Vector2 dir)) continue;
-                NpcCombat.OnHit(n, _s.damage * k, null, null, _by);
+                NpcCombat.OnHit(n, _s.damage * k, null, n == _byNpc ? null : _byNpc, _by);   // 自己人扔的：算误伤
                 if (!n.IsDead) Knockback.Push(m.gameObject, dir * _s.knock * k);
                 else if (_by != null) _by.OnKill(null, n);
             }
@@ -139,7 +141,7 @@ public class Grenade : MonoBehaviour
         {
             if (o == null || !o.Alive) continue;
             if (!Hit(c, o.transform.position, r, out float k, out Vector2 dir)) continue;
-            o.TakeHit(_s.damage * k, dir, null, null);
+            o.TakeHit(_s.damage * k, dir, null, _byNpc);
             if (o.Alive) Knockback.Push(o.gameObject, dir * _s.knock * k);
         }
     }

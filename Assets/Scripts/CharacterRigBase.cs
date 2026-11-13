@@ -1482,7 +1482,8 @@ public abstract partial class CharacterRigBase : MonoBehaviour
 
     // 只有部分角色有的功能：父类给一个"什么都不做"的默认，有这个功能的角色自己 override
     public virtual bool HasGear(string key) => false;
-    public virtual bool CanTestThrow => false;                                     // 这个角色能不能扔手雷（测试窗口显示按钮）
+    public virtual bool CanTestThrow => false;
+    public virtual bool IsMonster => false;                                        // 怪物（动画测试里放在怪物栏）                                     // 这个角色能不能扔手雷（测试窗口显示按钮）
     public virtual void TestThrow() { }                                            // 测试：扔一颗手雷
     public virtual void Hold(string key) { }
 }

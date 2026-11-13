@@ -57,6 +57,14 @@ public class Enemy : MonoBehaviour
 
     static readonly Dictionary<string, Sprite> _placeholders = new Dictionary<string, Sprite>();
 
+    // 有骨骼动画的怪物（EnemyDef.rig）：外观交给它，伤害等砍下去那一刻才算
+    CharacterRigBase _rig;        // 骨骼动画（被感染的研究员 InfectedRig / 眼球蜘蛛 SpiderRig）
+    IMonsterRig _mon;             // 同一个组件：怪物共用的那几样（拼好没有、出手延迟、藏起来、淡出）
+    float _age;                   // 活了多久（会长大的怪物用）
+    bool _growRolled;             // 这一阶段长不长已经判断过了
+    System.Action _pendingHit;    // 等动画砍下去再算的那一下
+    float _pendingT;
+
     static WorldState World => WorldManager.Instance != null ? WorldManager.Instance.world : null;
 
     // ============ 生成 ============
@@ -140,6 +148,7 @@ public class Enemy : MonoBehaviour
 
         _attackCd -= dt;
         _repathTimer -= dt;
+        UpdateGrowth(dt);                                                   // 会长大的怪物（眼球蜘蛛）：活够了就长
         TrackStuck(dt);
         _visTimer -= dt;
         if (_visTimer <= 0f) { _visTimer = 0.2f; UpdateVisible(); }
@@ -357,7 +366,8 @@ public class Enemy : MonoBehaviour
         }
         _lunge = 1f;
         float hit = Def.kind == EnemyKind.Creature ? 0.8f : 0.7f;   // 近战：照旧按命中率
-        if (Random.value < hit) NpcCombat.OnEnemyHit(_target, Def.damage, this);
+        NpcData victim = _target;
+        Strike(() => { if (Alive && victim != null && !victim.IsDead && Dist(transform.position, NpcPos(victim)) <= Def.attackRange + 0.45f && Random.value < hit) NpcCombat.OnEnemyHit(victim, Def.damage, this); });
     }
 
     // 打 ABA 队员（近战照旧按命中率；带枪的走 Ballistics）
@@ -379,7 +389,8 @@ public class Enemy : MonoBehaviour
         }
         _lunge = 1f;
         float hit = Def.kind == EnemyKind.Creature ? 0.8f : 0.7f;
-        if (Random.value < hit) _aba.TakeHit(Def.damage, (tp - transform.position).normalized, this, null);
+        AbaOperative foe = _aba;
+        Strike(() => { if (Alive && foe != null && foe.Alive && Dist(transform.position, foe.transform.position) <= Def.attackRange + 0.45f && Random.value < hit) foe.TakeHit(Def.damage, (foe.transform.position - transform.position).normalized, this, null); });
     }
 
     void AttackWall(float dt)
@@ -399,13 +410,18 @@ public class Enemy : MonoBehaviour
         if (_attackCd > 0f) return;
         _attackCd = Def.attackInterval;
         _lunge = 1f;
-        if (StructureHealth.Damage(_wall, Def.wallDamage, this))
+        GameObject wall = _wall;
+        Strike(() =>
         {
-            _wall = null;
-            _stuckTimer = 0f;
-            _hasDest = false;
-            _wallGrace = Time.time + 2.5f;
-        }
+            if (!Alive || wall == null) return;
+            if (StructureHealth.Damage(wall, Def.wallDamage, this))
+            {
+                if (_wall == wall) _wall = null;
+                _stuckTimer = 0f;
+                _hasDest = false;
+                _wallGrace = Time.time + 2.5f;
+            }
+        });
     }
 
     void DoLoot(float dt)
@@ -421,10 +437,15 @@ public class Enemy : MonoBehaviour
 
     // ============ 挨打 / 死 ============
 
-    public void TakeDamage(float dmg, NpcData by)
+    public void TakeDamage(float dmg, NpcData by) { TakeDamage(dmg, by, by != null && NpcView.GetMover(by.id) != null ? (Vector2)NpcView.GetMover(by.id).transform.position : (Vector2)transform.position); }
+
+    // from = 打过来的人在哪（骨骼动画按它往后一仰 / 倒下）
+    void TakeDamage(float dmg, NpcData by, Vector2 from)
     {
         if (!Alive || dmg <= 0f) return;
         Hp -= dmg;
+        BloodPools.Spawn(transform, dmg, Hp <= 0f, (Vector2)transform.position - from);   // 脚下一滩血
+        RigHit(from, dmg, Hp <= 0f);
         _flash = 0.15f;
         _barUntil = Time.time + 4f;
         UpdateBar();
@@ -446,7 +467,7 @@ public class Enemy : MonoBehaviour
         if (by != null && (Def.kind == EnemyKind.Human || _aba == null || Random.value < 0.4f)) _aba = by;
         if (goal == Goal.Wander) _loiterUntil = 0f;
         if (Hp - dmg <= 0f) KilledByAba = true;
-        TakeDamage(dmg, null);
+        TakeDamage(dmg, null, by != null ? (Vector2)by.transform.position : (Vector2)transform.position);
     }
 
     // 被击退时打断一下（这几秒内不能出手）
@@ -455,6 +476,7 @@ public class Enemy : MonoBehaviour
         if (!Alive) return;
         _attackCd = Mathf.Max(_attackCd, seconds);
         _lunge = 0f;
+        _pendingHit = null;                                                 // 被打断：这一下砍不中了
     }
 
     void Die(NpcData by)
@@ -469,6 +491,49 @@ public class Enemy : MonoBehaviour
         }
         if (_bar != null) _bar.gameObject.SetActive(false);
         EnemyDirector.OnEnemyKilled(this, by);
+        if (!string.IsNullOrEmpty(Def.hatchInto) && Random.value < Def.hatchChance) StartCoroutine(Hatch());   // 身体里钻出东西来（被感染的研究员 → 眼球蜘蛛）
+    }
+
+    // 倒下一会儿后，身体里钻出 hatchMin~hatchMax 只（往四周散开一点，带着同样的目的：来袭的继续冲营地）
+    System.Collections.IEnumerator Hatch()
+    {
+        yield return new WaitForSeconds(0.8f);                              // 先倒下，再钻出来
+        EnemyDef d = EnemyDefs.Get(Def.hatchInto);
+        if (d == null) yield break;
+        int n = Random.Range(Mathf.Min(Def.hatchMin, Def.hatchMax), Mathf.Max(Def.hatchMin, Def.hatchMax) + 1);
+        for (int i = 0; i < n; i++)
+        {
+            Vector2 off = Random.insideUnitCircle * 0.3f;                   // 从尸体旁边一点点的地方钻出来
+            Enemy e = Spawn(d, transform.position + new Vector3(off.x, off.y, 0f), goal, _home);
+            if (e != null && e._rig is SpiderRig sp) sp.PlayHatch();        // 一下子弹出来、跳一下
+        }
+        EnemyDirector.OnEnemyHatched(this, d, n);
+    }
+
+    // 会长大的怪物：活够 growAfter 秒，按 growChance 判断一次长不长；长了就换成新的种类（血量按比例换算）
+    void UpdateGrowth(float dt)
+    {
+        if (string.IsNullOrEmpty(Def.growInto) || _growRolled) return;
+        _age += dt;
+        if (_age < Def.growAfter) return;
+        _growRolled = true;                                                 // 这一阶段只判断一次
+        if (Random.value >= Def.growChance) return;
+        EnemyDef nd = EnemyDefs.Get(Def.growInto);
+        if (nd == null) return;
+        float hpRatio = Hp / Mathf.Max(1f, Def.maxHp);
+        Def = nd;
+        Hp = Mathf.Max(1f, hpRatio * nd.maxHp);
+        _age = 0f; _growRolled = false;                                     // 下一阶段重新计时
+        if (_agent != null)
+        {
+            NavMeshAgent tpl = TemplateAgent();
+            _agent.radius = (tpl != null ? tpl.radius : 0.2f) * Mathf.Clamp(nd.scale, 0.8f, 1.6f);   // 变大了：占的地方也大一点
+            _agent.speed = nd.speed;
+        }
+        if (_bar != null) _bar.localPosition = new Vector3(0f, FeetY + 0.9f * nd.scale + 0.14f, 0f);   // 血条跟着挪到头顶
+        UpdateBar();
+        if (_rig is SpiderRig sp) sp.GrowTo(nd.scale, 1.5f);                // 外观：一胀一胀地长大
+        EnemyDirector.OnEnemyGrew(this);
     }
 
     void Despawn()
@@ -477,8 +542,18 @@ public class Enemy : MonoBehaviour
         Destroy(gameObject);
     }
 
+    float _deadFor;               // 骨骼动画：倒下多久了（先躺一会儿再淡出）
     void FadeOut(float dt)
     {
+        if (_rig != null)
+        {
+            _deadFor += dt;
+            if (_deadFor < 4f) return;                                      // 先躺 4 秒
+            _fade -= dt * 0.7f;
+            _mon.SetAlpha(_fade);
+            if (_fade <= 0f) Destroy(gameObject);
+            return;
+        }
         _fade -= dt;
         if (_body != null)
         {
@@ -635,6 +710,29 @@ public class Enemy : MonoBehaviour
 
     void BuildLook()
     {
+        if (Def.rig == "infected")                                          // 被感染的研究员：骨骼动画（InfectedRig）
+        {
+            UnityEngine.Rendering.SortingGroup sg = gameObject.AddComponent<UnityEngine.Rendering.SortingGroup>();
+            sg.sortingOrder = 1;                                            // 和 NPC 同层（建筑是 0）
+            InfectedRig ir = gameObject.AddComponent<InfectedRig>();
+            ir.UseMonsterDefaults();                                        // 慢、拖着走
+            ir.testLoop = false; ir.testSpeed = -1f; ir.testWalkCycle = false;   // 游戏里：测试开关都关掉
+            _rig = ir; _mon = ir;
+            BuildBar();
+            return;
+        }
+        if (Def.rig == "spider")                                            // 眼球蜘蛛：骨骼动画（SpiderRig），大小按体型
+        {
+            UnityEngine.Rendering.SortingGroup sg = gameObject.AddComponent<UnityEngine.Rendering.SortingGroup>();
+            sg.sortingOrder = 1;                                            // 和 NPC 同层（建筑是 0）
+            SpiderRig sr = gameObject.AddComponent<SpiderRig>();
+            sr.UseMonsterDefaults();
+            sr.size = Def.scale;                                            // 幼体 0.5 / 青年体 1.2 / 变异体 3（和 NPC 比的高度）
+            sr.testLoop = false; sr.testSpeed = -1f; sr.testWalkCycle = false;   // 游戏里：测试开关都关掉
+            _rig = sr; _mon = sr;
+            BuildBar();
+            return;
+        }
         GameObject b = new GameObject("Body");
         _bodyT = b.transform;
         _bodyT.SetParent(transform, false);
@@ -647,8 +745,12 @@ public class Enemy : MonoBehaviour
         float h = _body.sprite != null ? _body.sprite.bounds.size.y : 1f;
         _bodyScale = h > 0.01f ? 0.9f * Def.scale / h : Def.scale;   // 高度 ≈ 0.9 × 体型（体型 1 和 NPC 差不多高）
         _bodyT.localScale = new Vector3(_bodyScale, _bodyScale, 1f);
+        BuildBar();
+    }
 
-        // 血条（挨打后显示几秒）
+    // 血条（挨打后显示几秒）
+    void BuildBar()
+    {
         _bar = EnemyDirector.Quad("HpBar", transform, new Color(0f, 0f, 0f, 0.75f), 6);
         _bar.localPosition = new Vector3(0f, FeetY + 0.9f * Def.scale + 0.14f, 0f);
         _bar.localScale = new Vector3(0.7f, 0.07f, 1f);
@@ -675,12 +777,14 @@ public class Enemy : MonoBehaviour
         }
         Visible = vis;
         if (_body != null) _body.enabled = vis;
+        if (_mon != null) _mon.SetShown(vis);
         if (_bar != null) _bar.gameObject.SetActive(vis && Time.time < _barUntil);
         if (!vis) NpcSpeechBubble.Hide(transform);
     }
 
     void Face(Vector3 p)
     {
+        if (_rig != null) { LookAtFoe(); return; }                          // 骨骼动画：盯着对手（瞳孔追踪 + 转身）
         if (_body == null) return;
         float dx = p.x - transform.position.x;
         if (dx < -0.01f) _body.flipX = true;
@@ -690,6 +794,13 @@ public class Enemy : MonoBehaviour
     // 代码动画：待机时轻轻起伏，移动时颠得快一点，出手时往前一扑，挨打时闪红
     void Animate(float dt)
     {
+        if (_rig != null)                                                   // 骨骼动画：走路 / 待机 / 痉挛都在 InfectedRig / SpiderRig 里；这里只管盯着谁、等砍下去
+        {
+            LookAtFoe();
+            if (_pendingHit != null) { _pendingT -= dt; if (_pendingT <= 0f) { System.Action a = _pendingHit; _pendingHit = null; a(); } }
+            if (_bar != null && _bar.gameObject.activeSelf && Time.time >= _barUntil) _bar.gameObject.SetActive(false);
+            return;
+        }
         if (_bodyT == null) return;
         Vector3 v = _agent != null && _agent.isActiveAndEnabled ? _agent.velocity : Vector3.zero;
         bool moving = v.sqrMagnitude > 0.01f;
@@ -715,6 +826,38 @@ public class Enemy : MonoBehaviour
             _body.color = _flash > 0f ? new Color(1f, 0.45f, 0.45f, 1f) : Color.white;
         }
         if (_bar != null && _bar.gameObject.activeSelf && Time.time >= _barUntil) _bar.gameObject.SetActive(false);
+    }
+
+    // 骨骼动画：在追 / 在打谁，眼睛就盯着谁
+    void LookAtFoe()
+    {
+        if (_rig == null) return;
+        Transform t = null;
+        if (_vsAba && _aba != null && _aba.Alive) t = _aba.transform;
+        else if (_target != null && !_target.IsDead) { NpcMover m = NpcView.GetMover(_target.id); if (m != null) t = m.transform; }
+        else if (_wall != null) t = _wall.transform;
+        if (t != null) _rig.LockOn(t);
+    }
+
+    // 出手：骨骼动画先抬手、砍下去的那一刻才算伤害；单张图的照旧马上算
+    void Strike(System.Action hit)
+    {
+        if (_rig == null) { hit(); return; }
+        _rig.PlayAttack();
+        _pendingHit = hit;
+        _pendingT = _mon.HitDelay;
+    }
+
+    // 骨骼动画：挨打一仰 / 倒下（dir = 打过来的方向；子弹的着弹点效果 Ballistics 已经放了）
+    void RigHit(Vector2 from, float dmg, bool dead)
+    {
+        if (_rig == null || !_mon.Built) return;                            // 还没拼好（刚生成那一帧）
+        Vector2 dir = (Vector2)transform.position - from;
+        if (dir.sqrMagnitude < 0.0001f) dir = Random.value < 0.5f ? Vector2.left : Vector2.right;
+        dir.Normalize();
+        float k = Mathf.Clamp(dmg / 15f, 0.4f, 1.6f);
+        if (dead) _rig.PlayDeath(dir, k, _rig.HitPoint(dir), false);
+        else _rig.PlayHit(dir, k, _rig.HitPoint(dir), false);
     }
 
     // 没有美术图时的占位图：颜色画进贴图里（这样眼睛能保持亮色），轴心在脚底，高 1 单位

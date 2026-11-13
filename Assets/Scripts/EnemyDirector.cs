@@ -153,6 +153,7 @@ public class EnemyDirector : MonoBehaviour
         EnemyDef def;
         if (w.day > safeDays + 5 && r < 0.08f && Enemy.CountAlive("aberration") == 0) def = EnemyDefs.Get("aberration");
         else if (w.day >= 3 && r < 0.3f) def = EnemyDefs.Get("scavenger");
+        else if (w.day >= 4 && r < 0.45f) def = EnemyDefs.Get("infected");   // 被感染的研究员：第 4 天起，2~4 只一群
         else if (w.day >= 5 && r < 0.6f) def = EnemyDefs.Get("stalker");
         else def = EnemyDefs.Get("shade");
         if (def == null) return;
@@ -361,6 +362,22 @@ public class EnemyDirector : MonoBehaviour
             WorldManager.Instance.AddToStorage(e.Def.dropItem, 1);
             AddEvent(w, LF("enemy_event_drop", e.Name, ItemName(e.Def.dropItem)));
         }
+    }
+
+    // 被感染的研究员身体里钻出了眼球蜘蛛（Enemy 调）
+    public static void OnEnemyHatched(Enemy host, EnemyDef spawn, int count)
+    {
+        WorldState w = World;
+        if (host == null || spawn == null || w == null || !host.Visible) return;   // 看不见的地方：不提示
+        AddEvent(w, LF("enemy_event_hatch", host.Name, count, spawn.Name));
+    }
+
+    // 眼球蜘蛛长大了；长成强敌（变异体）时提示一下（Enemy 调）
+    public static void OnEnemyGrew(Enemy e)
+    {
+        WorldState w = World;
+        if (e == null || w == null || !e.Def.IsStrong) return;
+        AddEvent(w, LF("enemy_event_mutate", e.Name));
     }
 
     public static void OnEnemyFled(Enemy e)

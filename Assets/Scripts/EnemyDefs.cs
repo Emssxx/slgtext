@@ -37,6 +37,14 @@ public class EnemyDef
     [Range(0f, 1f)] public float dropChance = 0f;
     public Color color = Color.white;   // 占位图的颜色
     public float scale = 1f;            // 体型
+    public string rig;                  // 有骨骼动画的怪物用哪套外观（"infected" = 被感染的研究员 InfectedRig；"spider" = 眼球蜘蛛 SpiderRig；空 = 单张图）
+    public float knockCells = 0f;       // > 0：被（带击退的）子弹打中时固定往后退这么多格，不按体型算（0 = 按枪的击退 ÷ 体型）
+    public string hatchInto;            // 死了以后身体里钻出什么（敌人 id；空 = 没有）
+    [Range(0f, 1f)] public float hatchChance = 0f;   // 钻出来的概率
+    public int hatchMin = 2, hatchMax = 3;           // 钻出来几只
+    public string growInto;             // 活够 growAfter 秒后长成什么（敌人 id；空 = 不长）
+    public float growAfter = 60f;       // 活多久开始长（秒）
+    [Range(0f, 1f)] public float growChance = 1f;    // 到时候长不长（只判断一次）
 
     public bool Ranged => attackRange > 1.5f;
     public bool IsStrong => tier == EnemyTier.Strong;
@@ -83,6 +91,48 @@ public static class EnemyDefs
             sanityAura = 2f, sanityPerSecond = 0.3f, wallDamage = 2f, fleeBelow = 0f,
             packMin = 2, packMax = 3, dropItem = "crystal", dropChance = 0.15f,
             color = new Color(0.35f, 0.15f, 0.2f, 1f), scale = 0.85f
+        });
+
+        // —— 造物 · 弱：被感染的研究员。防护服坏了没有灯，面罩里一只大眼球；两只变异的手当武器。
+        //    皮很厚、走得很慢，2~4 只一群慢慢围过来（骨骼动画：InfectedRig）——
+        Add(new EnemyDef
+        {
+            id = "infected", kind = EnemyKind.Creature, tier = EnemyTier.Weak,
+            maxHp = 160f, damage = 9f, attackRange = 0.85f, attackInterval = 1.5f, speed = 1.1f, sight = 5f,
+            sanityAura = 2.5f, sanityPerSecond = 0.35f, wallDamage = 4f, fleeBelow = 0f,
+            packMin = 2, packMax = 4, dropItem = "crystal", dropChance = 0.2f,
+            color = new Color(0.85f, 0.8f, 0.65f, 1f), scale = 1f, rig = "infected",
+            hatchInto = "spider_s", hatchChance = 0.5f, hatchMin = 2, hatchMax = 3     // 一半的几率：身体里钻出 2~3 只眼球蜘蛛幼体
+        });
+
+        // —— 造物：眼球蜘蛛（寄生在被感染的研究员体内，研究员死了才钻出来；不会自己成群来袭）。
+        //    三种大小，越大越慢、越耐打（骨骼动画：SpiderRig，scale = 和 NPC 比的高度）：
+        //    幼体 0.5 倍：快、脆，活 60 秒长成青年体；青年体 1.2 倍：再活 120 秒有 30% 几率变异；变异体 3 倍：又慢又硬，会拆墙 ——
+        Add(new EnemyDef
+        {
+            id = "spider_s", kind = EnemyKind.Creature, tier = EnemyTier.Weak,
+            maxHp = 25f, damage = 3f, attackRange = 0.45f, attackInterval = 0.9f, speed = 2.8f, sight = 4.5f,
+            sanityAura = 1.5f, sanityPerSecond = 0.2f, wallDamage = 1f, fleeBelow = 0f,
+            packMin = 2, packMax = 3, dropItem = null, dropChance = 0f,
+            color = new Color(0.7f, 0.2f, 0.2f, 1f), scale = 0.5f, rig = "spider", knockCells = 0.3f,   // 太轻了：每挨一枪固定往后退 0.3 格
+            growInto = "spider_m", growAfter = 60f, growChance = 1f
+        });
+        Add(new EnemyDef
+        {
+            id = "spider_m", kind = EnemyKind.Creature, tier = EnemyTier.Weak,
+            maxHp = 90f, damage = 8f, attackRange = 0.8f, attackInterval = 1.2f, speed = 2.0f, sight = 5f,
+            sanityAura = 2.5f, sanityPerSecond = 0.4f, wallDamage = 3f, fleeBelow = 0f,
+            packMin = 1, packMax = 2, dropItem = "crystal", dropChance = 0.15f,
+            color = new Color(0.7f, 0.2f, 0.2f, 1f), scale = 1.2f, rig = "spider",
+            growInto = "spider_l", growAfter = 120f, growChance = 0.3f
+        });
+        Add(new EnemyDef
+        {
+            id = "spider_l", kind = EnemyKind.Creature, tier = EnemyTier.Strong,
+            maxHp = 600f, damage = 24f, attackRange = 1.4f, attackInterval = 2.2f, speed = 1.2f, sight = 6.5f,
+            sanityAura = 4.5f, sanityPerSecond = 1.2f, wallDamage = 30f, fleeBelow = 0f,
+            packMin = 1, packMax = 1, dropItem = "crystal", dropChance = 1f,
+            color = new Color(0.7f, 0.2f, 0.2f, 1f), scale = 3f, rig = "spider"
         });
 
         // —— 造物 · 强：畸变体。慢、皮厚、一下打得很疼，会撞墙；靠近它的人理智狂掉 ——

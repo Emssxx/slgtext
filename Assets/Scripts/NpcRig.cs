@@ -135,7 +135,7 @@ public class NpcRig : CharacterRigBase
     }
 
     // 现在朝左吗（测试开关优先，否则读旧图的翻转）
-    protected override bool FacingLeft => testFaceLeft || (_aimUntil > _time ? _aimLeft : (_oldSprite != null && _oldSprite.flipX));
+    protected override bool FacingLeft => testFaceLeft || (ThrowFacing(out bool tl) ? tl : _aimUntil > _time ? _aimLeft : (_oldSprite != null && _oldSprite.flipX));   // 扔手雷时朝扔的方向
 
     // 外部调用：接下来 0.3 秒瞄准一个固定的点（不管往哪走，身体和枪口都朝着它）
     public void AimAt(Vector3 target)
@@ -149,6 +149,7 @@ public class NpcRig : CharacterRigBase
     // 每帧：算瞄准角度、判断要不要翻身，枪口慢慢转过去（dt = 0 时只算不转）
     protected override void UpdateAim(float dt)
     {
+        if (ThrowControlsAim) { ThrowAim(dt); return; }                     // 拿步枪 / 空手扔手雷：停火、朝扔的方向，枪口朝下（手枪照常瞄准；CharacterRigBase.Throw.cs）
         if (_gun != null) { GunUpdateAim(dt); return; }                      // 通用枪械：按枪的属性瞄准
         if (testAimTarget != null)                                          // 测试：一直锁定拖进来的物体
         {
@@ -358,6 +359,16 @@ public class NpcRig : CharacterRigBase
     }
     // 现在挂着这件东西的挂载点（按挂着的物品找；没有 = null）
     MountPoint MountHolding(string item) { foreach (MountPoint m in _mounts) if (m.item == item) return m; return null; }
+    // ---- 扔手雷（动作在 CharacterRigBase.Throw.cs）：手雷挂在工具挂环上（锤子 / 斧头挂环挂了手雷）----
+    bool GrenadeOn(MountPoint m) => m.item == "grenade" && m.art != null && m.art.enabled && m.attachment != null && m.attachment.gameObject.activeInHierarchy;
+    public override int GrenadesLeft { get { int n = 0; foreach (MountPoint m in _mounts) if (GrenadeOn(m)) n++; return n; } }
+    protected override SpriteRenderer NextGrenade() { foreach (MountPoint m in _mounts) if (GrenadeOn(m)) return m.art; return null; }
+    public override void RefillGrenades() { foreach (MountPoint m in _mounts) if (m.item == "grenade" && m.art != null) m.art.enabled = true; }   // 挂环上挂着手雷的补回来
+    protected override SpriteRenderer ThrowBodyHand => _handLSprite;       // 空手：平时的前手
+    protected override bool ThrowHandsFree => _gun != null || _heldSprite == null || !_heldSprite.enabled;   // 拿着斧头 / 锤子……时不扔
+    protected override int ThrowHandOrder => 21;                           // 和前手一样
+    public override bool CanTestThrow => true;
+
     // 工具挂环在测试窗口里能选：锤子 / 斧头 / 手雷
     public override string[] MountChoices(MountPoint m) => m != null && IsToolMount(m.kind) ? ToolItems : null;
 
@@ -684,6 +695,7 @@ public class NpcRig : CharacterRigBase
         GunLampUpdate();                                          // 通用枪上的手电筒（枪的属性）
         GunLaserUpdate();                                         // 枪上的镭射瞄准线（枪的属性）
         if (_gun != null) PlaceGripHands(_gun);                   // 持枪手的微调（Inspector 改了马上看得到）
+        AnimateThrow(dt);                                         // 扔手雷的那只手（CharacterRigBase.Throw.cs）
     }
 
     // ---------------- 灯光 ----------------
@@ -795,13 +807,13 @@ public class NpcRig : CharacterRigBase
         if (testReload) { testReload = false; PlayReload(0f, testReloadKind); }  // 勾了"测试换弹"：按选的种类换一次弹匣
         bool fire = testFire;                                     // 勾了一下
         bool gun = _held == "pistol" || _gun != null;             // 拿着枪（自己的手枪 / 捡来的枪）
-        if (_reloadT >= 0f || _drawT >= 0f) _testBurst = 0;       // 换弹 / 正在取出步枪时不开枪
+        if (_reloadT >= 0f || _drawT >= 0f || ThrowBlocksFire) _testBurst = 0;   // 换弹 / 正在取出步枪 / 拿步枪扔手雷时不开枪
         if (gun && testLoop && _reloadT < 0f)                     // 枪循环：定时自动开枪（换弹时不开）
         {
             _testFireTimer -= dt;
             if (_testFireTimer <= 0f) { _testFireTimer = 1.4f; fire = true; }
         }
-        if (_testBurst > 0)                                       // 步枪连发：按这把枪的射速一枪接一枪
+        if (_testBurst > 0 && !ThrowBlocksFire)                   // 步枪连发：按这把枪的射速一枪接一枪
         {
             _testBurstTimer -= dt;
             if (_testBurstTimer <= 0f) { TestShot(); _testBurst--; _testBurstTimer += _gun != null ? _gun.def.ShotInterval : 0.15f; }
@@ -809,7 +821,7 @@ public class NpcRig : CharacterRigBase
         if (!fire) return;
         testFire = false;                                         // 自动取消勾选
         if (!gun) { PlayAttack(); return; }                       // 斧头 / 锤子：挥一下
-        if (_reloadT >= 0f || _drawT >= 0f) return;
+        if (_reloadT >= 0f || _drawT >= 0f || ThrowBlocksFire) return;
         if (_gun != null && _gun.def.IsAuto)                      // 步枪 / 能连发的手枪：连发（上一组没打完不重来）
         {
             if (_testBurst <= 0) { _testBurst = Mathf.Max(1, testRifleBurst); _testBurstTimer = 0f; }
@@ -893,6 +905,7 @@ public class NpcRig : CharacterRigBase
         {
             string w = NpcCombat.WeaponOf(_npcId).key;            // pistol / axe / hammer / fists
             if (w == "pistol" || w == "axe" || w == "hammer" || GUN_DEFS.ContainsKey(w)) return w;  // 空手（fists）不换
+            if (w != "fists" && WeaponDef.Exists(w) && WeaponDef.Get(w).IsGun) { _testGuns[w] = w; return w; }   // 战斗测试指定的枪（武器 id）
         }
         // 2. 包扎（NpcTaskRunner 用 HoldItem 通知）
         if (Holding("medkit") && HasGear("medkit")) return "medkit";
@@ -932,6 +945,7 @@ public class NpcRig : CharacterRigBase
     // 换手：先把上一次藏起来的东西还原，再按新的拿法藏手、藏腰上的挂件
     void ApplyHeld(string key)
     {
+        StopThrow();                                                       // 换手：正在扔的那颗不扔了
         string prev = _held;                                               // 之前拿的（换成另一把步枪才播取出动画）
         StopGunDraw();                                                     // 正在取出：先停掉（枪托、单独动的手复原）
         _held = key;                                                       // 记下现在拿什么
@@ -1012,7 +1026,7 @@ public class NpcRig : CharacterRigBase
     // 外部调用（NpcCombat 出手的那一下）：马上换好手，然后挥一下 / 开枪后坐一下
     public override void PlayAttack()
     {
-        if (_heldSprite == null || _dead) return;                           // 还没拼好 / 死了
+        if (_heldSprite == null || _dead || ThrowBlocksFire) return;        // 还没拼好 / 死了 / 拿步枪扔手雷（只播扔手雷，不开枪）
         _rig.localScale = new Vector3(FacingLeft ? -1f : 1f, 1f, 1f);  // 刚转身也先对好朝向（枪口位置才准）
         string want = PickHeld();                                           // 不等 0.25 秒，马上判断拿什么
         if (want != _held) ApplyHeld(want);
@@ -1114,6 +1128,7 @@ public class NpcRig : CharacterRigBase
     protected override void AnimateHeld(float dt)
     {
         _actionLean = 0f; _actionShift = 0f;                                // 身体的额外晃动先清零
+        ThrowLean();                                                        // 扔手雷：身体往后仰 / 往前压
         if (_handPoint == null) return;                                     // 还没拼好
         if (_gun != null)                                                   // 通用枪械：取出 / 换弹 / 持枪 + 后坐（CharacterRigBase）
         {
@@ -1541,6 +1556,7 @@ public class NpcRig : CharacterRigBase
     // 死的时候：停掉开枪 / 换弹 / 挥动 / 瞄准
     protected override void StopForDeath()
     {
+        StopThrow();                                                       // 正在扔的手雷不扔了
         StopReload();
         _recoilT = -1f; _swingT = -1f; _heldLoop = false;
         _aimUntil = 0f;
@@ -1587,7 +1603,7 @@ public class NpcRig : CharacterRigBase
     }
 
     // 软管：用一条网格画（两端固定，中间可以弯），这样才能做出"中段晃"的效果。
-    class HoseMesh
+    public class HoseMesh                                                     // 怪物（被感染的研究员）穿的是同一件防护服，也用它
     {
         public readonly string name;
         readonly Mesh mesh;

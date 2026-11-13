@@ -64,7 +64,7 @@ public class Ballistics : MonoBehaviour
 
     [Header("击退（NPC 的手枪）")]
     [Tooltip("NPC 手枪子弹打中时把目标往后推的初速度（单位 / 秒；推出去的距离约 = 这个 ÷ 10；0 = 不击退）。ABA 的手枪在 AbaForce 里调")]
-    public float npcPistolKnockback = 2.5f;
+    public float npcPistolKnockback = 0.8f;
     [Tooltip("被 NPC 手枪打中后打断攻击几秒（再除以体型的平方：大块头几乎打不断）")]
     public float npcPistolStagger = 0.25f;
 
@@ -230,6 +230,8 @@ public class Ballistics : MonoBehaviour
         Bullet bullet = b.Spawn(from, dir, speed, damage, aimDist, n, null, rig != null ? rig.ricochetChance : 0.3f);
         bullet.knock = gun != null ? gun.knockback : b.npcPistolKnockback;    // 击退：枪的属性（手枪有，步枪没有）
         bullet.pierce = gun != null ? gun.armorPierce : 0f;                   // 破甲：枪的属性
+        if (gun != null)                                                      // 拿真枪：打偏的子弹和 ABA 一样飞得远（瞄准距离 × 2.5~4），不会刚过目标就落地
+            bullet.groundDist = Mathf.Clamp(Mathf.Max(aimDist, 0.5f) * UnityEngine.Random.Range(2.5f, 4f), 0.5f, Mathf.Max(b.maxRange, gun.range * 1.5f));   // 最远：maxRange 和枪射程 × 1.5 取大的（狙击枪能飞更远）
         b.DrawSpread(from, aim, dir, sigma, aimDist);
     }
 
@@ -480,7 +482,7 @@ public class Ballistics : MonoBehaviour
             if (b.knock > 0f && hitEnemy.Alive)
             {
                 float mass = Mathf.Max(0.6f, hitEnemy.Def.scale * hitEnemy.Def.scale);
-                Knockback.Push(hitEnemy.gameObject, b.dir * (b.knock / mass));
+                Knockback.Push(hitEnemy.gameObject, EnemyKnock(hitEnemy, b.dir, b.knock, mass));   // 有固定击退距离的敌人（眼球蜘蛛幼体）按格数推
                 hitEnemy.Stagger(0.35f / mass);
             }
             if (!hitEnemy.Alive && op != null) op.OnKill(hitEnemy, null);
@@ -492,6 +494,16 @@ public class Ballistics : MonoBehaviour
         if (hitNpc.IsDead && op != null) op.OnKill(null, hitNpc);
     }
 
+    // 子弹把敌人推开的初速度：EnemyDef.knockCells > 0 的敌人不管哪把枪，每一枪都固定往后退这么多格；其他的按枪的击退 ÷ 体型
+    static Vector2 EnemyKnock(Enemy e, Vector2 dir, float knock, float mass)
+    {
+        if (e.Def.knockCells <= 0f) return dir * (knock / mass);
+        float cell = GridManager.Instance != null ? GridManager.Instance.cellSize : 1f;   // 1 格多大（世界单位）
+        const float drag = 10f;                                                       // 和 Knockback.Drag 一样：推出去的距离 = 初速度 ÷ 10
+        Vector2 d = dir.sqrMagnitude > 0.0001f ? dir.normalized : Vector2.right;
+        return d * (e.Def.knockCells * cell * drag);
+    }
+
     // NPC 手枪打中：敌人往后推（体型越大推得越少）并打断一下攻击；流弹打中自己人也会被推一下
     void KnockNpcShot(Bullet b, Enemy hitEnemy, NpcData hitNpc, GameObject who)
     {
@@ -499,7 +511,7 @@ public class Ballistics : MonoBehaviour
         {
             if (!hitEnemy.Alive) return;
             float mass = Mathf.Max(0.6f, hitEnemy.Def.scale * hitEnemy.Def.scale);
-            Knockback.Push(hitEnemy.gameObject, b.dir * (b.knock / mass));
+            Knockback.Push(hitEnemy.gameObject, EnemyKnock(hitEnemy, b.dir, b.knock, mass));       // 有固定击退距离的敌人（眼球蜘蛛幼体）按格数推
             if (npcPistolStagger > 0f) hitEnemy.Stagger(npcPistolStagger / mass);
             return;
         }

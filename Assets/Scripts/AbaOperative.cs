@@ -43,7 +43,7 @@ public class AbaOperative : MonoBehaviour
     readonly Dictionary<string, int> _inGun = new Dictionary<string, int>();          // 枪里还剩几发
     readonly Dictionary<string, List<int>> _spare = new Dictionary<string, List<int>>();   // 备用弹匣（每个还剩几发）
     public bool Reloading => Time.time < _reloadUntil;
-    public bool Busy => Reloading || (Rig != null && (Rig.IsDrawing || Rig.IsThrowing || Rig.IsBolting)) || Time.time < _healUntil;   // 换弹 / 取枪 / 扔手雷 / 包扎时不开枪
+    public bool Busy => Reloading || (Rig != null && (Rig.IsDrawing || Rig.ThrowBlocksFire || Rig.IsBolting)) || Time.time < _healUntil;   // 换弹 / 取枪 / 扔手雷 / 包扎时不开枪
 
     const float FeetY = -0.453125f;
     NavMeshAgent _agent;
@@ -459,6 +459,7 @@ public class AbaOperative : MonoBehaviour
     {
         if (!Alive || dmg <= 0f) return;
         Hp -= dmg * (1f - F.armor);
+        BloodPools.Spawn(transform, dmg * (1f - F.armor), Hp <= 0f, dir);   // 脚下一滩血
         _barUntil = Time.time + 4f;
         UpdateBar();
         if (Squad != null) Squad.OnMemberHit(this, byEnemy, byNpc);

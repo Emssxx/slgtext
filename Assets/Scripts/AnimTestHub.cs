@@ -56,9 +56,65 @@ public class AnimTestHub : MonoBehaviour
     void Start()
     {
         _cam = Camera.main;
+        AddMissingMonsters();                                             // 场景里还没放的怪物：自动生成一只放进怪物栏
         foreach (Entry e in entries)
-            if (e.target != null) e.target.SetActive(false);   // 先全部藏起来
+        {
+            if (e.target == null) continue;
+            CharacterRigBase r = e.target.GetComponentInChildren<CharacterRigBase>(true);
+            if (r != null && r.IsMonster) e.category = Category.Monster;   // 怪物（被感染的研究员……）自动放进怪物栏
+            e.target.SetActive(false);                                     // 先全部藏起来
+        }
         if (entries.Count > 0) Show(Mathf.Clamp(startIndex, 0, entries.Count - 1));
+    }
+
+    // 场景里还没放的怪物：自动生成（位置 / 镜头照着第一项），放进怪物栏
+    //   被感染的研究员一只；眼球蜘蛛三种大小各一只（幼体 / 青年体 / 变异体）
+    void AddMissingMonsters()
+    {
+        bool hasInfected = false, hasSpider = false;
+        foreach (Entry e in entries)
+        {
+            if (e.target == null) continue;
+            if (e.target.GetComponentInChildren<InfectedRig>(true) != null) hasInfected = true;   // 已经有了
+            if (e.target.GetComponentInChildren<SpiderRig>(true) != null) hasSpider = true;
+        }
+        Entry like = entries.Count > 0 ? entries[0] : null;
+        Vector3 at = like != null && like.target != null ? like.target.transform.position : Vector3.zero;
+        float camSize = like != null ? like.cameraSize : 0.8f, camY = like != null ? like.cameraY : 0.05f;
+        if (!hasInfected)
+        {
+            GameObject go = new GameObject("被感染的研究员（自动生成）");
+            go.transform.position = at;
+            InfectedRig rig = go.AddComponent<InfectedRig>();
+            rig.UseMonsterDefaults();                                     // 慢、拖着走的走路手感（代码加的组件不会自动用）
+            entries.Add(new Entry
+            {
+                category = Category.Monster, label = "被感染的研究员", target = go,
+                cameraSize = camSize, cameraY = camY,
+                hint = "右边「怪物测试」窗口：攻击 / 循环 / 受击 / 死亡。点「在 Hierarchy 里选中」后，Inspector 里 Test Speed / Test Walk Cycle 走路，Test Aim Target 拖个物体进去看瞳孔追踪"
+            });
+        }
+        if (!hasSpider)
+        {
+            string[] names = { "眼球蜘蛛·幼体", "眼球蜘蛛·青年体", "眼球蜘蛛·变异体" };
+            float[] sizes = { 0.5f, 1.2f, 3f };                           // 和 NPC 比的高度（同 EnemyDefs 的 scale）
+            for (int i = 0; i < 3; i++)
+            {
+                GameObject go = new GameObject(names[i] + "（自动生成）");
+                go.transform.position = at;
+                SpiderRig rig = go.AddComponent<SpiderRig>();
+                rig.UseMonsterDefaults();
+                rig.size = sizes[i];
+                float k = Mathf.Max(1f, sizes[i]);                         // 大的镜头拉远一点
+                float feet = at.y - 0.453125f;                             // 脚底
+                entries.Add(new Entry
+                {
+                    category = Category.Monster, label = names[i], target = go,
+                    cameraSize = camSize * k, cameraY = feet + (camY - feet) * k,
+                    hint = "右边「怪物测试」窗口：攻击（扑咬）/ 循环 / 受击 / 死亡。点「在 Hierarchy 里选中」后，Inspector 里 Test Speed / Test Walk Cycle 走路，Test Aim Target 拖个物体进去看瞳孔追踪；Size 改大小"
+                });
+            }
+        }
     }
 
     // 只显示第 i 项，镜头对准它
@@ -146,9 +202,9 @@ public class AnimTestHub : MonoBehaviour
         GUILayout.Label("播放速度：" + Mathf.RoundToInt(timeScale * 100f) + "%");
         timeScale = GUILayout.HorizontalSlider(timeScale, 0.05f, 1f);       // 拖到左边 = 慢放
         GUILayout.Label("滚轮缩放，按住右键拖动镜头");
-        if (CurrentRig() != null && GUILayout.Button(_weaponWin ? "关掉武器测试窗口" : "打开武器测试窗口")) _weaponWin = !_weaponWin;
+        if (CurrentRig() != null && GUILayout.Button(_weaponWin ? "关掉测试窗口" : "打开测试窗口")) _weaponWin = !_weaponWin;
         GUILayout.EndArea();
-        if (_weaponWin && CurrentRig() != null) _winRect = GUILayout.Window(7301, _winRect, WeaponWindow, "武器测试");
+        if (_weaponWin && CurrentRig() != null) _winRect = GUILayout.Window(7301, _winRect, WeaponWindow, CurrentRig().IsMonster ? "怪物测试" : "武器测试");
     }
 
     // ============ 武器测试窗口 ============
@@ -171,6 +227,24 @@ public class AnimTestHub : MonoBehaviour
     {
         CharacterRigBase rig = CurrentRig();
         if (rig == null) { GUILayout.Label("先在左边选一个角色"); GUI.DragWindow(); return; }
+        if (rig.IsMonster)                                                  // 怪物：不拿枪，只有攻击 / 受击 / 死亡
+        {
+            GUILayout.Label("【攻击】");
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("攻击")) rig.testFire = true;
+            rig.testLoop = GUILayout.Toggle(rig.testLoop, "循环");
+            rig.testFaceLeft = GUILayout.Toggle(rig.testFaceLeft, "朝左");
+            GUILayout.EndHorizontal();
+            GUILayout.Label("【受击 / 死亡】");
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("受击")) rig.testHit = true;
+            if (GUILayout.Button("死亡")) rig.testDeath = true;
+            if (GUILayout.Button("复活")) rig.testRevive = true;
+            GUILayout.EndHorizontal();
+            GUILayout.Label("走路 / 瞳孔追踪：Inspector 里的 Test Speed、Test Walk Cycle、Test Aim Target");
+            GUI.DragWindow();
+            return;
+        }
         if (_weapons == null || GUILayout.Button("刷新武器列表（新建了武器文件后点）")) _weapons = WeaponDef.All();
         _winScroll = GUILayout.BeginScrollView(_winScroll);
 
@@ -248,8 +322,12 @@ public class AnimTestHub : MonoBehaviour
         if (rig.CanTestThrow)
         {
             GUILayout.Space(6f);
-            GUILayout.Label("【手雷】往测试目标扔（没有就往正前方 3 单位）");
+            GUILayout.Label("【手雷】往测试目标扔（没有就往正前方 3 单位；npc1 要先在工具挂环上挂手雷）");
+            GUILayout.BeginHorizontal();
             if (GUILayout.Button("扔手雷")) rig.TestThrow();
+            if (GUILayout.Button("补手雷")) rig.RefillGrenades();
+            GUILayout.EndHorizontal();
+            GUILayout.Label("身上还有手雷：" + rig.GrenadesLeft);
         }
 
         // ---- 换弹 ----

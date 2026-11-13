@@ -12,7 +12,7 @@ using UnityEngine.Rendering;     // SortingGroup：部件当成一个整体参�
 //     走路：慢、拖着走（步子小、脚抬得低、身体左右晃得厉害）
 //   测试：Test Fire = 砍一下；Test Loop = 一直砍；Test Speed / Test Walk Cycle = 走；Test Aim Target = 瞳孔盯着它；受击 / 死亡开关在通用骨架里
 // ============================================================================
-public class InfectedRig : CharacterRigBase
+public class InfectedRig : CharacterRigBase, IMonsterRig
 {
     [Header("待机：躯体上扬下浮（角度 = 度，距离 = 单位）")]
     public float idlePeriod = 3.2f;                            // 转一个来回几秒
@@ -58,12 +58,16 @@ public class InfectedRig : CharacterRigBase
     static readonly Vector2 P_EYE = new Vector2(1113, 742), P_PUPIL = new Vector2(1226.5f, 717.5f);   // 眼球中心 / 瞳孔平时的位置（朝前看）
     static readonly Vector2 P_INNER = new Vector2(1212, 769);     // 面罩里的机器（眼球后面）
     static readonly Vector2 P_ANTENNA = new Vector2(577, 790);    // 天线根部
-    static readonly Vector2 P_HOSE1 = new Vector2(1004.5f, 1233.5f), P_HOSE2 = new Vector2(779, 1124);
+    static readonly Vector2 HOSE1_SPAN = new Vector2(591, 1418);  // 软管1 两端的 x（两端固定、中间晃；和 npc1 同一件防护服）
+    static readonly Vector2 HOSE2_SPAN = new Vector2(627, 931);   // 软管2 两端的 x
 
     Transform _eye, _pupil, _antenna;
     SpriteRenderer _pupilSr;
     UnityEngine.Rendering.Universal.Light2D _pupilLight;
     Pend _antRot;                                              // 天线的摆
+    NpcRig.HoseMesh _hose1, _hose2;                            // 两根软管（两端固定、中间晃，和 npc1 一样）
+    Spring2 _hose1S, _hose2S;                                  // 软管中段的弹簧
+    float _prevSpasm, _spasmNow;                               // 上一帧 / 这一帧抽了多少（痉挛时把软管甩起来）
     Vector3 _pupilRest;                                        // 瞳孔平时的位置（眼球本地）
     Vector2 _pupilNow, _pupilWant;                             // 瞳孔现在 / 想看的地方（相对平时位置，单位）
     float _wanderT;                                            // 离下一次乱看还有多久
@@ -78,7 +82,10 @@ public class InfectedRig : CharacterRigBase
     protected override bool FacingLeft => testFaceLeft || (LookTarget(out Vector3 t) ? t.x < transform.position.x : _walkLeft);
 
     // 挂上组件时：换成它自己的走路手感（慢、拖着走）
-    void Reset()
+    void Reset() { UseMonsterDefaults(); }
+
+    // 它自己的默认值（编辑器里挂上组件时自动用；代码里加的组件要自己调一下，比如动画测试自动生成的那只）
+    public void UseMonsterDefaults()
     {
         artFolder = "EnemyArt/infected";
         walkFullSpeed = 0.8f;
@@ -118,8 +125,8 @@ public class InfectedRig : CharacterRigBase
         _handR = Part("ArmR", _body, "ArmR", P_ARM_R, P_BODY, 5).transform;          // 右边的变异手（在躯干后面）
         Part("Torso", _body, "Torso", P_BODY, P_BODY, 6);
         _antenna = Part("Antenna", _body, "Antenna", P_ANTENNA, P_BODY, 7).transform;
-        Part("Hose2", _body, "Hose2", P_HOSE2, P_BODY, 8);
-        Part("Hose1", _body, "Hose1", P_HOSE1, P_BODY, 9);
+        _hose2 = new NpcRig.HoseMesh("Hose2", _body, Load("Hose2"), HOSE2_SPAN, 8);   // 软管：两端固定、中间晃
+        _hose1 = new NpcRig.HoseMesh("Hose1", _body, Load("Hose1"), HOSE1_SPAN, 9);
         _handL = Part("ArmL", _body, "ArmL", P_ARM_L, P_BODY, 10).transform;         // 左边的变异手（在最前面）
         if (RenderMats.IsURP && pupilLightIntensity > 0f)
             _pupilLight = WorldLighting.CreatePoint("PupilLight", _pupil, pupilLightColor, pupilLightIntensity, pupilLightRadius, 360f);
@@ -129,6 +136,8 @@ public class InfectedRig : CharacterRigBase
         _bodyBase = _body.localPosition;
         //                  频率   阻尼   加减速甩 跑动拖后 跟身体摇摆 颠动    最大角度 吊着的程度
         _antRot = new Pend(2.4f, 0.12f, 0.02f, 0.008f, 2.0f, 0.0015f, 25f, 0.5f);   // 天线：断了一半似的晃得多
+        _hose1S = new Spring2(Sq(2f * Mathf.PI * 3.6f), 0.18f);                      // 软管（和 npc1 一样的弹簧）
+        _hose2S = new Spring2(Sq(2f * Mathf.PI * 4.4f), 0.18f);
 
         SortingGroup group = gameObject.GetComponent<SortingGroup>();
         if (group == null) group = gameObject.AddComponent<SortingGroup>();
@@ -179,6 +188,9 @@ public class InfectedRig : CharacterRigBase
     protected override void StepSecondary(float dt, Motion mo)
     {
         _antRot.Step(dt, mo.acc, mo.refV, mo.tilt, mo.tilta, mo.boba, 0f);
+        float jerk = (_prevSpasm - _spasmNow) * 60f;                        // 痉挛抽一下：软管被甩起来
+        _hose1S.Step(dt, new Vector2(-mo.acc + jerk, -mo.boba - Mathf.Abs(jerk) * 0.5f) * 0.0016f * hoseAmount, 4f, 6f);
+        _hose2S.Step(dt, new Vector2(-mo.acc + jerk, -mo.boba - Mathf.Abs(jerk) * 0.5f) * 0.0016f * hoseAmount, 4f, 6f);
     }
 
     protected override void UpdateTest(float dt)
@@ -276,9 +288,31 @@ public class InfectedRig : CharacterRigBase
 
         // 天线
         _antenna.localRotation = Quaternion.Euler(0f, 0f, _antRot.a + spasmBody * sp * 1.5f);
+
+        // 软管：中段跟着弹簧晃
+        Color tint = new Color(1f, 1f, 1f, _alpha);                        // 跟着整个人一起淡出（死了消失时）
+        if (_hose1 != null) _hose1.Apply(_hose1S.p.x / REF, -_hose1S.p.y / REF, tint);
+        if (_hose2 != null) _hose2.Apply(_hose2S.p.x / REF, -_hose2S.p.y / REF, tint);
+        _prevSpasm = _spasmNow; _spasmNow = sp;
     }
 
     static Vector2 CanvasDelta(Vector2 d) => new Vector2(d.x / PPU_FULL, -d.y / PPU_FULL);   // 原图像素差 → 单位
+
+    // ---------------- 游戏里用（Enemy 调）----------------
+    float _alpha = 1f;
+    public bool Built => _built;
+    // 砍下去那一刻离开始攻击多久（伤害在这时候才算）
+    public float HitDelay => atkWindTime + atkSlashTime * 0.8f;
+    // 迷雾里看不见：整个人藏起来
+    public void SetShown(bool show) { if (_rig != null && _rig.gameObject.activeSelf != show) _rig.gameObject.SetActive(show); }
+    // 整个人的透明度（死了慢慢淡出）
+    public void SetAlpha(float a)
+    {
+        _alpha = Mathf.Clamp01(a);
+        if (_rig == null) return;
+        foreach (SpriteRenderer sr in _rig.GetComponentsInChildren<SpriteRenderer>(true)) { Color c = sr.color; c.a = _alpha; sr.color = c; }
+        if (_pupilLight != null && _alpha < 1f) _pupilLight.intensity *= _alpha;
+    }
 
     // ---------------- 通用骨架要的钩子 ----------------
     protected override void HeadWhip(float push, float k) { _pupilNow += new Vector2(-push, 0.3f) * 0.04f * k; }   // 挨打：眼睛被震得一歪
@@ -290,4 +324,5 @@ public class InfectedRig : CharacterRigBase
     public override bool FireBullet(Vector3 target) => false;
     public override bool FireBullet(Vector3 target, bool canRicochet) => false;
     public override bool CanTestEquip(WeaponDef d) => false;                    // 不拿枪
+    public override bool IsMonster => true;                                     // 怪物（动画测试里放在怪物栏）
 }

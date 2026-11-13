@@ -777,7 +777,7 @@ public partial class NpcRigB : CharacterRigBase   // 扔手雷在 NpcRigB.Throw.
         if (testReload) { testReload = false; PlayReload(0f, testReloadKind); }   // 勾了"测试换弹"：按选的种类换一次
         bool fire = testFire;                                               // 勾了一下
         testFire = false;                                                   // 自动取消勾选
-        if (_reloadT >= 0f || _drawT >= 0f) { _burstLeft = 0; return; }     // 换弹 / 正在取出步枪时不开枪
+        if (_reloadT >= 0f || _drawT >= 0f || ThrowBlocksFire) { _burstLeft = 0; return; }   // 换弹 / 正在取出步枪 / 拿步枪扔手雷时不开枪
         if (_held != null && testLoop)                                      // 循环：定时自动开
         {
             _testFireTimer -= dt;
@@ -807,7 +807,7 @@ public partial class NpcRigB : CharacterRigBase   // 扔手雷在 NpcRigB.Throw.
     // 瞄准：通用骨架按现在拿着的枪算（CharacterRigBase.GunUpdateAim）
     protected override void UpdateAim(float dt)
     {
-        if (_throwT >= 0f) { ThrowAim(dt); return; }                        // 扔手雷：朝扔的方向，枪单手放低
+        if (ThrowControlsAim) { ThrowAim(dt); return; }                     // 拿步枪扔手雷：停火、朝扔的方向，枪口朝下（手枪照常瞄准）
         GunUpdateAim(dt);
     }
 
@@ -824,7 +824,7 @@ public partial class NpcRigB : CharacterRigBase   // 扔手雷在 NpcRigB.Throw.
     {
         if (_dead) return;                                                  // 死了
         if (_held == "dagger") { if (_swingT < 0f) { _swingT = 0f; _swingNew = true; } return; }   // 匕首：挥一下（上一下没挥完不重来）
-        if (!IsGun || _reloadT >= 0f || _drawT >= 0f) return;               // 没拿枪 / 正在换弹 / 正在取出步枪
+        if (!IsGun || _reloadT >= 0f || _drawT >= 0f || ThrowBlocksFire) return;   // 没拿枪 / 正在换弹 / 正在取出步枪 / 拿步枪扔手雷（只播扔手雷）
         GunFire();                                                          // 开枪后坐：按这把枪的手感（CharacterRigBase.GunFire）
     }
 

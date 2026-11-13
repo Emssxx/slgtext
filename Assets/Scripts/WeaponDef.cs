@@ -362,7 +362,7 @@ public class WeaponDef : ScriptableObject
                 d.magSize = 8; d.damage = 9f; d.aimedInterval = 1.4f; d.courage = 20; d.range = 4f;
                 d.spread = 2.5f;                            // 5 级手感（3 级 ×4 = 10°）
                 d.movingMul = 1.4f; d.recoilPerShot = 2f; d.recoilRecover = 1.2f; d.bulletSpeed = 100f;
-                d.knockback = 2.5f; d.critChance = 0f; d.critMul = 1.5f;
+                d.knockback = 0.8f; d.critChance = 0f; d.critMul = 1.5f;   // 击退：只把敌人顶一下、让它停住不往前冲（原来 2.5，推得太远）
                 return d;
             case "aba-x95":      // ABA-X95 无托步枪（图：Resources/WeaponArt/aba-x95；坐标 = x96.PSD 里的十字线）
                 d.displayName = "ABA-X95";

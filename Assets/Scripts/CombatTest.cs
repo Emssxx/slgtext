@@ -11,6 +11,9 @@ using NavMeshPlus.Extensions;
 //
 // 【用法】运行后左边有面板：
 //   · 选"放 NPC"/"放敌人"/"ABA 小组"，调好属性，在地图上左键点哪里就放在哪里；右键点一个人 / 敌人 / ABA 队员 = 删掉它。
+//   · NPC：选角色（npc1 = 幸存者，npc2 = ABA 队员）和武器（所有枪 / 近战，包括 Resources/Weapons 里的）。
+//     npc1 拿防护服手枪以外的枪是"测试指定武器"（NpcCombat.SetTestGun），数值、手感、换弹都按那把枪。
+//   · 敌人：所有种类（EnemyDefs，新加的会自动出现，比如被感染的研究员）。
 //   · WASD / 方向键 移动镜头，滚轮缩放。
 //   · 地砖：细线 = 1 小格，粗线 = 1 大格（1 大格 = 3×3 小格），方便看射击距离。
 // 【无限弹匣】勾着时，拿枪的 NPC 身上的弹匣一直补满 3 个（空弹匣也自动清掉）。
@@ -24,7 +27,8 @@ public class CombatTest : MonoBehaviour
     public GameObject npcPrefab;                              // NPC 预制体（npc_1）
 
     [Header("要放的 NPC（运行时面板里也能改）")]
-    public TestWeapon npcWeapon = TestWeapon.Pistol;          // 拿什么武器
+    public NpcKind npcKind = NpcKind.Survivor;                // 放哪种角色（npc1 幸存者 / npc2 ABA 队员）
+    public string npcWeapon = "suit_pistol";                  // 拿什么武器（WeaponDef id；"" = 空手）
     [Range(1, 5)] public int npcWeaponLevel = 3;              // 武器操作等级
     [Range(0, 100)] public int npcBravery = 80;               // 勇敢（低了会逃跑）
     [Range(1, 100)] public int npcHealth = 100;               // 生命
@@ -39,17 +43,17 @@ public class CombatTest : MonoBehaviour
 
     [Header("要放的 ABA 清除小组（运行时面板里也能改）")]
     [Range(1, 6)] public int abaCount = 4;                    // 一组几个人
+    public string abaRifle = "aba_rifle";                     // 队员拿哪把步枪（WeaponDef id）
+    public string abaPistol = "aba_pistol";                   // 队员的手枪
     public bool abaHitSurvivors = true;                       // 也打没带小型 AI 终端机的 NPC（不勾 = 只打敌人）
 
     [Header("其他")]
     public bool infiniteMags = true;                          // 无限弹匣
 
-    public enum TestWeapon
+    public enum NpcKind
     {
-        [InspectorName("手枪")] Pistol,
-        [InspectorName("斧头")] Axe,
-        [InspectorName("锤子")] Hammer,
-        [InspectorName("空手")] Fists,
+        [InspectorName("npc1 幸存者")] Survivor,
+        [InspectorName("npc2 ABA 队员")] Aba,
     }
 
     enum PlaceMode { None, Npc, Enemy, Aba }                  // 左键点地图时放什么
@@ -58,9 +62,10 @@ public class CombatTest : MonoBehaviour
     int _npcCounter;                                          // NPC 编号（id 不重复）
     readonly List<GameObject> _npcs = new List<GameObject>(); // 放出来的 NPC
     readonly List<EnemyDef> _enemyDefs = new List<EnemyDef>();// 所有敌人种类
-    Rect _panel = new Rect(10, 10, 300, 560);                 // 面板位置（按 720 高的屏幕算，会跟着屏幕缩放）
+    Rect _panel = new Rect(10, 10, 300, 640);                 // 面板位置（按 720 高的屏幕算，会跟着屏幕缩放）
     Vector2 _scroll;                                          // 面板滚动
-    static readonly string[] WeaponNames = { "手枪", "斧头", "锤子", "空手" };
+    readonly List<WeaponDef> _guns = new List<WeaponDef>();   // 所有枪（面板用）
+    Vector2 _gunScroll;
 
     // ============ 开场：搭场地 ============
 
@@ -87,6 +92,8 @@ public class CombatTest : MonoBehaviour
         _enemyDefs.Clear();
         foreach (EnemyDef d in EnemyDefs.All) _enemyDefs.Add(d);
         enemyIndex = Mathf.Clamp(enemyIndex, 0, Mathf.Max(0, _enemyDefs.Count - 1));
+        _guns.Clear();
+        foreach (WeaponDef d in WeaponDef.All()) if (d != null && d.IsGun) _guns.Add(d);   // 所有枪（武器列表）
         _ready = true;
     }
 
@@ -186,9 +193,9 @@ public class CombatTest : MonoBehaviour
         wp.z = 0f;
         if (m.leftButton.wasPressedThisFrame)
         {
-            if (_mode == PlaceMode.Npc) SpawnNpc(wp);
+            if (_mode == PlaceMode.Npc) { if (npcKind == NpcKind.Aba) SpawnAba(wp, 1); else SpawnNpc(wp); }   // npc2 = 单个 ABA 队员
             else if (_mode == PlaceMode.Enemy) SpawnEnemies(wp);
-            else if (_mode == PlaceMode.Aba) SpawnAba(wp);
+            else if (_mode == PlaceMode.Aba) SpawnAba(wp, abaCount);
         }
         if (m.rightButton.wasPressedThisFrame) DeleteNear(wp);
     }
@@ -219,15 +226,20 @@ public class CombatTest : MonoBehaviour
         d.sanity = npcSanity;
         if (d.inventory == null) d.inventory = new List<ItemStack>();
         d.inventory.Clear();
-        switch (npcWeapon)                                        // 武器放进物品栏（NpcCombat 按物品栏选武器）
+        WeaponDef gun = !string.IsNullOrEmpty(npcWeapon) && WeaponDef.Exists(npcWeapon) ? WeaponDef.Get(npcWeapon) : null;
+        if (npcWeapon == "suit_pistol")                           // 防护服手枪：和游戏里一样走物品栏
         {
-            case TestWeapon.Pistol:
-                NpcInventory.Add(d, "pistol");
-                NpcInventory.Add(d, "magazine", 3);
-                d.pistolAmmo = NpcInventory.MagSize;
-                break;
-            case TestWeapon.Axe: NpcInventory.Add(d, "axe"); break;
-            case TestWeapon.Hammer: NpcInventory.Add(d, "hammer"); break;
+            NpcInventory.Add(d, "pistol");
+            NpcInventory.Add(d, "magazine", 3);
+            d.pistolAmmo = NpcInventory.MagSize;
+        }
+        else if (npcWeapon == "axe") NpcInventory.Add(d, "axe");
+        else if (npcWeapon == "hammer") NpcInventory.Add(d, "hammer");
+        else if (gun != null && gun.IsGun)                        // 其他枪：测试指定武器（数值、手感、换弹都按这把枪）
+        {
+            NpcCombat.SetTestGun(id, gun.id);
+            NpcInventory.Add(d, "magazine", 3);
+            d.pistolAmmo = Mathf.Max(1, gun.magSize);
         }
         WorldManager.Instance.world.npcs.Add(d);
 
@@ -259,11 +271,14 @@ public class CombatTest : MonoBehaviour
     }
 
     // 放一个 ABA 清除小组（AbaForce.Deploy：队形 / 战术都是正式规则，和主场景一样）
-    void SpawnAba(Vector3 at)
+    void SpawnAba(Vector3 at, int count)
     {
         if (!NavMesh.SamplePosition(at, out NavMeshHit hit, 1f, NavMesh.AllAreas)) return;
-        AbaForce.Ensure().targetSurvivors = abaHitSurvivors;
-        AbaForce.Deploy(hit.position, abaCount);
+        AbaForce f = AbaForce.Ensure();
+        f.targetSurvivors = abaHitSurvivors;
+        f.rifleModel = abaRifle;                                  // 新生成的队员拿这两把枪
+        f.pistolModel = abaPistol;
+        AbaForce.Deploy(hit.position, count);
     }
 
     void ClearAba()
@@ -304,6 +319,7 @@ public class CombatTest : MonoBehaviour
     {
         NpcView v = go.GetComponent<NpcView>();
         if (v == null || WorldManager.Instance == null) return;
+        NpcCombat.SetTestGun(v.npcId, null);                      // 测试指定的武器也取消
         WorldManager.Instance.world.npcs.RemoveAll(n => n != null && n.id == v.npcId);
         _npcs.Remove(go);
     }
@@ -325,7 +341,7 @@ public class CombatTest : MonoBehaviour
         if (WorldManager.Instance == null) return;
         foreach (NpcData n in WorldManager.Instance.world.npcs)
         {
-            if (n == null || n.IsDead || !NpcInventory.Has(n, "pistol")) continue;
+            if (n == null || n.IsDead || (!NpcInventory.Has(n, "pistol") && NpcCombat.TestGunOf(n.id) == null)) continue;   // 拿枪的（自己的手枪 / 测试指定的枪）
             int have = NpcInventory.Count(n, "magazine");
             if (have < 3) NpcInventory.Add(n, "magazine", 3 - have);
             int empty = NpcInventory.Count(n, NpcInventory.EmptyMag);
@@ -352,7 +368,23 @@ public class CombatTest : MonoBehaviour
 
         GUILayout.Space(6);
         GUILayout.Label("—— NPC ——");
-        npcWeapon = (TestWeapon)GUILayout.Toolbar((int)npcWeapon, WeaponNames);
+        npcKind = (NpcKind)GUILayout.Toolbar((int)npcKind, new[] { "npc1 幸存者", "npc2 ABA 队员" });
+        if (npcKind == NpcKind.Aba)
+        {
+            GUILayout.Label("（npc2 = 单个 ABA 队员，武器在下面「ABA 清除小组」里选；会打敌人，勾了也打 npc1）");
+        }
+        else
+        {
+        GUILayout.Label("武器：" + WeaponLabel(npcWeapon));
+        _gunScroll = GUILayout.BeginScrollView(_gunScroll, GUILayout.Height(120f));
+        string[] melee = { "", "axe", "hammer" };
+        string[] meleeNames = { "空手", "斧头", "锤子" };
+        GUILayout.BeginHorizontal();
+        for (int i = 0; i < melee.Length; i++) if (GUILayout.Toggle(npcWeapon == melee[i], meleeNames[i], "Button")) npcWeapon = melee[i];
+        GUILayout.EndHorizontal();
+        foreach (WeaponDef g in _guns)
+            if (GUILayout.Toggle(npcWeapon == g.id, g.Label + (g.hold == HoldType.Rifle ? "（步枪）" : "（手枪）"), "Button")) npcWeapon = g.id;
+        GUILayout.EndScrollView();
         npcWeaponLevel = IntSlider("武器操作等级", npcWeaponLevel, 1, 5);
         npcBravery = IntSlider("勇敢", npcBravery, 0, 100);
         npcHealth = IntSlider("生命", npcHealth, 1, 100);
@@ -360,6 +392,7 @@ public class CombatTest : MonoBehaviour
         GUILayout.Label("紧张（手抖） " + npcNervous.ToString("0.00"));
         npcNervous = GUILayout.HorizontalSlider(npcNervous, 0f, 1f);
         npcForceFight = GUILayout.Toggle(npcForceFight, "强制迎战（不逃跑）");
+        }
 
         GUILayout.Space(6);
         GUILayout.Label("—— 敌人 ——");
@@ -377,6 +410,24 @@ public class CombatTest : MonoBehaviour
         GUILayout.Space(6);
         GUILayout.Label("—— ABA 清除小组 ——");
         abaCount = IntSlider("一组几个人", abaCount, 1, 6);
+        GUILayout.Label("步枪：" + WeaponLabel(abaRifle));
+        GUILayout.BeginHorizontal(); int k = 0;
+        foreach (WeaponDef g in _guns)
+        {
+            if (g.hold != HoldType.Rifle) continue;
+            if (GUILayout.Toggle(abaRifle == g.id, g.Label, "Button")) abaRifle = g.id;
+            if (++k % 3 == 0) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); }
+        }
+        GUILayout.EndHorizontal();
+        GUILayout.Label("手枪：" + WeaponLabel(abaPistol));
+        GUILayout.BeginHorizontal(); k = 0;
+        foreach (WeaponDef g in _guns)
+        {
+            if (g.hold != HoldType.Pistol || g.id == "suit_pistol") continue;   // 防护服手枪是 npc1 的
+            if (GUILayout.Toggle(abaPistol == g.id, g.Label, "Button")) abaPistol = g.id;
+            if (++k % 3 == 0) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); }
+        }
+        GUILayout.EndHorizontal();
         abaHitSurvivors = GUILayout.Toggle(abaHitSurvivors, "也打 NPC（没带小型 AI 终端机的）");
         GUILayout.Label("（F10 也能在鼠标位置放一组）");
 
@@ -389,6 +440,15 @@ public class CombatTest : MonoBehaviour
         GUILayout.EndHorizontal();
         GUILayout.EndScrollView();
         GUILayout.EndArea();
+    }
+
+    // 武器 id → 显示名
+    static string WeaponLabel(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return "空手";
+        if (id == "axe") return "斧头";
+        if (id == "hammer") return "锤子";
+        return WeaponDef.Exists(id) ? WeaponDef.Get(id).Label : id;
     }
 
     // 带名字的整数滑条
@@ -419,7 +479,9 @@ public class CombatTest : MonoBehaviour
             NpcData n = v != null ? WorldManager.Instance.GetNpcById(v.npcId) : null;
             NpcRig rig = g.GetComponent<NpcRig>();
             if (n == null) continue;
-            string weapon = NpcInventory.Has(n, "pistol") ? "手枪 " + n.pistolAmmo + "/" + NpcInventory.MagSize
+            string tg = NpcCombat.TestGunOf(n.id);
+            string weapon = tg != null && WeaponDef.Exists(tg) ? WeaponLabel(tg) + " " + n.pistolAmmo + "/" + WeaponDef.Get(tg).magSize
+                          : NpcInventory.Has(n, "pistol") ? "手枪 " + n.pistolAmmo + "/" + NpcInventory.MagSize
                           : NpcInventory.Has(n, "axe") ? "斧头" : NpcInventory.Has(n, "hammer") ? "锤子" : "空手";
             string text = n.IsDead ? n.npcName + " 死亡" : $"Lv{(rig != null ? rig.weaponLevel : 3)} {weapon}  HP {n.health:0}";
             Label(cam, g.transform.position + new Vector3(0f, 0.75f, 0f), text, st, s);
@@ -432,7 +494,7 @@ public class CombatTest : MonoBehaviour
         foreach (AbaOperative o in AbaOperative.All)
         {
             if (o == null || !o.Alive || o.Weapon == null) continue;
-            string gun = o.Weapon.id == "pistol" ? "手枪" : "步枪";
+            string gun = o.Weapon.def != null ? o.Weapon.def.Label : (o.Weapon.id == "pistol" ? "手枪" : "步枪");
             string phase = o.Squad != null ? " [" + o.Squad.phase + "]" : "";
             string text = $"ABA{o.Slot + 1} {gun} {o.InGun}/{o.Weapon.magSize}+{o.SpareMags}  HP {o.Hp:0}  体力 {o.Stamina:0}" + (o.Slot == 0 ? phase : "");
             Label(cam, o.transform.position + new Vector3(0f, 0.75f, 0f), text, st, s);

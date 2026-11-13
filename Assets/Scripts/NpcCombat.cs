@@ -74,6 +74,8 @@ public class NpcCombat : MonoBehaviour
     NpcTactics.Plan _plan;   // 团队大脑给的安排（null = 自己判断）
     float _decide, _attackCd, _calm, _repath, _barkCd, _logCd, _lastHit = -99f, _hurt;
     float _flankUntil;     // 开火线被自己人挡着、正在往旁边挪（这段时间不站定）
+    float _grenadeCd;      // 离下一颗手雷还要等几秒
+    static float _campGrenadeAt = -99f;   // 营地里上一颗手雷什么时候扔的（大家不一起扔）
     bool _claimed, _injuredThisFight, _hasDest;
     string _claimId;
     Vector3 _dest;
@@ -87,6 +89,12 @@ public class NpcCombat : MonoBehaviour
         _mover = GetComponent<NpcMover>();
         _runner = GetComponent<NpcTaskRunner>();
         _decide = Random.value * 0.3f;   // 错开，别所有人同一帧想
+        CharacterRigBase testRig = GetComponent<CharacterRigBase>();   // 外观拼装（npc1 / npc2）
+        if (testRig != null)                                           // 游戏里：动画测试的开关全部关掉
+        {
+            testRig.testLoop = false;                                  // 否则拿着枪每 1.4 秒会自己朝正前方（x 轴）打一颗只飞 2.5 单位的假子弹
+            testRig.testFire = false;                                  // 测试"开一枪"也关掉
+        }
     }
 
     void OnDisable()
@@ -147,9 +155,28 @@ public class NpcCombat : MonoBehaviour
     }
 
     // 看他物品栏里带着什么（手枪要有子弹或弹匣才算）
+    // 战斗测试用：指定某个 NPC 拿哪把武器（WeaponDef id；不走物品栏，弹匣照样用身上的"magazine"）。null = 取消
+    static readonly Dictionary<string, string> _testGuns = new Dictionary<string, string>();
+    public static void SetTestGun(string npcId, string weaponId)
+    {
+        if (string.IsNullOrEmpty(npcId)) return;
+        if (string.IsNullOrEmpty(weaponId)) _testGuns.Remove(npcId); else _testGuns[npcId] = weaponId;
+    }
+    public static string TestGunOf(string npcId) => npcId != null && _testGuns.TryGetValue(npcId, out string w) ? w : null;
+
     public static Weapon WeaponOf(string npcId)
     {
         NpcData n = WorldManager.Instance != null && !string.IsNullOrEmpty(npcId) ? WorldManager.Instance.GetNpcById(npcId) : null;
+        if (n != null && _testGuns.TryGetValue(npcId, out string tg) && WeaponDef.Exists(tg))   // 战斗测试指定的武器
+        {
+            WeaponDef d = WeaponDef.Get(tg);
+            bool gun = d.IsGun;
+            if (!gun || n.pistolAmmo > 0 || NpcInventory.Has(n, "magazine"))
+            {
+                float interval = !gun ? d.aimedInterval : d.boltAction ? d.burstPause : d.IsAuto ? d.ShotInterval : d.aimedInterval;   // 拉栓：一枪一枪；连发：按射速；手枪：瞄准射击
+                return new Weapon { key = tg, def = d, damage = d.damage, range = d.range, interval = interval, courage = d.courage, ranged = gun };
+            }
+        }
         if (n != null)
         {
             if (NpcInventory.PistolReady(n)) return Pistol;
@@ -213,13 +240,15 @@ public class NpcCombat : MonoBehaviour
     static void PlayRigHit(NpcData n, float damage, Enemy byEnemy, NpcData byNpc, AbaOperative byAba)
     {
         NpcMover m = NpcView.GetMover(n.id);
-        NpcRig rig = m != null ? m.GetComponent<NpcRig>() : null;
-        if (rig == null) return;                                                  // 没有新外观
+        if (m == null) return;
         Vector3 me = m.transform.position, from = me;
         if (byEnemy != null) from = byEnemy.transform.position;                   // 谁打的：从他那边打过来
         else if (byAba != null) from = byAba.transform.position;
         else if (byNpc != null) { NpcMover s = NpcView.GetMover(byNpc.id); if (s != null) from = s.transform.position; }
         Vector2 dir = new Vector2(me.x - from.x, me.y - from.y);                  // 打过来的方向（不知道是谁就当从正面）
+        BloodPools.Spawn(m.transform, damage, n.IsDead, dir);                     // 脚下一滩血
+        NpcRig rig = m.GetComponent<NpcRig>();
+        if (rig == null) return;                                                  // 没有新外观
         float k = Mathf.Clamp(damage / 10f, 0.5f, 1.8f);                          // 轻重：10 点伤害 = 正常的一下
         bool fx = _meleeHit;                                                      // 子弹打中时 Ballistics 已经放了着弹点效果；近战才让外观放
         bool knock = !(byAba != null && byAba.Weapon != null && byAba.Weapon.id == "rifle");   // 步枪不击退：只是上身一震，人不被推走
@@ -244,6 +273,7 @@ public class NpcCombat : MonoBehaviour
             return;
         }
         _attackCd -= dt;
+        _grenadeCd -= dt;
         _repath -= dt;
         _barkCd -= dt;
         _logCd -= dt;
@@ -391,6 +421,8 @@ public class NpcCombat : MonoBehaviour
         Vector3 pos = transform.position, fp = _foe.Position;
         float d = Dist(pos, fp);
         float reach = w.range + Mathf.Max(0f, _foe.Scale - 1f) * 0.35f;       // 大块头好打到一点
+        NpcRig throwRig = GetComponent<NpcRig>();
+        if (TryGrenade(n, throwRig, pos, fp, d)) return;                      // 先看值不值得扔一颗手雷（不管拿什么武器、在不在射程里）
         if (_plan != null && (_plan.hasSpot || _plan.stay))
         {
             // 团队安排的位置：走过去（放风筝 / 交叉火力位 / 守墙位……）；stay = 原地不动
@@ -452,12 +484,15 @@ public class NpcCombat : MonoBehaviour
             if (_hasDest) { _mover.Stop(); _hasDest = false; }
             _mover.FaceTowards(fp);
         }
+        if (throwRig != null && throwRig.ThrowBlocksFire) return;             // 拿步枪扔手雷：不开枪（只播扔手雷）；手枪可以一边打一边扔
         if (_attackCd > 0f) return;
         if (w.ranged && n.pistolAmmo <= 0)
         {
             // 打空了：换一个弹匣（这段时间不开枪）
-            if (NpcInventory.Reload(n))
+            bool testGun = w.def != null && TestGunOf(Id) != null;           // 战斗测试指定的枪：不需要物品栏里有手枪
+            if (testGun ? NpcInventory.Remove(n, "magazine", 1) : NpcInventory.Reload(n))
             {
+                if (testGun) n.pistolAmmo = Mathf.Max(1, w.def.magSize);      // 装满这把枪的弹匣
                 bool close = d < reach * SpeedReloadRange;                    // 敌人离得近
                 bool tactical = !close && NpcInventory.StowEmptyMag(n);       // 不急：旧弹匣收回物品栏（空弹匣）；放不下就只能丢
                 CharacterRigBase.ReloadKind kind = tactical ? CharacterRigBase.ReloadKind.Tactical : CharacterRigBase.ReloadKind.Speed;
@@ -491,6 +526,50 @@ public class NpcCombat : MonoBehaviour
         }
         float acc = 0.65f + n.personality.bravery * 0.002f - (n.sanity < 40f ? 0.15f : 0f);   // 近战：照旧按命中率
         if (Random.value < acc) _foe.TakeMelee(dmg, n);
+    }
+
+    // ============ 手雷（挂在工具挂环上的；扔的动作在 CharacterRigBase.Throw.cs，飞 / 炸在 Grenade.cs）============
+    // 值得扔就扔：距离合适（2.5~6）、身上挂着、冷却好了、营地里刚才没人扔；
+    //   而且：敌人躲在墙 / 石头后面打不到、敌人扎堆（爆炸半径里 ≥ 2 个）、或者是大家伙（都不是：每 2 秒 30% 几率）；落点附近没有自己人、也离自己够远
+    bool TryGrenade(NpcData n, NpcRig rig, Vector3 pos, Vector3 fp, float d)
+    {
+        if (rig == null || !rig.CanThrow || _grenadeCd > 0f || Time.time - _campGrenadeAt < 2.5f) return false;
+        if (n.personality.bravery < 25) return false;                         // 太胆小的不敢扔
+        Grenade.Spec spec = AbaForce.Instance != null ? AbaForce.Instance.grenade : null;   // 和 ABA 用同一种手雷（没有就用默认数值）
+        float r = spec != null ? spec.radius : 1.6f;
+        if (d < Mathf.Max(2.5f, r + 0.6f) || d > 6f) return false;
+        bool covered = !Ballistics.LineClear(pos, fp);                         // 躲在掩体后面：子弹打不到，手雷能扔过去
+        int crowd = 0;
+        foreach (Enemy e in Enemy.All) if (e != null && e.Alive && Vector2.Distance(e.transform.position, fp) < r) crowd++;
+        foreach (AbaOperative o in AbaOperative.All) if (o != null && o.Alive && Vector2.Distance(o.transform.position, fp) < r) crowd++;
+        bool strong = _foe != null && _foe.enemy != null && _foe.enemy.Def != null && _foe.enemy.Def.IsStrong;
+        if (!covered && crowd < 2 && !strong)
+        {
+            if (Random.value > 0.3f) { _grenadeCd = 2f; return false; }       // 都不是：每 2 秒有 30% 的几率也扔一颗
+        }
+        WorldState world = WorldManager.Instance != null ? WorldManager.Instance.world : null;   // 落点附近有自己人：不扔
+        if (world != null)
+            foreach (NpcData o in world.npcs)
+            {
+                if (o == null || o == n || o.IsDead) continue;
+                NpcMover m = NpcView.GetMover(o.id);
+                if (m != null && Vector2.Distance(m.transform.position, fp) < r * 1.2f) return false;
+            }
+        SpriteRenderer sr = GetComponent<SpriteRenderer>();
+        int layer = sr != null ? sr.sortingLayerID : 0;
+        Vector3 aim = fp;
+        bool ok = rig.PlayThrow(aim, at =>
+        {
+            Grenade.Throw(at, transform.position, aim, spec, null, layer, n);   // 出手那一刻才真正扔出去
+            NpcInventory.Remove(n, "grenade");                                // 用掉一颗
+            if (NpcInventory.Has(n, "grenade")) rig.RefillGrenades();          // 还有：挂环上再挂上一颗
+        });
+        if (!ok) return false;
+        _grenadeCd = 8f;
+        _campGrenadeAt = Time.time;
+        if (rig.ThrowBlocksFire) _attackCd = 1.5f;                             // 拿步枪：扔的这段时间不开枪（手枪照打）
+        if (_barkCd <= 0f) Bark(LanguageGuard.Pick("手雷！", "グレネード！"));
+        return true;
     }
 
     // 走到团队安排的位置（到了就站定；位置变了才重新寻路）
