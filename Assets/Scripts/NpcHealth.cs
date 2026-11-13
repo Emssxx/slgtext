@@ -98,6 +98,10 @@ public class NpcHealth : MonoBehaviour
     public float psychosisMoveFactor = 1.3f;
     public float psychosisSanityPerSecond = 0.2f;
 
+    [Header("雾")]
+    [Tooltip("NPC 站在雾里时每秒掉多少理智（营地和雾散开的区域里不掉）。0 = 不掉")]
+    public float fogSanityPerSecond = 1f;
+
     [Header("其他")]
     [Tooltip("一天（一回合）多少秒，和 AIDirector.secondsPerTurn 一致")]
     public float secondsPerDay = 20f;
@@ -169,6 +173,15 @@ public class NpcHealth : MonoBehaviour
             foreach (NpcData n in w.npcs) Instance.Tick(n, Mathf.Min(1f, seconds - t), w);
     }
 
+    // 这个 NPC 现在是不是站在雾里（只在永久雾模式下算；场景里找不到他时不算）。
+    static bool InFog(NpcData n)
+    {
+        FogManager f = FogManager.Instance;
+        if (f == null || !f.permanentFog) return false;
+        NpcMover m = NpcView.GetMover(n.id);
+        return m != null && FogManager.InFog(m.transform.position);
+    }
+
     // ============ 每帧结算 ============
 
     void Tick(NpcData n, float dt, WorldState w)
@@ -217,6 +230,7 @@ public class NpcHealth : MonoBehaviour
             if (Has(n, HealthTag.Sick)) san += sickSanityPerSecond;
             if (Has(n, HealthTag.Psychosis)) san += psychosisSanityPerSecond;
             if (Has(n, HealthTag.Parched)) san += parchedSanityPerSecond;
+            if (fogSanityPerSecond > 0f && InFog(n)) san += fogSanityPerSecond;   // 永久雾：人在雾里掉理智
             if (san > 0f)
             {
                 n.sanity = Mathf.Clamp(n.sanity - san * dt, 0f, 100f);

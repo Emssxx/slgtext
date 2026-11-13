@@ -32,6 +32,10 @@ public class TerrainSystem : MonoBehaviour
 {
     public static TerrainSystem Instance { get; private set; }
 
+    [Header("旧地形生成（地图种子）")]
+    [Tooltip("关（默认）= 新地图规则：只有营地地砖，营地外是空地 + 永久的雾，不生成湖 / 沼泽 / 树 / 石头 / 矿，资源以后只来自区域。\n开 = 原来按地图种子生成整张地图（要看到它还得把 FogManager 的 Permanent Fog 关掉）")]
+    public bool legacyTerrainGeneration = false;
+
     [Header("种子")]
     [Tooltip("填了就固定用这个种子（测试用）；空 = 用主菜单选的种子")]
     public string overrideSeed = "";
@@ -136,7 +140,9 @@ public class TerrainSystem : MonoBehaviour
         PrepareBorder();
         TerrainLayout layout = BuildLayout();
         Seed = !string.IsNullOrEmpty(MapSeed.Normalize(overrideSeed)) ? MapSeed.Normalize(overrideSeed) : MapSeed.Current;
-        Map = TerrainGenerator.Generate(layout, MapSeed.Hash(Seed));
+        Map = legacyTerrainGeneration
+            ? TerrainGenerator.Generate(layout, MapSeed.Hash(Seed))
+            : TerrainGenerator.GenerateCampOnly(layout, MapSeed.Hash(Seed)); // 新地图规则：只有营地（种子只影响营地地砖的缺角 / 破损）
         _resAt = new ResourceNode[Map.width * Map.height];
         FishMax = Map.Count(TerrainType.Water) / Mathf.Max(1, waterCellsPerFish);
         Fish = FishMax;
@@ -152,7 +158,7 @@ public class TerrainSystem : MonoBehaviour
         _cellInfo = new TerrainCellInfo();
         CellInfo.Register(_cellInfo);
         MapSeed.SaveLayout(layout);
-        Announce();
+        if (legacyTerrainGeneration) Announce();   // 新地图规则不用种子，不在事件栏报种子
         return true;
     }
 

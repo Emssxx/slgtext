@@ -129,7 +129,7 @@ public static class EnemyDefs
         Add(new EnemyDef
         {
             id = "spider_l", kind = EnemyKind.Creature, tier = EnemyTier.Strong,
-            maxHp = 600f, damage = 24f, attackRange = 1.4f, attackInterval = 2.2f, speed = 1.2f, sight = 6.5f,
+            maxHp = 12000f, damage = 24f, attackRange = 1.4f, attackInterval = 2.2f, speed = 1.2f, sight = 6.5f,   // 变异体：体型大，血也要厚
             sanityAura = 4.5f, sanityPerSecond = 1.2f, wallDamage = 30f, fleeBelow = 0f,
             packMin = 1, packMax = 1, dropItem = "crystal", dropChance = 1f,
             color = new Color(0.7f, 0.2f, 0.2f, 1f), scale = 3f, rig = "spider"

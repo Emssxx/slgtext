@@ -439,6 +439,26 @@ public static class TerrainGenerator
         return m;
     }
 
+    // 只有营地的地图（新地图规则：营地外是永久的雾，不再按种子生成湖 / 沼泽 / 树石矿）。
+    // 营地地砖的画法和 Generate 一样；营地外全是土地，没有任何资源——资源以后只来自 AI 导演生成的区域。
+    public static TerrainMap GenerateCampOnly(TerrainLayout L, int seed)
+    {
+        int W = Math.Max(1, L.width), H = Math.Max(1, L.height), N = W * H;
+        TerrainMap m = new TerrainMap
+        {
+            width = W, height = H, sub = Math.Max(1, L.sub), seed = seed,
+            cells = new TerrainType[N],
+            blocked = L.blocked != null && L.blocked.Length == N ? L.blocked : new bool[N],
+            spawnX = Clamp(L.spawnX, 0, W - 1), spawnY = Clamp(L.spawnY, 0, H - 1),
+            campX = L.campX, campY = L.campY, campW = L.campW, campH = L.campH
+        };
+        TerrainRng rng = new TerrainRng(seed);
+        m.flavor = (TerrainFlavor)rng.Next(4);
+        Params p = Params.For(m.flavor, rng);
+        PaintCamp(m, rng, p, new bool[N]);
+        return m;
+    }
+
     // ============ 营地 ============
 
     static void PaintCamp(TerrainMap m, TerrainRng rng, Params p, bool[] protect)
