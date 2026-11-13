@@ -13,7 +13,7 @@ using UnityEngine.InputSystem;
 //     例外：身上带着小型 AI 终端机（物品 id = ai_terminal，就是 npc2 胸挂上那个 Terminal）的人不打，火线上有他也不开枪。
 //     （targetSurvivors 关掉 = 只打敌人，调试用）
 //   · 训练有素：武器操作等级默认 5；体力消耗 = 普通 NPC 的 staminaFactor（0.3 倍，小于三分之一）。
-//   · 两把专属武器（数值在下面 Rifle / Pistol，Inspector 可调）：
+//   · 专属武器（数值在枪的数据里：WeaponDef 的"战斗数值"一栏，菜单 SLG → 武器 → 生成武器数值文件后在 Inspector 改；这里只选拿哪把）：
 //       战术步枪：一个弹匣 35 发；点射（远）/ 连发（近）；散布极小、预判极准、后坐恢复快；有一定几率打中要害（伤害 ×critMul）。
 //       手枪：一个弹匣 12 发；双击（一次两枪）；子弹带击退（把敌人往后推 + 打断它的攻击，体型越大推得越少）。
 //   · 弹匣：步枪 / 手枪各 5 个（枪里 1 + 胸挂 4），和 NpcRigB 胸挂上画的一样；打空的弹匣扔掉，没打空的战术换弹收回来。
@@ -40,6 +40,21 @@ public class AbaWeapon
     public float speedReload;       // 快速换弹几秒（打空了，旧弹匣直接扔）
     public float tacticalReload;    // 战术换弹几秒（没打空，旧弹匣收回胸挂）
     public string bulletSprite;     // 子弹图（Resources 路径）
+    public WeaponDef def;           // 这把枪的数据（瞄准镜 / 镭射这些配件效果也在里面）
+
+    // 从枪的数据拿数值（数值都在 WeaponDef 的"战斗数值"一栏；key = NpcRigB 里的换手键 "rifle" / "pistol"）
+    public static AbaWeapon From(WeaponDef d, string key)
+    {
+        if (d == null) return null;
+        return new AbaWeapon
+        {
+            id = key, def = d, magSize = Mathf.Max(1, d.magSize), damage = d.damage, spread = d.spread, movingMul = d.movingMul,
+            recoilPerShot = d.recoilPerShot, recoilRecover = d.recoilRecover, leadError = d.leadError, bulletSpeed = d.bulletSpeed,
+            shotInterval = d.ShotInterval, pause = d.burstPause, range = d.range, knockback = d.knockback,
+            critChance = d.critChance, critMul = d.critMul, speedReload = d.speedReloadTime, tacticalReload = d.tacticalReloadTime,
+            bulletSprite = d.BulletPath,
+        };
+    }
 }
 
 public class AbaForce : MonoBehaviour
@@ -66,50 +81,46 @@ public class AbaForce : MonoBehaviour
     public int medkits = 2;                  // 每人带几个急救包（NpcRigB 腰上画着两个）
     public float medkitHeal = 45f;
 
-    [Header("战术步枪")]
-    public int rifleMag = 35;
-    public float rifleDamage = 15f;
-    public float rifleSpread = 1.3f;
-    public float rifleRPM = 750f;            // 点射 / 连发时的射速
-    public float rifleRange = 9f;
-    [Range(0f, 1f)] public float rifleCrit = 0.12f;
-
-    [Header("ABA-X95 无托步枪（原型 QBZ-95：5.8mm，射速快、散布小、单发略重；步枪不击退）")]
-    [Tooltip("队员拿哪把步枪：aba_rifle = 战斗步枪，aba-x95 = ABA-X95，aba-ar15 = ABA-AR15（新生成的队员才换）")]
+    [Header("武器")]
+    [Tooltip("队员拿哪把步枪（WeaponDef id）：aba_rifle = 战斗步枪，aba-x95 = ABA-X95，aba-ar15 = ABA-AR15（新生成的队员才换）")]
     public string rifleModel = "aba_rifle";
-    public int x95Mag = 30;                  // QBZ-95 一个弹匣 30 发（战斗步枪 35）
-    public float x95Damage = 17f;            // 每发伤害（战斗步枪 15）
-    public float x95Spread = 1.1f;           // 散布（枪管长、枪口不怎么跳，比战斗步枪准）
-    public float x95RPM = 650f;              // 射速（和动画一样 650 发/分）
-    public float x95Range = 9.5f;
-    [Range(0f, 1f)] public float x95Crit = 0.12f;
-
-    [Header("ABA-AR15（射速快、后坐轻、很稳；单发略轻；步枪不击退）")]
-    public int ar15Mag = 30;                 // 一个弹匣 30 发
-    public float ar15Damage = 14f;           // 每发伤害（战斗步枪 15）
-    public float ar15Spread = 1.15f;         // 散布
-    public float ar15RPM = 700f;             // 射速（和动画一样 700 发/分）
-    public float ar15Range = 9.5f;
-    [Range(0f, 1f)] public float ar15Crit = 0.1f;
-
-    [Header("手枪（击退）")]
-    public int pistolMag = 12;
-    public float pistolDamage = 24f;
-    public float pistolSpread = 2f;
-    public float pistolKnockback = 4.5f;
-    public float pistolRange = 6f;
+    [Tooltip("队员的手枪（WeaponDef id）")]
+    public string pistolModel = "aba_pistol";
+    // 每把枪的数值（弹匣、伤害、散布、射速、射程、要害、瞄准镜 / 镭射……）在枪的数据里：WeaponDef 的"战斗数值"一栏
 
     [Header("测试")]
     public bool debugKeys = true;            // F10 放一个小组
 
-    public AbaWeapon Rifle { get; private set; }
-    public AbaWeapon X95 { get; private set; }
-    public AbaWeapon AR15 { get; private set; }
+    // 这把步枪（WeaponDef id）在游戏里的数值：直接读枪的数据（不是步枪 / 没有这把：用战斗步枪）
+    public AbaWeapon RifleFor(string weaponId)
+    {
+        WeaponDef d = string.IsNullOrEmpty(weaponId) ? null : WeaponDef.Get(weaponId);
+        if (d == null || d.hold != HoldType.Rifle) { weaponId = "aba_rifle"; d = WeaponDef.Get(weaponId); }
+        return Cached(weaponId, d, "rifle");
+    }
+    public AbaWeapon Pistol => Cached(pistolModel, WeaponDef.Get(pistolModel), "pistol");
 
-    // 这把步枪（WeaponDef id）在游戏里的数值：aba-x95 用 X95 那组，其他都用战斗步枪那组
-    public AbaWeapon RifleFor(string weaponId) =>
-        weaponId == "aba-x95" && X95 != null ? X95 : weaponId == "aba-ar15" && AR15 != null ? AR15 : Rifle;
-    public AbaWeapon Pistol { get; private set; }
+    // 数值每秒按枪的数据刷新一次（运行中改了武器数值文件也会生效）
+    readonly Dictionary<string, AbaWeapon> _weapons = new Dictionary<string, AbaWeapon>();
+    readonly Dictionary<string, float> _weaponAt = new Dictionary<string, float>();
+    AbaWeapon Cached(string id, WeaponDef d, string key)
+    {
+        string k = key + ":" + id;
+        if (_weapons.TryGetValue(k, out AbaWeapon w) && _weaponAt.TryGetValue(k, out float at) && Time.unscaledTime - at < 1f) return w;
+        AbaWeapon fresh = AbaWeapon.From(d, key);
+        if (fresh == null) return w;
+        if (w != null)                                                      // 已经有人拿着这个对象：原地更新（不换引用）
+        {
+            w.magSize = fresh.magSize; w.damage = fresh.damage; w.spread = fresh.spread; w.movingMul = fresh.movingMul;
+            w.recoilPerShot = fresh.recoilPerShot; w.recoilRecover = fresh.recoilRecover; w.leadError = fresh.leadError;
+            w.bulletSpeed = fresh.bulletSpeed; w.shotInterval = fresh.shotInterval; w.pause = fresh.pause; w.range = fresh.range;
+            w.knockback = fresh.knockback; w.critChance = fresh.critChance; w.critMul = fresh.critMul;
+            w.speedReload = fresh.speedReload; w.tacticalReload = fresh.tacticalReload; w.bulletSprite = fresh.bulletSprite; w.def = d;
+        }
+        else { w = fresh; _weapons[k] = w; }
+        _weaponAt[k] = Time.unscaledTime;
+        return w;
+    }
 
     static WorldState World => WorldManager.Instance != null ? WorldManager.Instance.world : null;
 
@@ -125,7 +136,6 @@ public class AbaForce : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(this); return; }
         Instance = this;
-        BuildWeapons();
     }
 
     void OnDestroy()
@@ -133,52 +143,6 @@ public class AbaForce : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
-    void OnValidate() { BuildWeapons(); }
-
-    // 两把专属武器的数值（Inspector 改了马上生效）
-    void BuildWeapons()
-    {
-        Rifle = new AbaWeapon
-        {
-            id = "rifle", magSize = Mathf.Max(1, rifleMag), damage = rifleDamage, spread = rifleSpread,
-            movingMul = 1.3f, recoilPerShot = 0.45f, recoilRecover = 8f, leadError = 0.06f, bulletSpeed = 160f,
-            shotInterval = 60f / Mathf.Max(60f, rifleRPM), pause = 0.35f, range = rifleRange,
-            knockback = 0f, critChance = rifleCrit, critMul = 1.8f,
-            speedReload = 1.7f, tacticalReload = 2.4f, bulletSprite = "NpcArt2/Weapons/RifleBullet"
-        };
-        X95 = new AbaWeapon
-        {
-            id = "rifle", magSize = Mathf.Max(1, x95Mag), damage = x95Damage, spread = x95Spread,
-            movingMul = 1.25f,                          // 无托短小，边走边打稍微稳一点
-            recoilPerShot = 0.32f, recoilRecover = 9f,  // 枪口不怎么跳：每枪散布涨得少、压枪回得快
-            leadError = 0.06f, bulletSpeed = 170f,      // 5.8mm 子弹快一点
-            shotInterval = 60f / Mathf.Max(60f, x95RPM), pause = 0.3f, range = x95Range,
-            knockback = 0f,                             // 步枪不击退
-            critChance = x95Crit, critMul = 1.8f,
-            speedReload = 1.8f, tacticalReload = 2.6f,  // 无托：弹匣在握把后面，换得慢一点
-            bulletSprite = "WeaponArt/aba-x95/Bullet"
-        };
-        AR15 = new AbaWeapon
-        {
-            id = "rifle", magSize = Mathf.Max(1, ar15Mag), damage = ar15Damage, spread = ar15Spread,
-            movingMul = 1.35f,
-            recoilPerShot = 0.36f, recoilRecover = 9f,  // 稳：每枪散布涨得少、回得快
-            leadError = 0.07f, bulletSpeed = 165f,
-            shotInterval = 60f / Mathf.Max(60f, ar15RPM), pause = 0.3f, range = ar15Range,
-            knockback = 0f,                             // 步枪不击退
-            critChance = ar15Crit, critMul = 1.8f,
-            speedReload = 1.6f, tacticalReload = 2.3f,  // AR 弹匣释放快
-            bulletSprite = "WeaponArt/aba-ar15/Bullet"
-        };
-        Pistol = new AbaWeapon
-        {
-            id = "pistol", magSize = Mathf.Max(1, pistolMag), damage = pistolDamage, spread = pistolSpread,
-            movingMul = 1.25f, recoilPerShot = 0.9f, recoilRecover = 7f, leadError = 0.08f, bulletSpeed = 130f,
-            shotInterval = 0.14f, pause = 0.3f, range = pistolRange,
-            knockback = pistolKnockback, critChance = 0.08f, critMul = 1.6f,
-            speedReload = 1.2f, tacticalReload = 1.8f, bulletSprite = "NpcArt2/Weapons/PistolBullet"
-        };
-    }
 
     void Update()
     {

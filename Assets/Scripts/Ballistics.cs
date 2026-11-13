@@ -205,12 +205,14 @@ public class Ballistics : MonoBehaviour
         Ballistics b = Ensure();
         float speed = rig != null && rig.bulletSpeed > 0f ? rig.bulletSpeed : b.defaultSpeed;
         float sigma = NpcSpread(n, rig, moving);
+        WeaponDef gun = rig != null && rig.HeldGun != null ? rig.HeldGun.def : null;   // 手上这把枪（配件效果、击退是枪的属性）
+        if (gun != null) sigma *= gun.AimSpreadMul(((Vector2)(target - from)).magnitude, moving);   // 瞄准镜 / 镭射
         Vector2 aim = AimDirection(from, target, targetVel, speed, out float aimDist);
         Vector2 dir = Rotate(aim, Gauss() * sigma);
         b.AddRecoil(n != null ? n.id : "?");
         if (rig != null) rig.MuzzleFlash();
         Bullet bullet = b.Spawn(from, dir, speed, damage, aimDist, n, null, rig != null ? rig.ricochetChance : 0.3f);
-        bullet.knock = b.npcPistolKnockback;                                   // 手枪子弹带击退
+        bullet.knock = gun != null ? gun.knockback : b.npcPistolKnockback;    // 击退：枪的属性（手枪有，步枪没有）
         b.DrawSpread(from, aim, dir, sigma, aimDist);
     }
 
@@ -239,6 +241,7 @@ public class Ballistics : MonoBehaviour
         int level = AbaForce.Instance != null ? Mathf.Clamp(AbaForce.Instance.weaponLevel, 1, 5) : 5;
         float s = w.spread * At(b.levelSpread, level - 1, 0.25f) / Mathf.Max(0.01f, At(b.levelSpread, 4, 0.25f));
         if (moving) s *= w.movingMul;
+        if (w.def != null) s *= w.def.AimSpreadMul(((Vector2)(target - from)).magnitude, moving);   // 枪的配件（瞄准镜 / 镭射）
         if (op != null && op.Stamina < 20f) s *= 1.2f;
         if (op != null && op.Hp < op.MaxHp * 0.35f) s *= 1.15f;
         float sigma = s + b.RecoilOf(key, w.recoilRecover);

@@ -63,6 +63,8 @@ public class WeaponDef : ScriptableObject
     public float laserWidth = 0.005f;                        // 粗细（单位）
     public float laserLength = 6f;                           // 多长（单位；末端淡出）
     public float laserDotSize = 0.25f;                       // 发射点那一小团光多大（0 = 不要）
+    public float laserLight = 0f;                            // 激光沿线的一点点光照亮度（照亮周围；0 = 不要）
+    public float laserLightRadius = 0.35f;                   // 每一团光照多大（单位）
 
     [Header("专用动画类（空 = 通用；填类名，比如 LayeredFlashGun）")]
     public string animator = "";                             // 这把枪的动画类（继承 CharacterRigBase.GunAnimator）
@@ -94,7 +96,44 @@ public class WeaponDef : ScriptableObject
     public Vector2 magInHand = new Vector2(0f, 0.012f);      // 弹匣底部在换弹手里的位置（单位）
     public float magReady = 0.085f;                          // 对准时弹匣还差多远插到底（单位）
 
+    [Header("战斗数值（枪的属性：谁拿都一样；人的手感——等级、紧张、体力——由开枪的人再乘）")]
+    public int magSize = 12;                                 // 一个弹匣几发
+    public float damage = 15f;                               // 每发伤害
+    public float spread = 2f;                                // 散布 σ（度；5 级手感、站着冷静时）
+    public float movingMul = 1.3f;                           // 边走边打散布倍数
+    public float recoilPerShot = 0.45f;                      // 每开一枪散布加多少度
+    public float recoilRecover = 8f;                         // 每秒恢复多少度（压枪）
+    public float leadError = 0.06f;                          // 预判误差（0.06 = ±6%）
+    public float bulletSpeed = 150f;                         // 子弹速度（单位 / 秒）
+    public float burstPause = 0.3f;                          // 两组点射之间停多久（秒）
+    public float range = 8f;                                 // 有效射程（单位）
+    public float knockback = 0f;                             // 击退（打中时把目标往后推的初速度；0 = 没有）
+    [Range(0f, 1f)] public float critChance = 0.1f;          // 打中要害的几率
+    public float critMul = 1.8f;                             // 要害伤害倍数
+    public float speedReloadTime = 1.6f;                     // 快速换弹几秒（游戏规则用；动画会压到这个时间）
+    public float tacticalReloadTime = 2.3f;                  // 战术换弹几秒
+
+    [Header("瞄准配件（枪的属性）：可变倍率瞄准镜 / 镭射指示")]
+    public float scopeMax = 1f;                              // 瞄准镜最高几倍（1 = 没有瞄准镜）
+    public float scopeNear = 3f;                             // 这个距离以内用 1 倍
+    public float scopeFar = 8f;                              // 这个距离以外用最高倍
+    public float scopeGain = 0.25f;                          // 每多 1 倍，散布除以 (1 + 这个)
+    public float laserAim = 1f;                              // 镭射指示：边走边打散布再乘这个（< 1 = 更准；1 = 没效果）
+
     public float ShotInterval => 60f / Mathf.Max(30f, rpm);
+
+    // 这个距离上瞄准镜几倍
+    public float ScopeAt(float dist) => scopeMax <= 1f ? 1f : Mathf.Lerp(1f, scopeMax, Mathf.InverseLerp(scopeNear, scopeFar, dist));
+    // 枪的配件让散布变成几倍（瞄准镜：越远越准，倍率高时边走边打难一点；镭射：边走边打更准）。谁开枪都乘这个
+    public float AimSpreadMul(float dist, bool moving)
+    {
+        float zoom = ScopeAt(dist);
+        float m = 1f / (1f + (zoom - 1f) * scopeGain);
+        if (moving) m *= laserAim * (1f + (zoom - 1f) * 0.1f);
+        return m;
+    }
+    // 子弹图的完整 Resources 路径（没有 = 空）
+    public string BulletPath => string.IsNullOrEmpty(bulletSprite) ? "" : artFolder + "/" + bulletSprite;
 
     // 按名字找部件的数据（没有 = null）
     public WeaponPart PartDef(string partName)
@@ -228,6 +267,10 @@ public class WeaponDef : ScriptableObject
                 d.reloadMotion = ReloadMotion.Pistol; d.magPart = "PistolMag"; d.reloadHand = "PistolHandR";
                 d.magDir = new Vector2(0.262f, 0.965f); d.magInHand = new Vector2(0.0032f, 0.0204f); d.magReady = 0.085f;   // 弹匣底部相对手心中心
                 d.holsterArt = "WeaponArt/aba_pistol/Holster";
+                // 战斗数值（ABA 战术手枪：子弹带击退）
+                d.magSize = 12; d.damage = 24f; d.spread = 2f; d.movingMul = 1.25f; d.recoilPerShot = 0.9f; d.recoilRecover = 7f;
+                d.leadError = 0.08f; d.bulletSpeed = 130f; d.burstPause = 0.3f; d.range = 6f; d.knockback = 4.5f;
+                d.critChance = 0.08f; d.critMul = 1.6f; d.speedReloadTime = 1.2f; d.tacticalReloadTime = 1.8f;
                 return d;
             case "aba_rifle":    // ABA 战术步枪（npc2 的图）
                 d.displayName = "战斗步枪";
@@ -259,6 +302,11 @@ public class WeaponDef : ScriptableObject
                 d.reloadMotion = ReloadMotion.Rifle; d.magPart = "RifleMag"; d.reloadHand = "RifleHandR";
                 d.magDir = new Vector2(-0.102f, 0.995f); d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;   // 弹匣底部相对手心中心
                 d.slingArt = "NpcArt2/Rifle";
+                // 战斗数值（战斗步枪：弹匣大、单发重一点，散布比另外两把大）
+                d.rpm = 750f;                               // 和游戏里的射速统一（原来动画 400、游戏 750）
+                d.magSize = 35; d.damage = 15f; d.spread = 1.3f; d.movingMul = 1.3f; d.recoilPerShot = 0.45f; d.recoilRecover = 8f;
+                d.leadError = 0.06f; d.bulletSpeed = 160f; d.burstPause = 0.35f; d.range = 9f; d.knockback = 0f;
+                d.critChance = 0.12f; d.critMul = 1.8f; d.speedReloadTime = 1.7f; d.tacticalReloadTime = 2.4f;
                 return d;
             case "suit_pistol":  // 防护服手枪（npc1 的图；部件本来就拆好了：弹匣 / 枪身 / 滑套 / 两只持枪手）
                 d.displayName = "防护服手枪";
@@ -285,6 +333,8 @@ public class WeaponDef : ScriptableObject
                 d.reloadMotion = ReloadMotion.Pistol; d.magPart = "PistolMag"; d.reloadHand = "PistolRightHand";
                 d.magDir = new Vector2(0.135f, 0.991f); d.magInHand = new Vector2(0.002f, 0.0174f); d.magReady = 0.085f;   // 弹匣底部相对手心中心
                 d.holsterArt = "NpcArt/Gear/Pistol";
+                // 战斗数值（防护服手枪：伤害 / 散布由 NPC 自己的规则算，这里只管击退等枪的属性）
+                d.magSize = 12; d.knockback = 2.5f; d.bulletSpeed = 120f; d.range = 6f;
                 return d;
             case "aba-x95":      // ABA-X95 无托步枪（图：Resources/WeaponArt/aba-x95；坐标 = x96.PSD 里的十字线）
                 d.displayName = "ABA-X95";
@@ -322,6 +372,10 @@ public class WeaponDef : ScriptableObject
                 d.magDir = new Vector2(-0.183f, 0.983f);    // 弹匣底部十字 → 弹匣顶部十字
                 d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;   // 弹匣底部相对手心中心
                 d.slingArt = "WeaponArt/aba-x95/Sling";
+                // 战斗数值（原型 QBZ-95：5.8mm，射速快、散布小、单发略重；无托短小边走边打稳一点；步枪不击退）
+                d.magSize = 30; d.damage = 17f; d.spread = 1.1f; d.movingMul = 1.25f; d.recoilPerShot = 0.32f; d.recoilRecover = 9f;
+                d.leadError = 0.06f; d.bulletSpeed = 170f; d.burstPause = 0.3f; d.range = 9.5f; d.knockback = 0f;
+                d.critChance = 0.12f; d.critMul = 1.8f; d.speedReloadTime = 1.8f; d.tacticalReloadTime = 2.6f;
                 return d;
             case "aba-ar15":     // ABA-AR15（图：Resources/WeaponArt/aba-ar15；坐标 = aba-ar15.PSD 里的十字线）
                 d.displayName = "ABA-AR15";
@@ -330,7 +384,9 @@ public class WeaponDef : ScriptableObject
                 d.grip = new Vector2(673.5f, 412.5f);         // 持枪手（握把）十字
                 d.muzzle = new Vector2(1809f, 253.5f);        // 枪口十字
                 d.lamp = new Vector2(1629f, 251f);            // 手电十字
-                d.hasLaser = true; d.laser = new Vector2(862f, 162.5f);   // 镭射十字（瞄准镜旁边）：红色激光沿枪管方向射出去
+                d.hasLaser = true; d.laser = new Vector2(862f, 162.5f);   // 镭射十字（瞄准镜旁边）：红外激光沿枪管方向射出去
+                d.laserColor = new Color(1f, 0.1f, 0.12f, 0.55f); d.laserWidth = 0.004f; d.laserDotSize = 0.2f;   // 红外：细、偏暗
+                d.laserLight = 0.35f; d.laserLightRadius = 0.35f;  // 沿着激光一点点光，照亮经过的地方
                 // 端枪：枪托十字（159.5, 288）顶在肩膀上 → 握把相对脚底中心的位置
                 d.shoulder = new Vector2(-0.083f, 0.51f);
                 d.restGrip = new Vector2(-0.083f * 1936.55f + (673.5f - 159.5f), -0.51f * 1936.55f + (412.5f - 288f));
@@ -344,7 +400,7 @@ public class WeaponDef : ScriptableObject
                 d.parts.Add(P("AR15HandR", "", 1306f, 381f, 47, 0f, true));        // 辅助手锚点（护木；换弹时离开枪的那只）
                 // 手感（AR-15：缓冲管吸收后坐，往后顶得轻；枪口上跳中等但很稳定、每枪差不多，好预测；射速快）
                 //   战斗步枪 = 慢、跳得忽大忽小；X95 = 直往后顶得狠；AR15 = 轻快、稳
-                d.rpm = 700f;                                                      // 射速：700 发/分
+                d.rpm = 800f;                                                      // 射速：800 发/分（原型 M4A1，和 AbaForce 一致）
                 d.recoilKick = new Vector2(3.4f, 4.4f);                            // 每枪枪口上扬（度）：范围窄 = 稳定
                 d.recoilHandX = new Vector2(-0.045f, -0.03f);                      // 每枪往后顶：比战斗步枪轻（缓冲管）
                 d.recoilHandY = new Vector2(0.006f, 0.016f);                       // 每枪往上抬
@@ -352,7 +408,7 @@ public class WeaponDef : ScriptableObject
                 d.handRecoilReturn = new Vector2(0.05f, 0.07f);                    // 回正快（射速高）
                 d.muzzleRise = new Vector2(0.015f, 0.03f); d.muzzleReturn = 0.055f;
                 d.recoilLean = 1.3f; d.actionShift = 0.009f;                       // 身体晃得少
-                d.kickBack = 0.014f; d.kickHold = 0f; d.kickReturn = 0.04f;        // 上弹器：跟得上 700 发/分（一枪间隔 0.086 秒）
+                d.kickBack = 0.012f; d.kickHold = 0f; d.kickReturn = 0.035f;       // 上弹器：跟得上 800 发/分（一枪间隔 0.075 秒）
                 d.flashTime = 0.045f; d.flashSize = 1.5f;
                 d.flashSprites = new[] { "Flash1", "Flash2" };
                 d.bulletSprite = "Bullet";
@@ -363,6 +419,12 @@ public class WeaponDef : ScriptableObject
                 d.reloadMotion = ReloadMotion.Rifle; d.magPart = "AR15Mag"; d.reloadHand = "AR15HandR";   // 和战斗步枪一样的步枪式换弹
                 d.magDir = new Vector2(-0.191f, 0.982f);    // 弹匣底部十字 → 弹匣顶部十字
                 d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;   // 弹匣底部相对手心中心
+                // 战斗数值（原型 M4A1：5.56mm，射速快、后坐轻、很稳；单发略轻；步枪不击退）
+                d.magSize = 30; d.damage = 14f; d.spread = 1.1f; d.movingMul = 1.35f; d.recoilPerShot = 0.34f; d.recoilRecover = 9.5f;
+                d.leadError = 0.05f; d.bulletSpeed = 175f; d.burstPause = 0.28f; d.range = 11f; d.knockback = 0f;
+                d.critChance = 0.13f; d.critMul = 1.8f; d.speedReloadTime = 1.6f; d.tacticalReloadTime = 2.3f;
+                d.scopeMax = 3f; d.scopeNear = 3f; d.scopeFar = 8f; d.scopeGain = 0.25f;   // 1~3 倍可变瞄准镜：近处 1 倍，3 倍时散布 ÷1.5
+                d.laserAim = 0.85f;                         // 红外镭射：边走边打更准
                 return d;
         }
         if (warn) Debug.LogWarning("[WeaponDef] 没有这把武器：" + id);

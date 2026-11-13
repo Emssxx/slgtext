@@ -1362,6 +1362,8 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     // 枪上的镭射瞄准线（枪的属性）：拿着有镭射的枪就开着（取出动画播完才开、死了关掉），
     //   从镭射十字沿枪管方向射出一条细激光，越远越淡；发射点有一小团光。都不受光照（黑暗里也看得见）
     LineRenderer _laserLine;                                   // 激光
+    UnityEngine.Rendering.Universal.Light2D[] _laserLights;    // 沿着激光的几团小光（照亮周围一点点）
+    const int LASER_LIGHTS = 5;
     SpriteRenderer _laserGlowLast;                             // 上一帧亮着的发射点（换枪时关掉）
     static Material _laserMat;
     protected void GunLaserUpdate()
@@ -1397,6 +1399,14 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         }
         if (_laserLine == null) return;
         _laserLine.enabled = on;
+        bool lit = on && d.laserLight > 0f;
+        if (lit && _laserLights == null)                                        // 第一次用：沿线放几团小点光
+        {
+            _laserLights = new UnityEngine.Rendering.Universal.Light2D[LASER_LIGHTS];
+            for (int i = 0; i < LASER_LIGHTS; i++) _laserLights[i] = WorldLighting.CreatePoint("LaserLight", transform, d.laserColor, 0f, d.laserLightRadius, 360f);
+        }
+        if (_laserLights != null)
+            foreach (UnityEngine.Rendering.Universal.Light2D l in _laserLights) if (l != null && l.enabled != lit) l.enabled = lit;
         if (!on) return;
         Vector3 dir = _muzzle != null ? _muzzle.TransformVector(Vector3.right) : Vector3.right;   // 沿枪管方向（含朝左翻转、后坐上扬）
         dir.z = 0f;
@@ -1409,6 +1419,16 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         _laserLine.widthMultiplier = d.laserWidth * scale;
         Color c0 = d.laserColor, c1 = d.laserColor; c1.a = 0f;                  // 越远越淡
         _laserLine.startColor = c0; _laserLine.endColor = c1;
+        if (!lit || _laserLights == null) return;
+        Color lc = d.laserColor; lc.a = 1f;
+        for (int i = 0; i < LASER_LIGHTS; i++)                                  // 越远越暗（和激光一样淡出）
+        {
+            UnityEngine.Rendering.Universal.Light2D l = _laserLights[i];
+            if (l == null) continue;
+            float u = (i + 0.5f) / LASER_LIGHTS;
+            l.transform.position = a + dir * d.laserLength * scale * u * 0.8f;
+            WorldLighting.SetPoint(l, lc, d.laserLight * (1f - u), d.laserLightRadius * scale, 360f);
+        }
     }
 
     // ================= 统一对外接口：战斗 / 弹道 / 死亡 / ABA 这些系统只认这些，不用管是哪个角色 =================
