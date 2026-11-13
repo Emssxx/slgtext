@@ -1105,6 +1105,13 @@ public abstract partial class CharacterRigBase : MonoBehaviour
             g.lamp.localPosition = CanvasToLocal(d.lamp - d.grip);
             g.lampGlow = MakeLampGlow(g.lamp);
         }
+        if (d.hasLaser)                                                         // 镭射瞄准线的发射点
+        {
+            g.laser = new GameObject("GunLaser").transform;
+            g.laser.SetParent(g.root, false);
+            g.laser.localPosition = CanvasToLocal(d.laser - d.grip);
+            g.laserGlow = MakeLampGlow(g.laser);                                // 发射点那一小团光（和手电灯头一样的发光点）
+        }
         return g;
     }
 
@@ -1350,6 +1357,58 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         Vector3 dir = _muzzle != null ? _muzzle.TransformVector(Vector3.right) : Vector3.right;
         _gunBeam.transform.position = _gun.lamp.position;
         _gunBeam.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg - 90f);
+    }
+
+    // 枪上的镭射瞄准线（枪的属性）：拿着有镭射的枪就开着（取出动画播完才开、死了关掉），
+    //   从镭射十字沿枪管方向射出一条细激光，越远越淡；发射点有一小团光。都不受光照（黑暗里也看得见）
+    LineRenderer _laserLine;                                   // 激光
+    SpriteRenderer _laserGlowLast;                             // 上一帧亮着的发射点（换枪时关掉）
+    static Material _laserMat;
+    protected void GunLaserUpdate()
+    {
+        WeaponDef d = _gun != null ? _gun.def : null;
+        bool on = d != null && d.hasLaser && _gun.laser != null && _drawT < 0f && !_dead && _gun.root.gameObject.activeInHierarchy;
+        if (on && _laserLine == null)                                           // 第一次用：做一条激光
+        {
+            GameObject go = new GameObject("LaserLine");
+            go.transform.SetParent(transform, false);
+            _laserLine = go.AddComponent<LineRenderer>();
+            _laserLine.useWorldSpace = true;
+            _laserLine.positionCount = 2;
+            _laserLine.numCapVertices = 2;
+            if (_laserMat == null)
+            {
+                Shader sh = Shader.Find("Legacy Shaders/Particles/Additive");  // 叠加发光
+                if (sh == null) sh = Shader.Find("Sprites/Default");
+                if (sh != null) _laserMat = new Material(sh);
+            }
+            if (_laserMat != null) _laserLine.sharedMaterial = _laserMat;
+            _laserLine.sortingOrder = 55;                                        // 在枪上面
+        }
+        SpriteRenderer glow = _gun != null ? _gun.laserGlow : null;
+        if (_laserGlowLast != null && _laserGlowLast != glow) _laserGlowLast.enabled = false;   // 换了枪：上一把的发光点关掉
+        _laserGlowLast = glow;
+        if (_gun != null && _gun.laserGlow != null)                             // 发射点那一小团光
+        {
+            _gun.laserGlow.enabled = on && d.laserDotSize > 0f;
+            Color gc = d.laserColor; gc.a = 1f;
+            _gun.laserGlow.color = gc;
+            _gun.laserGlow.transform.localScale = Vector3.one * Mathf.Max(0.01f, d.laserDotSize);
+        }
+        if (_laserLine == null) return;
+        _laserLine.enabled = on;
+        if (!on) return;
+        Vector3 dir = _muzzle != null ? _muzzle.TransformVector(Vector3.right) : Vector3.right;   // 沿枪管方向（含朝左翻转、后坐上扬）
+        dir.z = 0f;
+        if (dir.sqrMagnitude < 1e-6f) return;
+        dir.Normalize();
+        Vector3 a = _gun.laser.position;
+        float scale = Mathf.Abs(transform.lossyScale.y);                        // 角色本身的缩放
+        _laserLine.SetPosition(0, a);
+        _laserLine.SetPosition(1, a + dir * d.laserLength * scale);
+        _laserLine.widthMultiplier = d.laserWidth * scale;
+        Color c0 = d.laserColor, c1 = d.laserColor; c1.a = 0f;                  // 越远越淡
+        _laserLine.startColor = c0; _laserLine.endColor = c1;
     }
 
     // ================= 统一对外接口：战斗 / 弹道 / 死亡 / ABA 这些系统只认这些，不用管是哪个角色 =================

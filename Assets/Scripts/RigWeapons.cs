@@ -44,6 +44,8 @@ public class GunRig
     public Transform muzzle;                     // 枪口
     public Transform lamp;                       // 手电筒灯头（没有灯 = null）
     public SpriteRenderer lampGlow;              // 灯头发光点
+    public Transform laser;                      // 镭射发射点（没有镭射 = null）
+    public SpriteRenderer laserGlow;             // 镭射发射点那一小团光
     public readonly List<SpriteRenderer> parts = new List<SpriteRenderer>();
     readonly Dictionary<string, SpriteRenderer> _byName = new Dictionary<string, SpriteRenderer>();
     public readonly List<Transform> movers = new List<Transform>();     // 开枪时往后弹的部件
@@ -67,6 +69,7 @@ public class GunRig
     {
         foreach (SpriteRenderer sr in parts) if (sr != null) sr.enabled = on;
         if (!on && lampGlow != null) lampGlow.enabled = false;
+        if (!on && laserGlow != null) laserGlow.enabled = false;
     }
 
     // 滑套 / 上弹器 / 拉栓按进度 s（0 = 原位，1 = 最后面）往后弹

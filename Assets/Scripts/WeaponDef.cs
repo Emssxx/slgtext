@@ -56,6 +56,14 @@ public class WeaponDef : ScriptableObject
     public float lightGlowSize = 0.6f;                       // 灯头本身发光点多大
     public bool flickerOnDraw = false;                       // 刚打开时闪一下
 
+    [Header("镭射瞄准线（枪的属性：从镭射十字沿枪管方向射出一条激光）")]
+    public bool hasLaser = false;
+    public Vector2 laser;                                    // 镭射发射点（武器 PSD 坐标）
+    public Color laserColor = new Color(1f, 0.12f, 0.1f, 0.75f);   // 颜色（透明度 = 起点的亮度，越远越淡）
+    public float laserWidth = 0.005f;                        // 粗细（单位）
+    public float laserLength = 6f;                           // 多长（单位；末端淡出）
+    public float laserDotSize = 0.25f;                       // 发射点那一小团光多大（0 = 不要）
+
     [Header("专用动画类（空 = 通用；填类名，比如 LayeredFlashGun）")]
     public string animator = "";                             // 这把枪的动画类（继承 CharacterRigBase.GunAnimator）
 
@@ -97,7 +105,7 @@ public class WeaponDef : ScriptableObject
 
     // ============ 武器库 ============
     static readonly Dictionary<string, WeaponDef> _cache = new Dictionary<string, WeaponDef>();
-    public static readonly string[] BuiltInIds = { "aba_pistol", "aba_rifle", "suit_pistol", "aba-x95" };   // 代码里有默认值的枪
+    public static readonly string[] BuiltInIds = { "aba_pistol", "aba_rifle", "suit_pistol", "aba-x95", "aba-ar15" };   // 代码里有默认值的枪
 
     public string Label => string.IsNullOrEmpty(displayName) ? id : displayName;
 
@@ -314,6 +322,47 @@ public class WeaponDef : ScriptableObject
                 d.magDir = new Vector2(-0.183f, 0.983f);    // 弹匣底部十字 → 弹匣顶部十字
                 d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;   // 弹匣底部相对手心中心
                 d.slingArt = "WeaponArt/aba-x95/Sling";
+                return d;
+            case "aba-ar15":     // ABA-AR15（图：Resources/WeaponArt/aba-ar15；坐标 = aba-ar15.PSD 里的十字线）
+                d.displayName = "ABA-AR15";
+                d.hold = HoldType.Rifle;
+                d.artFolder = "WeaponArt/aba-ar15";
+                d.grip = new Vector2(673.5f, 412.5f);         // 持枪手（握把）十字
+                d.muzzle = new Vector2(1809f, 253.5f);        // 枪口十字
+                d.lamp = new Vector2(1629f, 251f);            // 手电十字
+                d.hasLaser = true; d.laser = new Vector2(862f, 162.5f);   // 镭射十字（瞄准镜旁边）：红色激光沿枪管方向射出去
+                // 端枪：枪托十字（159.5, 288）顶在肩膀上 → 握把相对脚底中心的位置
+                d.shoulder = new Vector2(-0.083f, 0.51f);
+                d.restGrip = new Vector2(-0.083f * 1936.55f + (673.5f - 159.5f), -0.51f * 1936.55f + (412.5f - 288f));
+                d.parts.Add(P("AR15Mag", "Mag", 976f, 603.5f, 40));                // 弹匣（轴心 = 弹匣底部十字）
+                d.parts.Add(P("AR15Inner", "Inner", 916f, 240f, 41));              // 内构造（上弹器后面窗口里，上弹器往后走时露出来）
+                d.parts.Add(P("AR15Charger", "Charger", 920f, 242f, 42, 216f));    // 上弹器（在枪身下面，从窗口里看到）：往后拉到"上弹器位置"十字（704）
+                d.parts.Add(P("AR15Body", "Body", 1132f, 306f, 43));               // 枪身（上弹器那里开了窗口）
+                d.parts.Add(P("AR15Bolt", "Bolt", 766f, 206f, 44));                // 拉栓（不动）
+                d.parts.Add(P("AR15Stock", "Stock", 342f, 332f, 45));              // 伸缩枪托（取出时拉开）
+                d.parts.Add(P("AR15HandL", "", 673.5f, 412.5f, 46, 0f, true));     // 持枪手锚点（握把；图用角色衣服的手）
+                d.parts.Add(P("AR15HandR", "", 1306f, 381f, 47, 0f, true));        // 辅助手锚点（护木；换弹时离开枪的那只）
+                // 手感（AR-15：缓冲管吸收后坐，往后顶得轻；枪口上跳中等但很稳定、每枪差不多，好预测；射速快）
+                //   战斗步枪 = 慢、跳得忽大忽小；X95 = 直往后顶得狠；AR15 = 轻快、稳
+                d.rpm = 700f;                                                      // 射速：700 发/分
+                d.recoilKick = new Vector2(3.4f, 4.4f);                            // 每枪枪口上扬（度）：范围窄 = 稳定
+                d.recoilHandX = new Vector2(-0.045f, -0.03f);                      // 每枪往后顶：比战斗步枪轻（缓冲管）
+                d.recoilHandY = new Vector2(0.006f, 0.016f);                       // 每枪往上抬
+                d.handRecoilRise = 0.016f;
+                d.handRecoilReturn = new Vector2(0.05f, 0.07f);                    // 回正快（射速高）
+                d.muzzleRise = new Vector2(0.015f, 0.03f); d.muzzleReturn = 0.055f;
+                d.recoilLean = 1.3f; d.actionShift = 0.009f;                       // 身体晃得少
+                d.kickBack = 0.014f; d.kickHold = 0f; d.kickReturn = 0.04f;        // 上弹器：跟得上 700 发/分（一枪间隔 0.086 秒）
+                d.flashTime = 0.045f; d.flashSize = 1.5f;
+                d.flashSprites = new[] { "Flash1", "Flash2" };
+                d.bulletSprite = "Bullet";
+                d.flickerOnDraw = true;                     // 手电刚打开闪一下
+                d.drawGrab = new Vector2(1300f, 165f);      // 护木上边（手倒过来抓）
+                d.stockPart = "AR15Stock"; d.stockGrab = new Vector2(190f, 300f); d.stockCollapse = 110f;   // 伸缩枪托：取出时左手往后拉开
+                d.mountCenter = new Vector2(984f, 342f);    // 挂在身上时枪的中心（挂件 = 用部件拼的整枪，不缩小）
+                d.reloadMotion = ReloadMotion.Rifle; d.magPart = "AR15Mag"; d.reloadHand = "AR15HandR";   // 和战斗步枪一样的步枪式换弹
+                d.magDir = new Vector2(-0.191f, 0.982f);    // 弹匣底部十字 → 弹匣顶部十字
+                d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;   // 弹匣底部相对手心中心
                 return d;
         }
         if (warn) Debug.LogWarning("[WeaponDef] 没有这把武器：" + id);

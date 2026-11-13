@@ -662,6 +662,7 @@ public class NpcRig : CharacterRigBase
     {
         UpdateLights();                                           // 头灯 / 身上的光（跟着朝向和枪口）
         GunLampUpdate();                                          // 通用枪上的手电筒（枪的属性）
+        GunLaserUpdate();                                         // 枪上的镭射瞄准线（枪的属性）
         if (_gun != null) PlaceGripHands(_gun);                   // 持枪手的微调（Inspector 改了马上看得到）
     }
 
@@ -940,6 +941,7 @@ public class NpcRig : CharacterRigBase
             g.Show(true);
             _muzzle = g.muzzle;
             HideHand(_handLSprite); HideHand(_handRSprite);                // 双手持枪：两只手都换成枪上的持枪手
+            if (g.def.hold == HoldType.Rifle && key != prev) PutOnSling(key);  // 步枪还没挂在背带上（比如测试窗口直接选）：先挂上去，好从背带上取下来
             MountPoint mp = MountForItem(key);                             // 挂载点上的那把藏起来（拿在手上了）
             if (mp != null && mp.art != null) HideRenderer(mp.art);
             if (mp != null && mp.art != null && _slungPic != null && _slungPic.parent == mp.art.transform) _slungPic.gameObject.SetActive(false);   // 用部件拼的那把也藏起来
@@ -1430,6 +1432,14 @@ public class NpcRig : CharacterRigBase
     }
 
     Transform _slungPic;                                                    // 步枪挂载点上用部件拼的枪（战斗步枪以外的步枪）
+
+    // 把这把步枪挂到背带的步枪挂载点上（已经挂着就不动；没有步枪挂载点就算了 = 直接拿在手上）
+    void PutOnSling(string key)
+    {
+        if (!rifleDrawAnim || MountForItem(key) != null) return;
+        foreach (MountPoint m in _mounts)
+            if (m.kind == MountKind.Rifle) { SetMountItem(m, key); return; }
+    }
 
     // ---- 步枪取出动画（动画在 CharacterRigBase.Draw.cs）：枪斜挂在背带的步枪挂载点上 ----
     protected override bool DrawMountPose(GunRig g, out Vector2 center, out float angle, out float scale)

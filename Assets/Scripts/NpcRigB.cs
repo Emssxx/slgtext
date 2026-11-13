@@ -433,6 +433,7 @@ public class NpcRigB : CharacterRigBase
         if (_mountGunPic != null && _mountRifle != null && _mountGunPic.gameObject.activeSelf != _mountRifle.enabled)
             _mountGunPic.gameObject.SetActive(_mountRifle.enabled);   // 用部件拼的胸挂步枪：跟着"胸挂上那把枪"一起显示 / 藏起来
         UpdateGunLight();                                         // 手枪手电筒跟着枪口方向照
+        GunLaserUpdate();                                         // 枪上的镭射瞄准线（枪的属性）
         currentState = _dead ? "死亡" : (_run > 0.5f ? "跑步" : (_move > 0.05f ? "走路" : "站立")) + "  " + speed.ToString("0.00");
     }
 
