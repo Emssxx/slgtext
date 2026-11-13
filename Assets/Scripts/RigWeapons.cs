@@ -11,6 +11,13 @@ using UnityEngine;
 // 【调数值】在 Project 窗口右键 → Create → SLG → 武器（枪械动画），文件名写武器 id（比如 aba_rifle），
 //   放进 Assets/Resources/Weapons/ —— 有这个文件就用它（Inspector 里改），没有就用下面代码里的默认值。
 // ============================================================================
+// 武器种类：枪（有动画、部件）/ 近战（斧头、锤子……只有数值）
+public enum WeaponKind
+{
+    [InspectorName("枪")] Gun,
+    [InspectorName("近战")] Melee,
+}
+
 public enum HoldType
 {
     [InspectorName("手枪")] Pistol,
@@ -23,6 +30,7 @@ public enum ReloadMotion
     [InspectorName("手枪式")] Pistol,
     [InspectorName("步枪式")] Rifle,
     [InspectorName("无托步枪式")] Bullpup,   // 弹匣在握把后面（CharacterRigBase.Bullpup.cs）
+    [InspectorName("AK式")] AK,             // AK 系列：弹匣绕"弹匣挂载旋转点"摇进 / 摇出，左手拉栓（CharacterRigBase.AK.cs）
 }
 
 [System.Serializable]

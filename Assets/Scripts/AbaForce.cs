@@ -82,7 +82,7 @@ public class AbaForce : MonoBehaviour
     public float medkitHeal = 45f;
 
     [Header("武器")]
-    [Tooltip("队员拿哪把步枪（WeaponDef id）：aba_rifle = 战斗步枪，aba-x95 = ABA-X95，aba-ar15 = ABA-AR15（新生成的队员才换）")]
+    [Tooltip("队员拿哪把步枪（WeaponDef id）：aba_rifle = 战斗步枪，aba-x95 = ABA-X95，aba-ar15 = ABA-AR15，akm = AKM（新生成的队员才换）")]
     public string rifleModel = "aba_rifle";
     [Tooltip("队员的手枪（WeaponDef id）")]
     public string pistolModel = "aba_pistol";

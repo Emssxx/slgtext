@@ -270,8 +270,9 @@ public class NpcRig : CharacterRigBase
     {
         if (string.IsNullOrEmpty(item)) return null;
         if (GUN_DEFS.TryGetValue(item, out string id) || _testGuns.TryGetValue(item, out id)) return WeaponDef.Get(id);
-        foreach (string b in WeaponDef.BuiltInIds) if (b == item) return WeaponDef.Get(item);
-        return Resources.Load<WeaponDef>("Weapons/" + item);
+        foreach (string b in WeaponDef.BuiltInIds) if (b == item) { WeaponDef g = WeaponDef.Get(item); return g != null && g.IsGun ? g : null; }
+        WeaponDef f = Resources.Load<WeaponDef>("Weapons/" + item);
+        return f != null && f.IsGun ? f : null;
     }
 
     // 挂载点上用的物品 id：自己的手枪 / 战斗步枪用物品名，其他枪直接用武器 id（拿出来时会去对应的挂载点藏起来）
@@ -292,7 +293,8 @@ public class NpcRig : CharacterRigBase
 
     public override void TestEquip(string key)
     {
-        if (key != null && key.Length > 0 && WeaponDef.Get(key) != null)   // 枪：自己的物品 id（手枪 / 步枪）或直接用武器 id
+        WeaponDef kd = WeaponDef.Exists(key) ? WeaponDef.Get(key) : null;
+        if (kd != null && kd.IsGun)                                          // 枪：自己的物品 id（手枪 / 步枪）或直接用武器 id
         {
             string item = null;
             foreach (KeyValuePair<string, string> kv in GUN_DEFS) if (kv.Value == key) { item = kv.Key; break; }

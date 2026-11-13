@@ -16,6 +16,8 @@ using UnityEngine;
 //       强敌：以防守为主——默认躲回营地；只有它在拆墙 / 已经闯进营地，并且胆量 ≥ 70（拿枪的 ≥ 55）才上去打。
 //
 // 【武器】看物品栏里带着什么（NpcInventory，挂件也按它显示）：手枪（远程，要有子弹或弹匣）> 斧头 > 锤子 > 空手。
+//   数值：除了拳头，全读武器数据（WeaponDef 的"战斗数值"：手枪 = suit_pistol，斧头 = axe，锤子 = hammer）。
+//   最终伤害 = 武器基础伤害 + 武器操作等级修正（Ballistics.levelDamageAdd），再看武器的要害几率；散布 / 后坐 / 子弹速度 / 击退 / 配件也是武器的。
 //   手枪一发用一颗子弹（NpcData.pistolAmmo），打空了换一个弹匣（时间 = NpcRig 换弹动画的长度）；弹匣也用光了就换成近战。
 //   敌人离得远：战术换弹（旧弹匣收回物品栏，变成空弹匣）；敌人离得近（或物品栏放不下空弹匣）：快速换弹（旧弹匣丢在地上）。
 //   【弹道】手枪不掷命中率，走 Ballistics：瞄准点（含预判）+ 正态分布的偏角，子弹真的飞过去，路上先碰到什么就打中什么
@@ -41,12 +43,21 @@ public class NpcCombat : MonoBehaviour
         public float damage, range, interval;
         public int courage;     // 胆量加成
         public bool ranged;
+        public WeaponDef def;   // 武器数据（拳头 = null）：数值都在这里（WeaponDef 的"战斗数值"一栏）
     }
 
-    static readonly Weapon Pistol = new Weapon { key = "pistol", damage = 9f, range = 4f, interval = 1.4f, courage = 20, ranged = true };
-    static readonly Weapon Axe = new Weapon { key = "axe", damage = 11f, range = 0.85f, interval = 1.25f, courage = 15 };
-    static readonly Weapon Hammer = new Weapon { key = "hammer", damage = 8f, range = 0.8f, interval = 1.1f, courage = 10 };
+    // 除了拳头，武器的数值都读武器数据（物品 id → WeaponDef id）；没有数据时用后面的保底数值
+    static Weapon Pistol => FromDef("pistol", "suit_pistol", true, 9f, 4f, 1.4f, 20);
+    static Weapon Axe => FromDef("axe", "axe", false, 11f, 0.85f, 1.25f, 15);
+    static Weapon Hammer => FromDef("hammer", "hammer", false, 8f, 0.8f, 1.1f, 10);
     static readonly Weapon Fists = new Weapon { key = "fists", damage = 3.5f, range = 0.7f, interval = 1.0f, courage = -10 };
+
+    static Weapon FromDef(string key, string defId, bool ranged, float dmg, float range, float interval, int courage)
+    {
+        WeaponDef d = WeaponDef.Get(defId);
+        if (d == null) return new Weapon { key = key, damage = dmg, range = range, interval = interval, courage = courage, ranged = ranged };
+        return new Weapon { key = key, def = d, damage = d.damage, range = d.range, interval = d.aimedInterval, courage = d.courage, ranged = ranged };
+    }
 
     static readonly Dictionary<string, NpcCombat> _byId = new Dictionary<string, NpcCombat>();
     static readonly Dictionary<string, KeyValuePair<Stance, float>> _stances = new Dictionary<string, KeyValuePair<Stance, float>>();
@@ -469,16 +480,17 @@ public class NpcCombat : MonoBehaviour
         if (w.ranged) NpcInventory.SpendRound(n);
         NpcRig rig = GetComponent<NpcRig>();                                  // 外观：出手动作（挥一下 / 开枪后坐）
         if (rig != null) rig.PlayAttack();
+        float dmg = Ballistics.NpcDamage(w.def, rig, w.damage);               // 最终伤害 = 武器基础伤害 + 武器操作等级修正（拳头不修正）
         if (w.ranged)                                                         // 手枪：子弹真的飞过去，路上先碰到什么就打中什么（Ballistics）
         {
             Vector3 from = pos;
             if (rig != null) rig.TryGetMuzzle(out from);                      // 从枪口出发（没拿出枪就从人身上）
             bool moving = _hasDest || _mover.IsMoving;                        // 边走边打：散布更大
-            Ballistics.FireFromNpc(n, rig, from, fp, _foe.Velocity, w.damage, moving);
+            Ballistics.FireFromNpc(n, rig, from, fp, _foe.Velocity, dmg, moving);
             return;
         }
         float acc = 0.65f + n.personality.bravery * 0.002f - (n.sanity < 40f ? 0.15f : 0f);   // 近战：照旧按命中率
-        if (Random.value < acc) _foe.TakeMelee(w.damage, n);
+        if (Random.value < acc) _foe.TakeMelee(dmg, n);
     }
 
     // 走到团队安排的位置（到了就站定；位置变了才重新寻路）

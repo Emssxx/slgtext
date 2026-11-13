@@ -75,6 +75,8 @@ public class Ballistics : MonoBehaviour
     public float raiderSpread = 6f;
     [Tooltip("武器操作等级 1~5 的散布倍数（第 1 个 = 1 级）")]
     public float[] levelSpread = { 4f, 2f, 1f, 0.5f, 0.25f };
+    [Tooltip("武器操作等级 1~5 的伤害修正（加在武器基础伤害上；第 1 个 = 1 级）")]
+    public float[] levelDamageAdd = { -2f, -1f, 0f, 1f, 2f };
     [Tooltip("手抖（紧张 / 生疏）满的时候散布多乘 (1 + 这个)")]
     public float trembleMul = 1f;
     public float movingMul = 1.4f;          // 边走边打
@@ -161,12 +163,24 @@ public class Ballistics : MonoBehaviour
 
     // ============ 散布函数 ============
 
-    // NPC 拿手枪时这一枪的散布 σ（度）
-    public static float NpcSpread(NpcData n, NpcRig rig, bool moving)
+    // NPC 用武器的最终伤害 = 武器基础伤害 + 武器操作等级修正（再看武器的要害几率）。没有武器数据（拳头）就用 baseDamage
+    public static float NpcDamage(WeaponDef w, NpcRig rig, float baseDamage)
+    {
+        if (w == null) return baseDamage;
+        Ballistics b = Ensure();
+        int level = rig != null ? Mathf.Clamp(rig.weaponLevel, 1, 5) : 3;
+        float dmg = Mathf.Max(0.5f, w.damage + At(b.levelDamageAdd, level - 1, 0f));
+        if (UnityEngine.Random.value < w.critChance) dmg *= w.critMul;
+        return dmg;
+    }
+
+    // NPC 开枪时这一枪的散布 σ（度）：枪的散布（5 级手感）× 武器操作等级倍数 × 手抖 × 理智 × 疲劳 × 受伤 × 边走边打 + 后坐力
+    public static float NpcSpread(NpcData n, NpcRig rig, bool moving, WeaponDef gun = null)
     {
         Ballistics b = Ensure();
         int level = rig != null ? Mathf.Clamp(rig.weaponLevel, 1, 5) : 3;
-        float s = b.pistolSpread * At(b.levelSpread, level - 1, 1f);
+        float s = gun != null ? gun.spread * At(b.levelSpread, level - 1, 1f) / Mathf.Max(0.01f, At(b.levelSpread, 4, 0.25f))
+                              : b.pistolSpread * At(b.levelSpread, level - 1, 1f);
         float shake = 0f;
         if (rig != null) shake = Mathf.Max(rig.nervous, At(rig.levelTremble, level - 1, 0f));
         s *= 1f + b.trembleMul * Mathf.Clamp01(shake);
@@ -177,8 +191,8 @@ public class Ballistics : MonoBehaviour
             if (NpcHealth.Has(n, HealthTag.Fatigued)) s *= b.fatiguedMul;
             if (NpcHealth.Has(n, HealthTag.Injured)) s *= b.injuredMul;
         }
-        if (moving) s *= b.movingMul;
-        return s + b.RecoilOf(n != null ? n.id : "?");
+        if (moving) s *= gun != null ? gun.movingMul : b.movingMul;
+        return s + (gun != null ? b.RecoilOf(n != null ? n.id : "?", gun.recoilRecover) : b.RecoilOf(n != null ? n.id : "?"));
     }
 
     // 敌人（武装掠夺者）这一枪的散布 σ（度）
@@ -203,13 +217,14 @@ public class Ballistics : MonoBehaviour
     public static void FireFromNpc(NpcData n, NpcRig rig, Vector3 from, Vector3 target, Vector3 targetVel, float damage, bool moving)
     {
         Ballistics b = Ensure();
-        float speed = rig != null && rig.bulletSpeed > 0f ? rig.bulletSpeed : b.defaultSpeed;
-        float sigma = NpcSpread(n, rig, moving);
-        WeaponDef gun = rig != null && rig.HeldGun != null ? rig.HeldGun.def : null;   // 手上这把枪（配件效果、击退是枪的属性）
+        WeaponDef gun = rig != null && rig.HeldGun != null ? rig.HeldGun.def : null;   // 手上这把枪（散布、后坐、子弹速度、配件、击退都是枪的属性）
+        float speed = gun != null ? gun.bulletSpeed : rig != null && rig.bulletSpeed > 0f ? rig.bulletSpeed : b.defaultSpeed;
+        float sigma = NpcSpread(n, rig, moving, gun);
         if (gun != null) sigma *= gun.AimSpreadMul(((Vector2)(target - from)).magnitude, moving);   // 瞄准镜 / 镭射
         Vector2 aim = AimDirection(from, target, targetVel, speed, out float aimDist);
         Vector2 dir = Rotate(aim, Gauss() * sigma);
-        b.AddRecoil(n != null ? n.id : "?");
+        if (gun != null) b.AddRecoil(n != null ? n.id : "?", gun.recoilPerShot, gun.recoilRecover);
+        else b.AddRecoil(n != null ? n.id : "?");
         if (rig != null) rig.MuzzleFlash();
         Bullet bullet = b.Spawn(from, dir, speed, damage, aimDist, n, null, rig != null ? rig.ricochetChance : 0.3f);
         bullet.knock = gun != null ? gun.knockback : b.npcPistolKnockback;    // 击退：枪的属性（手枪有，步枪没有）

@@ -346,6 +346,7 @@ public abstract partial class CharacterRigBase
         if (_reloadT < 0f || _rlGun == null) return;
         if (_reloadKind == ReloadKind.Shaky) ShakyReload(dt);
         else if (_rlGun.def.reloadMotion == ReloadMotion.Bullpup) BullpupReload(dt);   // 无托步枪：单独一套（CharacterRigBase.Bullpup.cs）
+        else if (_rlGun.def.reloadMotion == ReloadMotion.AK) AkReload(dt);             // AK 系列：单独一套（CharacterRigBase.AK.cs）
         else if (_rlGun.def.reloadMotion == ReloadMotion.Rifle)
         {
             if (_reloadKind == ReloadKind.Tactical) RifleTacticalReload(dt);
@@ -363,6 +364,7 @@ public abstract partial class CharacterRigBase
     {
         if (kind == ReloadKind.Shaky) kind = ReloadKind.Normal;
         if (g.def.reloadMotion == ReloadMotion.Bullpup) return BullpupReloadTotal(s, kind);
+        if (g.def.reloadMotion == ReloadMotion.AK) return AkReloadTotal(s, kind);      // AK 系列
         if (g.def.reloadMotion == ReloadMotion.Rifle)
         {
             if (kind == ReloadKind.Tactical) return RifleTacticalTotal();

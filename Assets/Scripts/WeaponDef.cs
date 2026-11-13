@@ -95,10 +95,14 @@ public class WeaponDef : ScriptableObject
     public Vector2 magDir = new Vector2(0f, 1f);             // 弹匣插进去的方向（枪的本地坐标，沿弹匣往上）
     public Vector2 magInHand = new Vector2(0f, 0.012f);      // 弹匣底部在换弹手里的位置（单位）
     public float magReady = 0.085f;                          // 对准时弹匣还差多远插到底（单位）
+    public Vector2 magRock;                                  // AK 式：弹匣挂载旋转点（武器 PSD 坐标；弹匣绕这个点摇进 / 摇出）
 
-    [Header("战斗数值（枪的属性：谁拿都一样；人的手感——等级、紧张、体力——由开枪的人再乘）")]
+    [Header("战斗数值（武器的属性：谁拿都一样；人的武器操作等级 / 紧张 / 体力由用的人再修正）")]
+    public WeaponKind kind = WeaponKind.Gun;                 // 枪 / 近战（近战只用伤害、射程、间隔、胆量）
     public int magSize = 12;                                 // 一个弹匣几发
-    public float damage = 15f;                               // 每发伤害
+    public float damage = 15f;                               // 每发（每下）基础伤害：最终伤害 = 这个 + 武器操作等级修正
+    public float aimedInterval = 1f;                         // 普通 NPC 瞄准射击 / 挥一下的间隔（秒）
+    public int courage = 0;                                  // 拿着它胆量加多少（决定敢不敢上）
     public float spread = 2f;                                // 散布 σ（度；5 级手感、站着冷静时）
     public float movingMul = 1.3f;                           // 边走边打散布倍数
     public float recoilPerShot = 0.45f;                      // 每开一枪散布加多少度
@@ -121,6 +125,7 @@ public class WeaponDef : ScriptableObject
     public float laserAim = 1f;                              // 镭射指示：边走边打散布再乘这个（< 1 = 更准；1 = 没效果）
 
     public float ShotInterval => 60f / Mathf.Max(30f, rpm);
+    public bool IsGun => kind == WeaponKind.Gun;
 
     // 这个距离上瞄准镜几倍
     public float ScopeAt(float dist) => scopeMax <= 1f ? 1f : Mathf.Lerp(1f, scopeMax, Mathf.InverseLerp(scopeNear, scopeFar, dist));
@@ -144,19 +149,27 @@ public class WeaponDef : ScriptableObject
 
     // ============ 武器库 ============
     static readonly Dictionary<string, WeaponDef> _cache = new Dictionary<string, WeaponDef>();
-    public static readonly string[] BuiltInIds = { "aba_pistol", "aba_rifle", "suit_pistol", "aba-x95", "aba-ar15" };   // 代码里有默认值的枪
+    public static readonly string[] BuiltInIds = { "aba_pistol", "aba_rifle", "suit_pistol", "aba-x95", "aba-ar15", "akm", "axe", "hammer" };   // 代码里有默认值的武器（枪 + 近战）
 
     public string Label => string.IsNullOrEmpty(displayName) ? id : displayName;
 
-    // 所有枪：代码里的 + Resources/Weapons 里的文件（测试窗口列出来）
+    // 有没有这把武器（不报警告；代码里的 / Resources/Weapons 里的）
+    public static bool Exists(string wid)
+    {
+        if (string.IsNullOrEmpty(wid)) return false;
+        if (_cache.ContainsKey(wid) || System.Array.IndexOf(BuiltInIds, wid) >= 0) return true;
+        return Resources.Load<WeaponDef>("Weapons/" + wid) != null;
+    }
+
+    // 所有枪（不含近战）：代码里的 + Resources/Weapons 里的文件（测试窗口列出来）
     public static List<WeaponDef> All()
     {
         List<WeaponDef> list = new List<WeaponDef>();
         HashSet<string> seen = new HashSet<string>();
-        foreach (string wid in BuiltInIds) { WeaponDef d = Get(wid); if (d != null && seen.Add(d.id)) list.Add(d); }
+        foreach (string wid in BuiltInIds) { WeaponDef d = Get(wid); if (d != null && d.IsGun && seen.Add(d.id)) list.Add(d); }
         foreach (WeaponDef f in Resources.LoadAll<WeaponDef>("Weapons"))
         {
-            if (f == null) continue;
+            if (f == null || !f.IsGun) continue;
             string wid = string.IsNullOrEmpty(f.id) ? f.name : f.id;
             if (seen.Add(wid)) { WeaponDef d = Get(wid); if (d != null) list.Add(d); }
         }
@@ -222,6 +235,7 @@ public class WeaponDef : ScriptableObject
         if (from == null) return;
         to.reloadMotion = from.reloadMotion; to.magPart = from.magPart; to.reloadHand = from.reloadHand;
         to.magDir = from.magDir; to.magInHand = from.magInHand; to.magReady = from.magReady;
+        to.magRock = from.magRock;                                         // AK 式的弹匣挂载旋转点
     }
 
     // 以前建的资源文件还没有"取出"一栏：抄代码里的默认值
@@ -333,8 +347,11 @@ public class WeaponDef : ScriptableObject
                 d.reloadMotion = ReloadMotion.Pistol; d.magPart = "PistolMag"; d.reloadHand = "PistolRightHand";
                 d.magDir = new Vector2(0.135f, 0.991f); d.magInHand = new Vector2(0.002f, 0.0174f); d.magReady = 0.085f;   // 弹匣底部相对手心中心
                 d.holsterArt = "NpcArt/Gear/Pistol";
-                // 战斗数值（防护服手枪：伤害 / 散布由 NPC 自己的规则算，这里只管击退等枪的属性）
-                d.magSize = 12; d.knockback = 2.5f; d.bulletSpeed = 120f; d.range = 6f;
+                // 战斗数值（防护服手枪：普通 NPC 用；照搬原来 NPC 手枪的手感——3 级时散布 10°、伤害 9）
+                d.magSize = 8; d.damage = 9f; d.aimedInterval = 1.4f; d.courage = 20; d.range = 4f;
+                d.spread = 2.5f;                            // 5 级手感（3 级 ×4 = 10°）
+                d.movingMul = 1.4f; d.recoilPerShot = 2f; d.recoilRecover = 1.2f; d.bulletSpeed = 100f;
+                d.knockback = 2.5f; d.critChance = 0f; d.critMul = 1.5f;
                 return d;
             case "aba-x95":      // ABA-X95 无托步枪（图：Resources/WeaponArt/aba-x95；坐标 = x96.PSD 里的十字线）
                 d.displayName = "ABA-X95";
@@ -425,6 +442,57 @@ public class WeaponDef : ScriptableObject
                 d.critChance = 0.13f; d.critMul = 1.8f; d.speedReloadTime = 1.6f; d.tacticalReloadTime = 2.3f;
                 d.scopeMax = 3f; d.scopeNear = 3f; d.scopeFar = 8f; d.scopeGain = 0.25f;   // 1~3 倍可变瞄准镜：近处 1 倍，3 倍时散布 ÷1.5
                 d.laserAim = 0.85f;                         // 红外镭射：边走边打更准
+                return d;
+            case "akm":          // AKM（图：Resources/WeaponArt/akm；坐标 = akm.PSD 里的十字线）
+                d.displayName = "AKM";
+                d.hold = HoldType.Rifle;
+                d.artFolder = "WeaponArt/akm";
+                d.grip = new Vector2(521.5f, 414.5f);         // 持枪手（握把）十字
+                d.muzzle = new Vector2(1743f, 268.5f);        // 枪口十字
+                d.hasLamp = false;                            // 没有战术手电
+                // 端枪：枪托十字（133.5, 300.5）顶在肩膀上 → 握把相对脚底中心的位置
+                d.shoulder = new Vector2(-0.083f, 0.51f);
+                d.restGrip = new Vector2(-0.083f * 1936.55f + (521.5f - 133.5f), -0.51f * 1936.55f + (414.5f - 300.5f));
+                d.parts.Add(P("AKMMag", "Mag", 948f, 568f, 40));                   // 弹匣（轴心 = 弹匣最下面那头；PSD 里标"弹匣顶部"的十字）
+                d.parts.Add(P("AKMInner", "Inner", 749f, 243.5f, 41));             // 内构造（拉栓往后走时露出来）
+                d.parts.Add(P("AKMBolt", "Bolt", 761.5f, 246.5f, 42, 222f));       // 拉栓（枪身窗口里看到）：往后拉到"上弹器位置"十字（539）
+                d.parts.Add(P("AKMBody", "Body", 941.5f, 344.5f, 43));             // 枪身（拉栓那里开了窗口）
+                d.parts.Add(P("AKMHandL", "", 521.5f, 414.5f, 44, 0f, true));      // 持枪手锚点（握把；图用角色衣服的手）
+                d.parts.Add(P("AKMHandR", "", 1083f, 310f, 45, 0f, true));         // 辅助手锚点（护木；换弹时离开枪的那只）
+                // 手感（AKM：7.62×39 大口径，射速慢、每枪往后顶得重、枪口往上跳得大而且忽大忽小不好预测；动画上故意夸张一点）
+                //   AR15 = 轻快稳；X95 = 直往后顶；AKM = 沉、猛、跳得乱
+                d.rpm = 600f;                                                      // 射速：600 发/分（真实 AKM 约 600）
+                d.recoilKick = new Vector2(6.5f, 10f);                             // 每枪枪口上扬（度）：大、范围宽 = 不好预测（原来 5~7）
+                d.recoilHandX = new Vector2(-0.09f, -0.055f);                      // 每枪往后顶：重（原来 -0.07~-0.045）
+                d.recoilHandY = new Vector2(0.018f, 0.04f);                        // 每枪往上抬：大（原来 0.012~0.03）
+                d.handRecoilRise = 0.02f;
+                d.handRecoilReturn = new Vector2(0.08f, 0.12f);                    // 回正慢（原来 0.07~0.1）
+                d.muzzleRise = new Vector2(0.03f, 0.06f); d.muzzleReturn = 0.09f;  // 枪口往上跳得更久（原来 0.025~0.05 / 0.08）
+                d.recoilLean = 2.8f; d.actionShift = 0.016f;                       // 身体被顶得晃（原来 2.2 / 0.014）
+                d.kickBack = 0.018f; d.kickHold = 0f; d.kickReturn = 0.05f;        // 拉栓：长行程，往后走得多
+                d.flashTime = 0.055f; d.flashSize = 2f;                            // 枪火大
+                d.flashSprites = new[] { "Flash1", "Flash2", "Flash3" };
+                d.bulletSprite = "Bullet";
+                d.drawGrab = new Vector2(1083f, 205f);      // 护木上边（手倒过来抓）
+                d.stockPart = "";                           // 枪托不动
+                d.mountCenter = new Vector2(941.5f, 344.5f);   // 挂在身上时枪的中心（挂件 = 用部件拼的整枪，不缩小）
+                d.reloadMotion = ReloadMotion.AK; d.magPart = "AKMMag"; d.reloadHand = "AKMHandR";   // AK 式换弹：弹匣绕挂载旋转点摇进摇出
+                d.magDir = new Vector2(-0.545f, 0.838f);    // 弹匣下面那头 → 弹匣上面那头
+                d.magInHand = new Vector2(0.0032f, -0.0321f); d.magReady = 0.1f;   // 弹匣底部相对手心中心
+                d.magRock = new Vector2(855f, 306f);        // 弹匣挂载旋转点十字
+                // 战斗数值（参考真实 AKM：7.62×39 弹头重、动能大 → 单发伤害高；初速约 715 m/s，比 M4 的约 910 m/s 慢 → 子弹慢、打移动目标要多提前；
+                //   精度一般（散布比 AR15 大）、后坐大 → 连射散得快、压枪慢；有效射程约 300 m，比 M4 近；30 发弹匣；步枪不击退）
+                d.magSize = 30; d.damage = 20f; d.spread = 1.8f; d.movingMul = 1.45f; d.recoilPerShot = 0.8f; d.recoilRecover = 6f;
+                d.leadError = 0.08f; d.bulletSpeed = 137f; d.burstPause = 0.4f; d.range = 9f; d.knockback = 0f;
+                d.critChance = 0.12f; d.critMul = 2f; d.speedReloadTime = 1.9f; d.tacticalReloadTime = 2.8f;
+                return d;
+            case "axe":          // 斧头（近战：只有数值）
+                d.displayName = "斧头"; d.kind = WeaponKind.Melee;
+                d.damage = 11f; d.range = 0.85f; d.aimedInterval = 1.25f; d.courage = 15; d.critChance = 0f;
+                return d;
+            case "hammer":       // 锤子（近战：只有数值）
+                d.displayName = "锤子"; d.kind = WeaponKind.Melee;
+                d.damage = 8f; d.range = 0.8f; d.aimedInterval = 1.1f; d.courage = 10; d.critChance = 0f;
                 return d;
         }
         if (warn) Debug.LogWarning("[WeaponDef] 没有这把武器：" + id);

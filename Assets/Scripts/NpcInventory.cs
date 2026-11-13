@@ -27,7 +27,7 @@ public class NpcInventory : MonoBehaviour
     public static NpcInventory Instance { get; private set; }
 
     public const int Slots = 6;      // 物品栏格数
-    public const int MagSize = 8;    // 一个弹匣几发
+    public static int MagSize { get { WeaponDef d = WeaponDef.Get("suit_pistol"); return d != null ? Mathf.Max(1, d.magSize) : 8; } }   // 一个弹匣几发（手枪的属性：WeaponDef suit_pistol）
     public const string EmptyMag = "magazine_empty";   // 空弹匣（战术换弹收回来的）
 
     // 任何人的物品栏 / 子弹变了就 +1（NpcRig、对话窗、悬停框据此刷新）
