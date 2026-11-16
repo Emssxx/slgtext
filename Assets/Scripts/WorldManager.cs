@@ -41,6 +41,9 @@ public class WorldManager : MonoBehaviour
         NpcInventory.Ensure();                           // 8.4 NPC 物品栏（按分工去仓库拿东西 / 放回、自己包扎、遗物）
         Ballistics.Ensure();                             // 8.45 弹道（子弹飞行、散布、打中什么；数值在它的 Inspector 上）
         EnemyDirector.Ensure();                          // 8.5 敌人（游荡的造物 / 拾荒者，导演事件里的来袭；NPC 打或躲）
+        CampGateManager.Ensure();                        // 8.55 营地出入口的升降杆大门（只是外观 + 开关动画：有人走近自动抬起；不挡路）
+        CampProps.Ensure();                              // 8.56 营地里的摆设（ABA 的旧集装箱，开局放在围墙里面的角上）
+        RegionDirector.Ensure();                         // 8.6 区域（雾里紧贴营地生成废弃营地 / 怪物巢穴 / 其他人类营地 / ABA 临时指挥部，过几天消失）
         OpeningDirector.Begin(playOpening);              // 9. 开场：黑屏对话 → AI 启动 → 投票选领导（期间世界静止）
         Debug.Log("当前世界快照：\n" + ExportWorldAsJson());
     }

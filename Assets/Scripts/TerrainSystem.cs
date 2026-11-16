@@ -273,11 +273,24 @@ public class TerrainSystem : MonoBehaviour
         TilemapRenderer tr = go.AddComponent<TilemapRenderer>();
         tr.sortingOrder = -1;
 
+        Sprite grate = CampArt.Floor;                       // 手绘的格栅地砖（Resources/CampArt/CampFloor_Grate）；没有这张图就照旧用下面的像素砖
         int scx = Map.spawnX / sub, scy = Map.spawnY / sub;
         for (int cy = 0; cy * sub < Map.height; cy++)
             for (int cx = 0; cx * sub < Map.width; cx++)
             {
                 if (!CoarseIsCamp(cx, cy, sub)) continue;
+                if (grate != null)                          // 有手绘地砖：每块地砖放一张图（1 张 = 1 大格），不再往 Tilemap 里放像素砖
+                {
+                    GameObject fg = new GameObject("CampFloor_" + cx + "_" + cy);
+                    fg.transform.SetParent(go.transform, false);
+                    fg.transform.position = new Vector3(g.origin.x + (cx + 0.5f) * coarseSize, g.origin.y + (cy + 0.5f) * coarseSize, 0f);
+                    float k = coarseSize / Mathf.Max(0.01f, grate.bounds.size.x);   // 把图缩放到正好一块地砖大
+                    fg.transform.localScale = new Vector3(k, k, 1f);
+                    SpriteRenderer fsr = fg.AddComponent<SpriteRenderer>();
+                    fsr.sprite = grate;
+                    fsr.sortingOrder = -1;                  // 和原来的营地地砖同一层（地形 -3 < 地形 Tile -2 < 营地地砖 / 草 -1 < 建筑 0 < NPC 1）
+                    continue;
+                }
                 TileBase t = tiles[1];
                 if (cx == scx && cy == scy && tiles[0] != null) t = tiles[0];                                         // 生成点那块：中心标记砖
                 else if (tiles[2] != null && TerrainNoise.Hash01(Map.seed ^ 0x7A11, cx, cy) < damagedTileChance) t = tiles[2]; // 破损砖
@@ -675,6 +688,33 @@ public class TerrainSystem : MonoBehaviour
                 ResourceNode r = ResourceAt(new Vector2Int(x, y));
                 if (r != null && r.kind == ResourceKind.Grass) r.Deplete();
             }
+    }
+
+    // 运行时加一个资源（区域生成时用，RegionDirector）。origin = 占地左下角小格，size = 边长 1~3。
+    // 这块地放不下（出界、墙、水、已经有资源或建筑）就返回 null，什么都不加。
+    public static ResourceNode AddResource(ResourceKind kind, int size, Vector2Int origin, int variant)
+    {
+        TerrainSystem t = Instance;
+        if (t == null || t.Map == null || t._grid == null || t._resAt == null) return null;
+        size = Mathf.Clamp(size, 1, 3);
+        for (int y = origin.y; y < origin.y + size; y++)
+            for (int x = origin.x; x < origin.x + size; x++)
+            {
+                if (!t.Map.InBounds(x, y) || t.Map.IsBlocked(x, y)) return null;          // 出界 / 墙
+                if (!TerrainInfo.Walkable(t.Map.Get(x, y))) return null;                  // 水面
+                if (t._resAt[y * t.Map.width + x] != null) return null;                   // 已经有资源
+                if (t._grid.GetOccupied(x, y) != null) return null;                       // 已经有建筑
+            }
+        if (t._resRoot == null)
+        {
+            t._resRoot = new GameObject("TerrainResources").transform;
+            t._resRoot.SetParent(t.transform, false);
+        }
+        ResourceNode n = ResourceNode.Spawn(new ResourceSpawn { kind = kind, size = size, x = origin.x, y = origin.y, variant = variant }, t._resRoot, t._grid);
+        if (n == null) return null;
+        t.Occupy(n, true);
+        if (n.Blocks) t.RequestRebake();   // 挡路的：重新烘焙导航网格，NPC 绕着走
+        return n;
     }
 
     public static void OnResourceRemoved(ResourceNode n)

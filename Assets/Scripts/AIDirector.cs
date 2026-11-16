@@ -63,6 +63,7 @@ public class AIDirector : MonoBehaviour
             "  causal_reversal（因果の逆転）\n" +
             "  whisper_vision（囁きと幻影）\n" +
             EnemyDirector.DirectorTypeLines(true) +   // 安全期が過ぎたら：造物の襲来 / 略奪者の襲撃
+            RegionDirector.DirectorTypeLines(true) +  // 今エリアを出せる時だけ：霧の中に現れるエリア（廃棄拠点 / 巣 / 他の拠点 / ABA 指揮所）
             "異常度が高いほど、危険で非現実的な種類を選ぶこと。\n\n" +
             "【出力形式】JSONオブジェクトを1つだけ出力し、それ以外は何も書かないこと：\n" +
             "{\n" +
@@ -84,6 +85,7 @@ public class AIDirector : MonoBehaviour
             "  causal_reversal（因果倒置）\n" +
             "  whisper_vision（低语与幻象）\n" +
             EnemyDirector.DirectorTypeLines(false) +  // 过了安全期才有：造物来袭 / 掠夺者来袭
+            RegionDirector.DirectorTypeLines(false) + // 现在能生成区域时才有：雾里出现的区域（废弃营地 / 巢穴 / 其他人类营地 / ABA 指挥部）
             "异常度越高越倾向危险/超现实的类型。\n\n" +
             "【输出要求】只输出一个 JSON 对象，不要多余文字：\n" +
             "{\n" +

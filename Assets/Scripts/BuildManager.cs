@@ -416,6 +416,7 @@ public class BuildManager : MonoBehaviour
         {
             previewGO = Instantiate(data.prefab, center, Quaternion.identity);
             previewGO.AddComponent<BuildingFootprint>().Set(origin, size); // 记下占了哪些格（点击、电线、悬停信息用）
+            CampArt.OnPlaced(data, previewGO);                             // 营地美术：墙换成铁丝网的图（没有图就什么都不做）
             previewGO.SendMessage("OnBuildPlaced", SendMessageOptions.DontRequireReceiver); // 通知：施工中（终端机用）
             // SortingOrder 设为 0，与地图同层；NPC 用 1，保证 NPC 始终显示在建筑上方
             SpriteRenderer psr = previewGO.GetComponent<SpriteRenderer>();

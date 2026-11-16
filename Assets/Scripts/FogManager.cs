@@ -31,17 +31,18 @@ public class FogManager : MonoBehaviour
     public bool permanentFog = true;
     [Tooltip("营地地砖范围往外再露出几格（大格，1 大格 = 1 块地砖）。营地围墙修在地砖边上，留 1 格能看见墙")]
     public int campClearMargin = 1;
-    [Tooltip("还没有地形数据时用的营地大小（大格，左右 / 上下各多少）。正常情况用 TerrainSystem 的营地地砖范围")]
-    public Vector2 fallbackCampHalfSize = new Vector2(4f, 3f);
+    [Tooltip("NPC 闲逛圈（营地中心 + NpcIdleManager 的 Camp Radius）也算营地，再往外多露出多少（世界单位）")]
+    public float campWanderPadding = 0.5f;
 
     bool[,] _clear;                                          // 永久雾模式：这一格没有雾
     RectInt _campRect;                                       // 营地（小格，已经含 campClearMargin）
-    bool _campSet, _campFromMap;
+    bool _campSet, _campManual;                              // _campManual：用 SetCampRect 手动指定过，不再自动算
+    float _campTimer;
     readonly Dictionary<int, RectInt> _regions = new Dictionary<int, RectInt>(); // 区域编号 → 范围（小格）
     int _nextRegionId = 1;
 
     // 营地没有雾的范围（小格）。还没算出来时宽高为 0。
-    public RectInt CampRect { get { EnsureCamp(); return _campRect; } }
+    public RectInt CampRect => _campRect;
 
     void Awake()
     {
@@ -70,19 +71,15 @@ public class FogManager : MonoBehaviour
                 _fog[x, y] = FogState.Unexplored;  // 开局全黑
 
         _clear = new bool[_w, _h];
-        _campSet = _campFromMap = false;
-        EnsureCamp();
+        _campSet = false;
+        RecomputeCamp();
     }
 
     // 查询某格的迷雾状态（越界返回未探索）。
     public FogState GetState(int x, int y)
     {
         if (_fog == null || x < 0 || x >= _w || y < 0 || y >= _h) return FogState.Unexplored;
-        if (permanentFog)
-        {
-            EnsureCamp();
-            return _clear[x, y] ? FogState.Visible : FogState.Unexplored;
-        }
+        if (permanentFog) return _clear[x, y] ? FogState.Visible : FogState.Unexplored;
         return _fog[x, y];
     }
 
@@ -134,34 +131,51 @@ public class FogManager : MonoBehaviour
     {
         _campRect = cells;
         _campSet = true;
-        _campFromMap = true;   // 手动指定后不再跟着地形数据改
+        _campManual = true;    // 手动指定后不再自动算
         RebuildClear();
     }
 
-    // 营地范围：优先用 TerrainSystem 生成的营地地砖矩形；地形还没生成好时先用出生点周围，等地形好了再换成准确的。
-    void EnsureCamp()
+    // 营地范围 = 营地地砖矩形（往外 campClearMargin 格） ∪ NPC 闲逛圈（营地中心 + 闲逛半径）的外接方框。
+    // 把闲逛圈算进去，是因为闲逛半径（NpcIdleManager.campRadius）比地砖矩形的上下边还大一点，
+    // 不算的话 NPC 平时在营地里闲逛都会踩进雾里掉理智。
+    // 每秒核对一次（Update）：地形生成好了、终端机建好了（营地中心会变）都能跟上；范围没变就什么都不做。
+    void RecomputeCamp()
     {
-        if (_campFromMap || _clear == null) return;
+        if (_campManual || _clear == null || GridManager.Instance == null) return;
+        GridManager g = GridManager.Instance;
         int m = Mathf.Max(0, campClearMargin) * GridManager.Subdivision;
 
+        // ① 闲逛圈的外接方框
+        Vector3 c = NpcNav.CampCenter(Vector3.zero);
+        float r = NpcNav.CampRadius + Mathf.Max(0f, campWanderPadding);
+        Vector2Int lo = g.WorldToCell(new Vector3(c.x - r, c.y - r, 0f));
+        Vector2Int hi = g.WorldToCell(new Vector3(c.x + r, c.y + r, 0f));
+        int x0 = lo.x, y0 = lo.y, x1 = hi.x + 1, y1 = hi.y + 1;
+
+        // ② 营地地砖矩形（地形生成好之后才有）
         TerrainSystem t = TerrainSystem.Instance;
         if (t != null && t.Map != null && t.Map.campW > 0 && t.Map.campH > 0)
         {
-            _campRect = new RectInt(t.Map.campX - m, t.Map.campY - m, t.Map.campW + m * 2, t.Map.campH + m * 2);
-            _campSet = _campFromMap = true;
-            RebuildClear();
-            return;
+            x0 = Mathf.Min(x0, t.Map.campX - m);
+            y0 = Mathf.Min(y0, t.Map.campY - m);
+            x1 = Mathf.Max(x1, t.Map.campX + t.Map.campW + m);
+            y1 = Mathf.Max(y1, t.Map.campY + t.Map.campH + m);
         }
 
-        if (_campSet || GridManager.Instance == null) return;
-        GridManager g = GridManager.Instance;
-        NpcSpawner sp = FindFirstObjectByType<NpcSpawner>();
-        Vector3 c = sp != null ? (sp.spawnCenter != null ? sp.spawnCenter.position : sp.transform.position) : Vector3.zero;
-        Vector2Int a = g.WorldToCell(new Vector3(c.x - fallbackCampHalfSize.x, c.y - fallbackCampHalfSize.y, 0f));
-        Vector2Int b = g.WorldToCell(new Vector3(c.x + fallbackCampHalfSize.x, c.y + fallbackCampHalfSize.y, 0f));
-        _campRect = new RectInt(a.x - m, a.y - m, b.x - a.x + m * 2, b.y - a.y + m * 2);
+        RectInt rect = new RectInt(x0, y0, x1 - x0, y1 - y0);
+        if (_campSet && rect.Equals(_campRect)) return;   // 没变
+        _campRect = rect;
         _campSet = true;
         RebuildClear();
+    }
+
+    void Update()
+    {
+        if (!permanentFog) return;
+        _campTimer -= Time.unscaledDeltaTime;
+        if (_campTimer > 0f) return;
+        _campTimer = 1f;
+        RecomputeCamp();
     }
 
     // 重新算一遍"哪些格没有雾" = 营地 ∪ 所有区域。只在范围变化时调，不是每帧。

@@ -74,6 +74,13 @@ public class EventExecutor : MonoBehaviour
                 EnemyDirector.Ensure().TriggerRaid(Severity(), description, false);
                 break;
 
+            case "region_abandoned_camp":   // 区域：营地旁边的雾散开，露出一块新地方（RegionDirector；现在不能生成时只留下描述）
+            case "region_monster_nest":
+            case "region_human_camp":
+            case "region_aba_post":
+                RegionDirector.Ensure().TriggerFromDirector(type);
+                break;
+
             // —— 以下事件留位，等对应系统就绪再实现 ——
             // case "causal_reversal": DoCausalReversal(); break; // 依赖建造材料系统
 
