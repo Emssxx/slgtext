@@ -1133,6 +1133,9 @@ public static class GameFonts
         if (storage != null && storage.font != null) return _cached = storage.font;
         StatusPanelManager status = UnityEngine.Object.FindFirstObjectByType<StatusPanelManager>(FindObjectsInactive.Include);
         if (status != null && status.font != null) return _cached = status.font;
+        // 场景里一个面板都没有（比如 CombatTest 测试场景）：退回用 TMP 设置里的默认字体（项目里设的是 NotoSansSC，能显示中文）
+        if (TMP_Settings.defaultFontAsset != null) return _cached = TMP_Settings.defaultFontAsset;
+        // 连默认字体都没设，才真的报警告
         Debug.LogWarning("[NpcChatWindow] 没找到中日文字体，对话窗口的字可能显示成方块。请把 NPC 列表用的 TMP 字体拖到 NpcChatWindow.font。");
         return null;
     }
