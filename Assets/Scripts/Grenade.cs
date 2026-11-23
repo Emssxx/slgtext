@@ -144,6 +144,12 @@ public class Grenade : MonoBehaviour
             o.TakeHit(_s.damage * k, dir, null, _byNpc);
             if (o.Alive) Knockback.Push(o.gameObject, dir * _s.knock * k);
         }
+        // 尸体（刚才炸死的 + 本来就倒在地上的：人、ABA 队员、怪物都算）：炸碎，离得越近炸得越猛
+        foreach (CharacterRigBase body in CharacterRigBase.Corpses())
+        {
+            if (!Hit(c, body.transform.position, r, out float k, out Vector2 dir)) continue;
+            body.Gib(dir, 1f + k);
+        }
     }
 
     // p 在不在爆炸范围里（中间没墙挡着）；k = 伤害比例（中间 1 → 边上 0），dir = 往外推的方向

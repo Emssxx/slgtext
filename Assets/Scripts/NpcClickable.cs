@@ -28,6 +28,7 @@ public class NpcClickable : MonoBehaviour
     void OnMouseDown()
     {
         if (_view == null || string.IsNullOrEmpty(_view.npcId)) return;
+        if (WorldClickRouter.Instance != null) return;   // 点击已由界面层 WorldClickRouter 统一处理（避免打开两次）
 
         // 找到场景里的 NpcAgent，把对话目标切换到本 NPC。
         NpcAgent agent = FindObjectOfType<NpcAgent>();

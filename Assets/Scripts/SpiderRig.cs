@@ -252,6 +252,7 @@ public class SpiderRig : CharacterRigBase, IMonsterRig
     protected override void Update()
     {
         if (!_built) return;
+        if (_gibbed) { UpdateReactTest(); return; }                             // 炸碎了：零件自己在飞，只管测试开关（复活）
         float dt = Mathf.Min(Time.deltaTime, 0.05f);                            // 卡顿时不要一步跳太远
         if (dt <= 0f) return;
         UpdateReactTest();                                                      // 受击 / 死亡的测试开关
@@ -381,6 +382,7 @@ public class SpiderRig : CharacterRigBase, IMonsterRig
             _deadGlow = Mathf.MoveTowards(_deadGlow, 0.4f, dt * 0.5f);
             _pupilNow = Vector2.MoveTowards(_pupilNow, new Vector2(PX(10f), -PX(pupilRange)), PX(pupilSpeed) * 0.15f * dt);   // 死了：瞳孔慢慢往下翻
         }
+        _pupilNow = Vector2.ClampMagnitude(_pupilNow, PX(pupilRange));             // 不管怎么被震，瞳孔都不出眼球（连着挨打时震动会叠加）
         _pupil.localPosition = _pupilBase + new Vector3(_pupilNow.x, _pupilNow.y, 0f);
         float ring = 1f + (mouth - 1f) * 0.4f;                                      // 瞳孔跟着嘴一起胀缩
         _pupil.localScale = new Vector3(ring, ring, 1f);
@@ -474,7 +476,7 @@ public class SpiderRig : CharacterRigBase, IMonsterRig
     // 咬下去那一刻离开始攻击多久（伤害在这时候才算）
     public float HitDelay => atkWindTime + atkLungeTime * 0.8f;
     // 迷雾里看不见：整只藏起来
-    public void SetShown(bool show) { if (_rig != null && _rig.gameObject.activeSelf != show) _rig.gameObject.SetActive(show); }
+    public void SetShown(bool show) { if (_rig != null && !_gibbed && _rig.gameObject.activeSelf != show) _rig.gameObject.SetActive(show); }   // 炸碎了：不再显示
     // 整只的透明度（死了慢慢淡出）
     public void SetAlpha(float a)
     {
@@ -493,8 +495,16 @@ public class SpiderRig : CharacterRigBase, IMonsterRig
         size = newSize;
     }
 
+    // 尸体爆炸：大腿和小腿分开飞、连接处和后壳分开飞（零件全部炸散）
+    protected override void CollectGibPieces(System.Collections.Generic.List<Transform> list)
+    {
+        base.CollectGibPieces(list);
+        for (int i = 0; i < 3; i++) if (_tibia[i] != null && HasVisible(_tibia[i])) list.Add(_tibia[i]);
+        if (_abd != null) { list.Remove(_abd); foreach (Transform c in _abd) if (HasVisible(c)) list.Add(c); }
+    }
+
     // ---------------- 通用骨架要的钩子 ----------------
-    protected override void HeadWhip(float push, float k) { _pupilNow += new Vector2(-push, 0.4f) * PX(25f) * k; _flinch = 1f; }   // 挨打：瞳孔被震一下、嘴一闭
+    protected override void HeadWhip(float push, float k) { _pupilNow = Vector2.ClampMagnitude(_pupilNow + new Vector2(-push, 0.4f) * PX(25f) * Mathf.Min(k, 1.5f), PX(pupilRange)); _flinch = 1f; }   // 挨打：瞳孔被震一下、嘴一闭
     protected override void Ricochet(Vector3 at, bool left) { }                 // 不开枪
     protected override void RestoreAfterRevive() { _deadGlow = 1f; _atkT = -1f; _pupilNow = Vector2.zero; }
     protected override void StopForDeath() { _atkT = -1f; _twitchLeg = -1; _chompT = -1f; _lockTarget = null; _aimUntil = 0f; }

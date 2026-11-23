@@ -466,7 +466,12 @@ public class AbaOperative : MonoBehaviour
         _lastHitDir = dir;                                                  // 记下打过来的方向（倒地时朝这边倒）
         _lastHitK = Mathf.Clamp(dmg / 10f, 0.5f, 1.8f);                      // 轻重：10 点伤害 = 正常的一下
         _lastHitFx = IsMelee(byEnemy, byNpc);                               // 近战：没有子弹的着弹点效果，外观自己放
-        if (Hp <= 0f) { Die(); return; }
+        if (Hp <= 0f)
+        {
+            Die();
+            if (Rig != null && Gibs.IsOverkill(dmg * (1f - F.armor), MaxHp)) Rig.Gib(dir, 1.2f);   // 过量伤害：尸体直接炸碎
+            return;
+        }
         if (Rig != null) Rig.PlayHit(dir, _lastHitK, Rig.HitPoint(dir), _lastHitFx);   // 外观：被打得一仰
         if (Random.value < 0.35f) Say("aba_call_hit");
     }

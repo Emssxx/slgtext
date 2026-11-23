@@ -858,6 +858,7 @@ public class Enemy : MonoBehaviour
         float k = Mathf.Clamp(dmg / 15f, 0.4f, 1.6f);
         if (dead) _rig.PlayDeath(dir, k, _rig.HitPoint(dir), false);
         else _rig.PlayHit(dir, k, _rig.HitPoint(dir), false);
+        if (dead && Gibs.IsOverkill(dmg, Def.maxHp)) _rig.Gib(dir, 1.2f);   // 过量伤害（一下打出远超血量的伤害）：尸体直接炸碎
     }
 
     // 没有美术图时的占位图：颜色画进贴图里（这样眼睛能保持亮色），轴心在脚底，高 1 单位

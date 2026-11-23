@@ -239,6 +239,7 @@ public class AnimTestHub : MonoBehaviour
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("受击")) rig.testHit = true;
             if (GUILayout.Button("死亡")) rig.testDeath = true;
+            if (GUILayout.Button("尸体爆炸")) rig.testGib = true;
             if (GUILayout.Button("复活")) rig.testRevive = true;
             GUILayout.EndHorizontal();
             GUILayout.Label("走路 / 瞳孔追踪：Inspector 里的 Test Speed、Test Walk Cycle、Test Aim Target");
@@ -316,6 +317,16 @@ public class AnimTestHub : MonoBehaviour
         if (GUILayout.Button("开火")) rig.testFire = true;
         rig.testLoop = GUILayout.Toggle(rig.testLoop, "循环");
         rig.testFaceLeft = GUILayout.Toggle(rig.testFaceLeft, "朝左");
+        GUILayout.EndHorizontal();
+
+        // ---- 受击 / 死亡 / 尸体爆炸 ----
+        GUILayout.Space(6f);
+        GUILayout.Label("【受击 / 死亡】尸体爆炸：站着的会先倒下再炸；复活 = 零件收回来");
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("受击")) rig.testHit = true;
+        if (GUILayout.Button("死亡")) rig.testDeath = true;
+        if (GUILayout.Button("尸体爆炸")) rig.testGib = true;
+        if (GUILayout.Button("复活")) rig.testRevive = true;
         GUILayout.EndHorizontal();
 
         // ---- 手雷 ----

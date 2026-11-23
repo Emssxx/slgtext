@@ -304,7 +304,7 @@ public class InfectedRig : CharacterRigBase, IMonsterRig
     // 砍下去那一刻离开始攻击多久（伤害在这时候才算）
     public float HitDelay => atkWindTime + atkSlashTime * 0.8f;
     // 迷雾里看不见：整个人藏起来
-    public void SetShown(bool show) { if (_rig != null && _rig.gameObject.activeSelf != show) _rig.gameObject.SetActive(show); }
+    public void SetShown(bool show) { if (_rig != null && !_gibbed && _rig.gameObject.activeSelf != show) _rig.gameObject.SetActive(show); }   // 炸碎了：不再显示
     // 整个人的透明度（死了慢慢淡出）
     public void SetAlpha(float a)
     {

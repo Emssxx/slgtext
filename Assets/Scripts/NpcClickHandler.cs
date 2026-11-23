@@ -1,20 +1,9 @@
 using UnityEngine;
 
-// 挂在 NPC 物体上，点击 NPC 时打开它的对话窗口（状态卡已并入对话窗口上方）。
-// 需要同节点有 NpcView（提供 npcId）和 Collider2D（让 OnMouseDown 能响应）。
+// NPC 点击标记（留着是因为 NPC 预制体上挂着它，GridClickInput 也靠它认出"点到的是人"）。
+// 点击 NPC 打开对话窗口的逻辑已经移到界面层的 WorldClickRouter（统一处理点 NPC / 敌人 / 建筑 / 资源）。
+// 本脚本不再做任何事；以后新做的 NPC 不挂它也能点。
 [RequireComponent(typeof(NpcView))]
 public class NpcClickHandler : MonoBehaviour
 {
-    NpcView _view;
-
-    void Awake()
-    {
-        _view = GetComponent<NpcView>();
-    }
-
-    void OnMouseDown()
-    {
-        if (_view == null || string.IsNullOrEmpty(_view.npcId)) return;
-        NpcChatWindow.Ensure().Open(_view.npcId);
-    }
 }

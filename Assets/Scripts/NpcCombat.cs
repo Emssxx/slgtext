@@ -254,6 +254,7 @@ public class NpcCombat : MonoBehaviour
         bool knock = !(byAba != null && byAba.Weapon != null && byAba.Weapon.id == "rifle");   // 步枪不击退：只是上身一震，人不被推走
         if (n.IsDead) rig.PlayDeath(dir, k, rig.HitPoint(dir), fx, knock);
         else rig.PlayHit(dir, k, rig.HitPoint(dir), fx, knock);
+        if (n.IsDead && Gibs.IsOverkill(damage, 100f)) rig.Gib(dir, 1.2f);       // 过量伤害（比如狙击枪一枪打死）：尸体直接炸碎
     }
 
     // ============ 每帧 ============

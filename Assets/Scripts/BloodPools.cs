@@ -28,7 +28,7 @@ public class BloodPools : MonoBehaviour
     [Header("留多久")]
     public float stayTime = 90f;         // 在地上留几秒
     public float fadeTime = 12f;         // 然后几秒淡掉
-    public int maxPools = 160;           // 地上最多几滩（大滩 + 小滴一起算）
+    public int maxPools = 1500;          // 地上最多几滩（大滩 + 小滴一起算；尸体爆炸一下会溅很多小点）
     public int sortingOrder = -1;        // 地面层
 
     static BloodPools _inst;
@@ -64,6 +64,22 @@ public class BloodPools : MonoBehaviour
     {
         if (who == null || damage <= 0f) return;
         try { Ensure().Hit(who, damage, kill, dir); }
+        catch (System.Exception e) { Debug.LogWarning("[BloodPools] " + e.Message); }   // 血只是效果：出错也不影响打仗
+    }
+
+    // 在地上某个点溅一摊 / 一滴血（尸体爆炸：零件飞的路上、落地的地方）：at = 地面位置，size = 大小（图的倍数），big = 用一滩的图（否则用小滴的图）
+    public static void Splat(Vector3 at, float size, bool big)
+    {
+        if (size <= 0f) return;
+        try
+        {
+            BloodPools b = Ensure();
+            LoadSprites();
+            Sprite[] set = big && _pools.Length > 0 ? _pools : (_drops.Length > 0 ? _drops : _pools);
+            if (set.Length == 0) return;
+            Pool p = b.Make(set[Random.Range(0, set.Length)], at, size * 0.3f);   // 从小渗开
+            b.Grow(p, size);
+        }
         catch (System.Exception e) { Debug.LogWarning("[BloodPools] " + e.Message); }   // 血只是效果：出错也不影响打仗
     }
 

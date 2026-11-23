@@ -453,6 +453,8 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     public void Revive()
     {
         if (!_dead) return;
+        Ungib();                                                            // 炸碎了的：零件先收回来
+        _corpses.Remove(this);
         _dead = false; _settled = false;
         _dieAng = _dieV = 0f; _hitAng = _hitV = 0f; _shove = _shoveV = 0f; _deadT = 0f; _prevReactV = 0f;   // 全部归零
         foreach (GameObject g in _dropped) if (g != null) Destroy(g);      // 地上的武器收走
@@ -777,6 +779,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         _groundY = transform.TransformPoint(new Vector3(0f, FEET_Y, 0f)).y; // 脚底 = 地面（武器落到这里）
         _prevHandWorld = _handPoint != null ? _handPoint.position : transform.position;
         StopForDeath();                                                     // 停掉开枪 / 换弹 / 挥动 / 瞄准
+        NoteCorpse();                                                       // 记下这具尸体（手雷炸到会炸碎）
     }
 
     // ================= 后来合并进来的共用部分（两个角色一模一样）=================
@@ -788,6 +791,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
         if (testRevive) { testRevive = false; Revive(); }
         if (testHit) { testHit = false; PlayHit(TestHitDir(), testHitStrength); }
         if (testDeath) { testDeath = false; PlayDeath(TestHitDir(), testHitStrength); }
+        if (testGib) { testGib = false; Gib(TestHitDir(), 1f); }   // 尸体爆炸
     }
 
 
@@ -798,6 +802,7 @@ public abstract partial class CharacterRigBase : MonoBehaviour
     protected virtual void Update()
     {
         if (!_built) return;
+        if (_gibbed) { UpdateReactTest(); return; }               // 炸碎了：零件自己在飞，这里只管测试开关（复活）
         BeforeFrame();                                            // 角色自己：每帧最先做的事
         float dt = Mathf.Min(Time.deltaTime, 0.05f);              // 卡顿时不要一步跳太远
         if (dt <= 0f) return;                                     // 暂停时不动
