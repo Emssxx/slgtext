@@ -17,7 +17,7 @@ using NavMeshPlus.Components;   // NavMeshModifier：摆设（铁桌子）占的
 //   · 安全期内（EnemyDirector.safeDays）只出废弃营地，不出带敌人的区域。
 // 【生成规则是先定的一版默认值，都在 Inspector 里能改】场景里不用摆：WorldManager 开局自动建一个；
 //   想改参数就在场景里建个空物体挂上本脚本（会优先用它）。
-// 测试键：F9 = 马上生成一个（Shift+F9 = 让现有的区域马上消失）。
+// 测试键：F11 = 马上生成一个（Shift+F11 = 让现有的区域马上消失）。原来是 F9，和 AI 调度器调试面板撞键，改到 F11。
 // ============================================================================
 public enum RegionType { AbandonedCamp, MonsterNest, HumanCamp, AbaPost }
 
@@ -60,7 +60,7 @@ public class RegionDirector : MonoBehaviour
     public Vector2Int abaPostSize = new Vector2Int(6, 5);
 
     [Header("测试")]
-    [Tooltip("F9 马上生成一个区域；Shift+F9 让现有的区域马上消失")]
+    [Tooltip("F11 马上生成一个区域；Shift+F11 让现有的区域马上消失")]
     public bool debugKeys = true;
 
     // 一个正在存在的区域。
@@ -552,13 +552,13 @@ public class RegionDirector : MonoBehaviour
     void DebugKeys(WorldState w)
     {
         Keyboard kb = Keyboard.current;
-        if (kb == null || ChatManager.InputFocused || !kb.f9Key.wasPressedThisFrame) return;
+        if (kb == null || ChatManager.InputFocused || !kb.f11Key.wasPressedThisFrame) return;   // 按下 F11 才往下走（F9 留给 AI 调度器面板）
         if (kb.shiftKey.isPressed)
         {
-            for (int i = Active.Count - 1; i >= 0; i--) Expire(Active[i], w);   // Shift+F9：现有的区域马上消失
+            for (int i = Active.Count - 1; i >= 0; i--) Expire(Active[i], w);   // Shift+F11：现有的区域马上消失
             return;
         }
-        // F9：不管天数和间隔，马上生成一个（已经有 maxActiveRegions 个时先让最早的那个消失）
+        // F11：不管天数和间隔，马上生成一个（已经有 maxActiveRegions 个时先让最早的那个消失）
         if (Active.Count >= Mathf.Max(1, maxActiveRegions)) Expire(Active[0], w);
         if (!TrySpawn(PickType(w), w, true)) Debug.LogWarning("[Region] 找不到地方放区域（营地四周都放不下？）");
     }
