@@ -13,7 +13,7 @@
 
 **The real goal of this project: to explore where LLMs (large language models) belong in a game, and where they don't.**
 
-- Engine: Unity 6 (6000.4) · C# (about 115 scripts, 25k lines)
+- Engine: Unity 6 (6000.4) · URP 2D lighting · C# (about 180 scripts, 60k lines)
 - AI: local Ollama (qwen2.5 / qwen3, runs on 8 GB VRAM) · switchable to cloud Claude / OpenAI / Gemini
 - Languages: Chinese / Japanese (UI, prompts and NPC lines all follow the language chosen in the main menu)
 - Development: June 2026 – present · solo project
@@ -26,14 +26,14 @@ The usual problems with putting an LLM in a game are that it is slow, unstable, 
 |---|---|---|
 | ① Compute | Rule-based code | Turns the world into numbers and facts: how many seconds of clean water are left, how many wall segments are missing, who is injured… |
 | ② Judge | Small model (qwen3:4b, an invisible "camp advisor") | Reads a rulebook plus the situation table and works out the 1–3 most urgent things for the camp |
-| ③ Decide & perform | Main model (14B class, or cloud) | Plays the camp leader (division of labor, building projects), the opening scene, dialogue with any NPC the player talks to, director events, understanding the player's orders — using the 4B's judgment as reference |
-| ④ Execute | Rule-based code | Validates the AI's choice and breaks it into task chains (pathfinding, fetching materials, construction); resolves all values |
+| ③ Decide & perform | Main model (14B class, or cloud) | Plays the camp leader (division of labor, building projects, battle orders), the opening scene, dialogue with any NPC the player talks to, director events (including which region appears in the fog), understanding the player's orders — using the 4B's judgment as reference |
+| ④ Execute | Rule-based code | Validates the AI's choice and breaks it into task chains (pathfinding, fetching materials, construction, positioning in battle); resolves all values |
 
 The AI can decide *what* to do, but it never changes the world directly:
 
 - It can only pick from option lists provided by code (build / gather / fetch water / scavenge / care / rest …). Choices that are locked or impossible right now are discarded by code.
 - Values are resolved only by code: trust, affinity, respect, whether an order is obeyed, health, sanity. The AI reads them but never writes them.
-- Anything per-frame or high-frequency (movement, pathfinding, needs, danger response) is rule-based.
+- Anything per-frame or high-frequency (movement, pathfinding, needs, danger response, aiming, ballistics, enemies, the ABA squad) is rule-based. Battles never wait for the AI.
 - Every AI request goes through a scheduler (two queues, priorities, expiry, daily limits). No model, an error or a timeout always falls back to code — the game is playable with no model at all.
 
 Before adding any AI feature, it must pass three questions:
@@ -64,9 +64,14 @@ Before adding any AI feature, it must pass three questions:
 - **Blueprints**: building happens in a planning program styled like an old computer (time keeps running). The map becomes a geometric schematic; place buildings with a corner-bracket cursor (click, drag a row, Shift-drag a ring), run a **pathfinding test** that reports unreachable spots, then send the blueprint to an NPC who directs the construction. NPCs can also design blueprints and hand them to the player to **approve / reject / edit**, and telling an NPC "go build the AI terminal" makes code draw the blueprint for them. Materials are taken only when delivered to the site; walls block movement and the navmesh is rebaked.
 - **Weather & temperature**: rain, wind, snow, hail; heavy rain plus strong wind triggers a "subspace storm"; heat and cold affect stamina and health.
 - **Power & water**: wind turbines, batteries, wires forming grids, priority-based load shedding; rain collection → purifier → daily water rations.
-- **Map seed & terrain**: the same seed always gives the same map; soil, camp tiles, swamps and lakes, plus harvestable trees, rocks and ore.
-- **Fog of war**: unexplored / explored / in-sight; activating the terminal reveals a wide area.
-- **UI**: a personal chat window and chat archive for each NPC; a digital-watch-style HUD; NPC lock-on frames change color with health and play a special effect on death.
+- **Permanent fog & regions**: the camp is a fixed base; outside it there is always fog that no sight, light or terminal can clear, and people lose sanity while in it. The map itself is only the camp (the seed only decides worn and broken tiles). The rest of the world appears region by region: a patch of fog right next to the camp opens up as an abandoned camp, a monster nest, another human camp or an ABA field HQ, with resources or enemies inside, and closes again after a few days, taking everything left there with it. The AI director only picks the region type from a list; code decides where and what, and a daily roll guarantees regions keep appearing.
+- **Camp art**: hand-drawn grated floor tiles, chain-link fence walls, a boom-barrier gate at the entrance (lifts for NPCs, keeps enemies and ABA out while closed), and an old ABA container in the corner.
+- **Characters drawn by code**: survivors in protective suits and ABA soldiers in helmets are assembled from parts exported from PSDs, and every animation is computed in code (no Animator, no keyframes): pendulum walking, spring-like antennas and hoses, inertia on gear, expressions that follow the NPC's state behind a visor that drops while switching, holding and swinging tools, flinching, falling and gibbing.
+- **Combat (all rule-based)**: enemies come in several kinds — creatures that drain sanity, human scavengers who raid storage, infected researchers whose corpses can hatch eyeball spiders that grow and mutate. Bullets really fly: spread depends on weapon skill, shaking hands, sanity, fatigue and recoil, and stray bullets can hit allies. Weapons are data files (pistols, assault rifles, a bullpup, an AKM, a bolt-action sniper rifle, grenades) with their own reload animations, scopes and laser sights. Walls have durability and can be torn down.
+- **ABA clearance squad**: a four-person team that shoots every living thing except people carrying a small AI terminal; a SWAT-like squad brain handles search, engagement, covering advances and grenades.
+- **Survivor squad tactics**: shared vision, focus fire, crossfire positions, melee guarding shooters, kiting, falling back to defensible spots. The leader (14B) picks one of six battle orders, and the player can give orders in chat too; who stands where and shoots whom is always computed by code.
+- **Lighting**: URP 2D lighting in a dark subspace — helmet flashlights, the antenna's breathing light, muzzle flashes and laser sights light up the dark, with silhouette shadows cast along real light geometry, blood mist, sparks and blood pools.
+- **UI**: left-click anything on the map — an NPC opens their chat window; an ABA soldier, enemy, building or resource opens an info popup. A personal chat window and chat archive for each NPC; a digital-watch-style HUD; NPC lock-on frames change color with health and play a special effect on death.
 
 ### How to run
 
@@ -75,7 +80,7 @@ Before adding any AI feature, it must pass three questions:
 3. **Cloud model (optional)**: choose Claude / OpenAI / Gemini in the main menu and put your own API key under `Application.persistentDataPath` (Claude: `apikey.txt`, OpenAI: `openai_key.txt`, Gemini: `gemini_key.txt`). Key files live outside the project and never go into Git.
 4. It is playable with no model at all: dialogue and events fall back to local lines.
 
-Controls: `B` blueprint planner · `Y` open chat · `I` storage · mouse wheel to zoom · middle mouse / WASD to move the camera · `H` back to camp
+Controls: left-click NPCs / objects on the map · `B` blueprint planner · `Y` open chat · `I` storage · mouse wheel to zoom · middle mouse / WASD to move the camera · `H` back to camp · `Esc` close windows
 
 ### Development log
 
@@ -94,7 +99,7 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 
 **このプロジェクトの本当のテーマ：LLM（大規模言語モデル）をゲームの「どこに使い、どこに使わないか」を探ること。**
 
-- エンジン：Unity 6（6000.4）・C#（スクリプト約 115 本、約 2.5 万行）
+- エンジン：Unity 6（6000.4）・URP 2D ライティング・C#（スクリプト約 180 本、約 6 万行）
 - AI：ローカル Ollama（qwen2.5 / qwen3、VRAM 8GB で動作）・クラウドの Claude / OpenAI / Gemini に切り替え可能
 - 言語：中国語 / 日本語（UI・プロンプト・NPC のセリフはすべてメインメニューで選んだ言語に従う）
 - 開発期間：2026 年 6 月〜（開発継続中）・個人制作
@@ -107,14 +112,14 @@ This project was developed with the help of Claude Code (an AI coding assistant)
 |---|---|---|
 | ① 計算 | ルールベースのコード | 世界を数字と事実に整理する：浄水があと何秒もつか、壁があと何区画足りないか、誰がけがをしているか…… |
 | ② 判断 | 小さなモデル（qwen3:4b、見えない「拠点の参謀」） | ルールブックと状況表を読み、拠点にとっていま一番大事なことを 1〜3 個導き出す |
-| ③ 決定・演技 | メインモデル（14B クラス、またはクラウド） | リーダーを演じる（役割分担・建設プロジェクト）、オープニング、プレイヤーが話しかけた NPC との会話、ディレクターのイベント、プレイヤーの指示の理解。4B の判断を参考にする |
-| ④ 実行 | ルールベースのコード | AI の選択をチェックし、タスクの連鎖（経路探索・材料の運搬・施工）に分解する。数値の処理はすべてコード |
+| ③ 決定・演技 | メインモデル（14B クラス、またはクラウド） | リーダーを演じる（役割分担・建設プロジェクト・戦闘の指示）、オープニング、プレイヤーが話しかけた NPC との会話、ディレクターのイベント（霧の中にどの区域を出すかも含む）、プレイヤーの指示の理解。4B の判断を参考にする |
+| ④ 実行 | ルールベースのコード | AI の選択をチェックし、タスクの連鎖（経路探索・材料の運搬・施工・戦闘での立ち位置）に分解する。数値の処理はすべてコード |
 
 AI は「何をするか」を決められますが、世界を直接書き換えることはありません。
 
 - コードが用意した選択肢（建設 / 採集 / 水汲み / 探索 / 看護 / 休息……）からしか選べません。未解放のものや今できないものはコードが捨てます。
 - 数値はコードだけが処理します：信頼・好感・尊敬・指示に従うか・HP・正気度。AI は読むだけで、書き換えません。
-- 毎フレーム・高頻度の処理（移動・経路探索・欲求・危険への反応）はすべてルールです。
+- 毎フレーム・高頻度の処理（移動・経路探索・欲求・危険への反応・照準・弾道・敵・ABA 部隊）はすべてルールです。戦闘は AI を待ちません。
 - AI へのリクエストはすべてスケジューラーを通ります（2 本のキュー・優先度・期限切れ・1 日の上限）。モデルがない・エラー・タイムアウトのときは必ずコードで補うので、モデルなしでも遊べます。
 
 AI を使う機能を入れる前に、次の 3 つを確認します。
@@ -145,9 +150,14 @@ AI を使う機能を入れる前に、次の 3 つを確認します。
 - **設計図**：建築は古いコンピューター風の計画プログラムで行います（時間は止まりません）。マップは幾何学的な略図になり、四隅だけの枠で建物を置き（クリック・ドラッグで一列・Shift ドラッグで一周）、**経路テスト**で行けない場所を確認してから、設計図を NPC に送って施工を指揮してもらいます。NPC が自分で設計図を作ってプレイヤーに出し、**承認 / 却下 / 修正**を求めることもあります。NPC に「AI 端末を建ててきて」と言えば、コードが設計図を描いて渡します。材料は現場に運ばれたときに使われます。壁は通行をふさぎ、完成後にナビメッシュを焼き直します。
 - **天気と気温**：雨・風・雪・ひょう。豪雨と強風が重なると「亜空間の嵐」。暑さ・寒さが体力と HP に影響します。
 - **電力と水**：風力発電・蓄電池・電線でつなぐ電力網・優先度に応じた停電。雨水の収集 → 浄水器 → 毎日の給水。
-- **マップシードと地形**：同じシードなら必ず同じマップ。土・キャンプの床タイル・沼・湖に加え、木・岩・鉱石などの採集できる資源。
-- **戦場の霧**：未探索 / 探索済み / 視界内の 3 状態。端末を起動すると広い範囲が見えるようになります。
-- **UI**：NPC ごとの専用チャットウィンドウと会話の記録、デジタル時計風の HUD、体力に合わせて色が変わり死亡時に専用の演出が入る NPC のロックオン枠。
+- **消えない霧と区域**：拠点は固定の基地で、その外はいつも霧に覆われています。視界・灯り・端末では晴れず、霧の中にいると正気度が下がります。マップに生成されるのは拠点だけ（シードは床タイルの欠けや傷みだけを決める）。それ以外の世界は区域ごとに現れます。拠点のすぐ隣の霧が晴れて、廃キャンプ / 怪物の巣 / ほかの人間の拠点 / ABA の臨時指揮所のどれかが現れ、中に資源や敵が置かれ、数日たつと霧が閉じて残ったものごと消えます。AI ディレクターはリストから区域の種類を選ぶだけで、場所と中身はコードが決め、毎日の抽選で区域が出続けるよう保証します。
+- **拠点の美術**：手描きの格子床タイル、金網フェンスの壁、入口の遮断機ゲート（NPC が近づくと上がり、閉まっている間は敵と ABA を通さない）、隅に置かれた ABA の古いコンテナ。
+- **コードで動くキャラクター**：防護服の生存者とヘルメットの ABA 兵士は PSD から書き出したパーツで組み立て、アニメーションはすべてコードで計算します（Animator もキーフレームも使わない）。振り子のような歩き、ばねのように揺れるアンテナやホース、装備の慣性、状態に合わせて変わる表情（切り替えの間はバイザーが下りる）、道具を持って振る、のけぞる、倒れる、四散する。
+- **戦闘（すべてルール）**：敵は何種類か——見ると正気度が下がる「造物」、倉庫を襲う人間の略奪者、死体から目玉グモが孵ることもある感染した研究員（クモは成長・変異する）。弾丸は実際に飛び、ばらつきは武器の熟練度・手の震え・正気度・疲労・反動で決まり、流れ弾は味方にも当たります。武器はデータファイル（拳銃・アサルトライフル・ブルパップ・AKM・ボルトアクション狙撃銃・手榴弾）で、それぞれ専用のリロード動作・スコープ・レーザーサイトを持ちます。壁には耐久度があり、壊されることもあります。
+- **ABA 掃討チーム**：小型 AI 端末を持つ人以外、生きているものはすべて撃つ 4 人組。SWAT のようなチームの頭脳が、捜索・交戦・援護しながらの前進・手榴弾を判断します。
+- **生存者の小隊戦術**：視界の共有、集中射撃、十字砲火の位置取り、近接役が射手を守る、引き撃ち、守りやすい場所への後退。リーダー（14B）が 6 つの戦闘指示から 1 つを選び、プレイヤーもチャットで指示できます。誰がどこに立って誰を撃つかは、常にコードが計算します。
+- **ライティング**：暗い亜空間を URP 2D ライティングで表現。ヘルメットのライト・アンテナの呼吸灯・マズルフラッシュ・レーザーサイトが闇を照らし、実際の光の幾何に沿ったシルエットの影、血しぶき、火花、血だまり。
+- **UI**：マップ上のものを左クリック——NPC なら会話ウィンドウ、ABA 隊員・敵・建物・資源なら情報ポップアップが開きます。NPC ごとの専用チャットウィンドウと会話の記録、デジタル時計風の HUD、体力に合わせて色が変わり死亡時に専用の演出が入る NPC のロックオン枠。
 
 ### 起動方法
 
@@ -156,7 +166,7 @@ AI を使う機能を入れる前に、次の 3 つを確認します。
 3. **クラウドモデル（任意）**：メインメニューで Claude / OpenAI / Gemini を選び、自分の API キーを `Application.persistentDataPath` に置きます（Claude：`apikey.txt`、OpenAI：`openai_key.txt`、Gemini：`gemini_key.txt`）。キーのファイルはプロジェクトの外にあり、Git には入りません。
 4. モデルを使わなくても遊べます。会話とイベントはローカルのセリフで補います。
 
-操作：`B` 設計図プランナー・`Y` 会話を開く・`I` 倉庫・ホイールでズーム・中ボタン / WASD でカメラ移動・`H` キャンプに戻る
+操作：マップ上の NPC / ものを左クリック・`B` 設計図プランナー・`Y` 会話を開く・`I` 倉庫・ホイールでズーム・中ボタン / WASD でカメラ移動・`H` キャンプに戻る・`Esc` ウィンドウを閉じる
 
 ### 開発記録
 
@@ -175,7 +185,7 @@ AI を使う機能を入れる前に、次の 3 つを確認します。
 
 **项目本质：探究 LLM（大语言模型）在游戏里「该用在哪、不该用在哪」。**
 
-- 引擎：Unity 6（6000.4）· C#（约 115 个脚本、2.5 万行）
+- 引擎：Unity 6（6000.4）· URP 2D 光照 · C#（约 180 个脚本、6 万行）
 - AI：本地 Ollama（qwen2.5 / qwen3，8GB 显存可跑）· 可切换云端 Claude / OpenAI / Gemini
 - 语言：中文 / 日本語（界面、提示词、NPC 台词全部跟随主菜单语言）
 - 开发期间：2026-06 ～（持续开发中）· 个人项目
@@ -188,14 +198,14 @@ AI を使う機能を入れる前に、次の 3 つを確認します。
 |---|---|---|
 | ① 算数 | 规则代码 | 把世界整理成数字和事实：净化水还够几秒、围墙还差几段、谁受伤了…… |
 | ② 判断 | 小模型（qwen3:4b，隐形的「营地参谋」） | 读「规则手册」+ 局势表，推出营地眼下最要紧的 1～3 件事 |
-| ③ 决策与演绎 | 主模型（14B 级，或云端） | 扮演领导（分工、定建造项目）、开场演出、玩家对话的 NPC、导演事件、理解玩家指令；参考 4B 的判断 |
-| ④ 执行 | 规则代码 | 审核 AI 的选择，拆成任务链（寻路、取材料、施工）；所有数值结算 |
+| ③ 决策与演绎 | 主模型（14B 级，或云端） | 扮演领导（分工、定建造项目、战斗指令）、开场演出、玩家对话的 NPC、导演事件（包括雾里出现哪种区域）、理解玩家指令；参考 4B 的判断 |
+| ④ 执行 | 规则代码 | 审核 AI 的选择，拆成任务链（寻路、取材料、施工、战斗站位）；所有数值结算 |
 
 AI 可以决定「做什么」，但永远不直接改世界：
 
 - 只能从代码给的选项清单里选（建造 / 采集 / 打水 / 搜寻 / 照顾 / 休息……），没解锁、眼下做不到的选择由代码丢掉。
 - 数值只由代码结算：信任、好感、尊重、听不听指令、生命、理智——AI 只读不写。
-- 每帧 / 高频的逻辑（移动、寻路、需求、遇险反应）全部是规则。
+- 每帧 / 高频的逻辑（移动、寻路、需求、遇险反应、瞄准、弹道、敌人、ABA 小组）全部是规则，战斗从不等 AI。
 - 所有 AI 请求统一由调度器排队（两条队列、优先级、过期作废、每日限额）；没开模型、出错、超时都有代码兜底，不开模型也能玩。
 
 加任何 AI 功能前，先过三道判断：
@@ -226,9 +236,14 @@ AI 可以决定「做什么」，但永远不直接改世界：
 - **蓝图**：建造在一台老电脑风格的规划程序里进行（时间不暂停）。地图变成几何示意图，用四角框放建筑（点一下、拖一排、Shift 拖一圈），**测试寻路**找出走不到的地方，然后把蓝图发给一个 NPC 指挥建造。NPC 也会自己设计蓝图交给玩家**批准 / 不允许 / 修改**；对 NPC 说「去把 AI 终端机建起来」，代码会替他画好蓝图。材料送到工地时才扣；墙会挡路，建成后重新烘焙寻路。
 - **天气与气温**：雨、风、雪、冰雹，暴雨加大风触发「亚空间风暴」；炎热、寒冷影响体力与生命。
 - **电力与水源**：风力发电、电池储电、电线连网、按优先级断电；雨水收集 → 净化器净化 → 每日饮水。
-- **地图种子与地形**：同一个种子生成同一张地图；土地、营地地砖、沼泽、湖泊，以及树、石头、矿石等可采集资源。
-- **战争迷雾**：未探索 / 探索过 / 视野内三态，终端机激活后大范围揭雾。
-- **界面**：每个 NPC 一个专属对话窗口和聊天档案；电子表风格的 HUD；NPC 锁定框随生命值变色，死亡时有专门的演出。
+- **永久雾与区域**：营地是固定基地，营地外永远是雾，视野、灯光、终端机都揭不开，人待在雾里会掉理智。地图只生成营地（种子只决定地砖的缺角和破损）。其余的世界一块块出现：紧贴营地的一块雾散开，变成废弃营地 / 怪物巢穴 / 其他人类营地 / ABA 临时指挥部，里面放着资源或敌人，过几天雾合上，连同剩下的东西一起消失。AI 导演只从清单里选区域种类，放哪、放什么由代码决定，另有每天掷骰保底，保证区域会持续出现。
+- **营地美术**：手绘格栅地砖、铁丝网围墙、出入口的升降杆大门（NPC 走近自动抬杆，门关着时敌人和 ABA 进不来）、角落里一个 ABA 旧集装箱。
+- **代码驱动的角色**：防护服幸存者和头盔 ABA 士兵都由 PSD 导出的部件拼装，动画全部由代码计算（不用 Animator、不 K 帧）：钟摆节奏的走路、弹簧一样晃的天线和软管、挂件惯性、表情随状态切换（换表情时面罩先放下）、拿工具挥动、受击后仰、倒地、尸体炸开。
+- **战斗（全部规则）**：敌人有好几种——看见就掉理智的造物、来抢仓库的人类拾荒者、被感染的研究员（尸体里可能钻出会长大、变异的眼球蜘蛛）。子弹真的在飞，散布由武器操作等级、手抖、理智、疲劳、后坐力决定，流弹会误伤自己人。武器是数据文件（手枪、突击步枪、无托步枪、AKM、拉栓狙击枪、手雷），各有自己的换弹动画、瞄准镜和镭射瞄准线。墙有耐久，会被拆。
+- **ABA 清除小组**：4 人小组，除了身上带着小型 AI 终端机的人，所有活物都打；模拟 SWAT 的小组大脑负责搜索、接敌、交替掩护前进和扔手雷。
+- **幸存者小队战术**：共享视野、集火、交叉火力站位、近战护住射手、放风筝、退到能守的地方。领导（14B）从 6 个战斗指令里选一个，玩家也可以在对话里下令；谁站哪、打谁永远由代码算。
+- **光照**：用 URP 2D 光照做出黑暗的亚空间——头盔手电筒、天线呼吸灯、枪火、镭射照亮黑暗，按真实光照几何投下剪影影子，还有血雾、火花和地上血迹。
+- **界面**：左键点地图上的东西——点 NPC 打开对话窗口，点 ABA 队员 / 敌人 / 建筑 / 资源弹出信息浮窗。每个 NPC 一个专属对话窗口和聊天档案；电子表风格的 HUD；NPC 锁定框随生命值变色，死亡时有专门的演出。
 
 ### 运行方法
 
@@ -237,7 +252,7 @@ AI 可以决定「做什么」，但永远不直接改世界：
 3. **云端模型（可选）**：在主菜单选择 Claude / OpenAI / Gemini，把自己的 API key 放到 `Application.persistentDataPath` 下（Claude：`apikey.txt`，OpenAI：`openai_key.txt`，Gemini：`gemini_key.txt`）。key 文件在工程外面，不会进 Git。
 4. 不开任何模型也能玩：对话和事件会使用本地台词兜底。
 
-常用操作：`B` 蓝图规划 · `Y` 打开对话 · `I` 仓库 · 滚轮缩放 · 中键 / WASD 移动镜头 · `H` 回营地
+常用操作：左键点地图上的 NPC / 物体 · `B` 蓝图规划 · `Y` 打开对话 · `I` 仓库 · 滚轮缩放 · 中键 / WASD 移动镜头 · `H` 回营地 · `Esc` 关窗口
 
 ### 开发记录
 
