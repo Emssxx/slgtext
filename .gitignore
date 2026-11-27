@@ -44,3 +44,6 @@ sysinfo.txt
 # Anthropic API key（本地测试用，绝不能进git/打包，见 apikey.txt.txt 说明）
 apikey.txt
 apikey.txt.txt
+
+# 原始对话记录 + 生成器脚本（含老师 / 本人邮箱等私人信息，只留本地，不上传公开仓库）
+/raw/
